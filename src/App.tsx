@@ -262,7 +262,7 @@ export const App: React.FC = () => {
               GraphFinder
             </span>
             <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-[#1e222d] text-[#94a3b8] border border-[#2d3342]">
-              v0.2.0
+              v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.1'}
             </span>
           </div>
         </div>

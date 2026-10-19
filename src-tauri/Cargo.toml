@@ -1,6 +1,6 @@
 [package]
 name = "graphfinder"
-version = "0.2.0"
+version = "0.0.1"
 description = "GraphFinder - Neural Knowledge Graph & Local Semantic Vault in Tauri"
 authors = ["GraphFinder Contributors"]
 edition = "2021"

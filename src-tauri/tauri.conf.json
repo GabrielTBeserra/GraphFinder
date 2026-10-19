@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "graphfinder",
-  "version": "0.2.0",
+  "version": "0.0.1",
   "identifier": "com.graphfinder.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -25,7 +25,9 @@
     ],
     "security": {
       "csp": null,
-      "capabilities": ["default"]
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {

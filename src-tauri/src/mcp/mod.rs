@@ -109,7 +109,7 @@ async fn handle_request(
                 },
                 "serverInfo": {
                     "name": "graphfinder",
-                    "version": "0.2.0"
+                    "version": env!("CARGO_PKG_VERSION")
                 }
             });
             Some(JsonRpcResponse {
