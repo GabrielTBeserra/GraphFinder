@@ -6,12 +6,12 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/SEU_USUARIO/GraphFinder.git"
+    "url": "https://github.com/GabrielTBeserra/GraphFinder.git"
   },
   "bugs": {
-    "url": "https://github.com/SEU_USUARIO/GraphFinder/issues"
+    "url": "https://github.com/GabrielTBeserra/GraphFinder/issues"
   },
-  "homepage": "https://github.com/SEU_USUARIO/GraphFinder#readme",
+  "homepage": "https://github.com/GabrielTBeserra/GraphFinder#readme",
   "keywords": [
     "knowledge-graph",
     "semantic-search",
