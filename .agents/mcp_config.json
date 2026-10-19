@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "graphfinder": {
+      "command": "Z:\\GraphFinder\\src-tauri\\target\\debug\\graphfinder.exe",
+      "args": ["--mcp"],
+      "env": {
+        "GRAPHFINDER_VAULT": "Z:\\GraphFinder\\vault",
+        "GRAPHFINDER_DB": "Z:\\GraphFinder\\index.db"
+      }
+    }
+  }
+}
