@@ -279,9 +279,15 @@ export const App: React.FC = () => {
 
         {/* Right Section: Telemetry pill & Actions */}
         <div className="flex items-center gap-2.5">
-          <span className="hidden md:inline font-mono text-[11px] text-[#64748b]">
-            stdio: --mcp active
-          </span>
+          <button
+            type="button"
+            onClick={() => setIsMcpModalOpen(true)}
+            className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#13161f] border border-[#1e222d] hover:border-[#2d3342] text-[#94a3b8] hover:text-[#cbd5e1] font-mono text-[11px] transition-colors cursor-pointer"
+            title="MCP Server HTTP/SSE escutando em http://127.0.0.1:45123"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>mcp: 127.0.0.1:45123</span>
+          </button>
 
           <button
             type="button"

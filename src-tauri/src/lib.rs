@@ -215,24 +215,21 @@ async fn get_mcp_config(manager: State<'_, Arc<VaultManager>>) -> Result<McpConf
     let clean_db = abs_db.trim_start_matches(r"\\?\").to_string();
     let clean_exe = exe_path.trim_start_matches(r"\\?\").to_string();
 
-    let escaped_exe = clean_exe.replace('\\', "\\\\");
-    let escaped_vault = clean_vault.replace('\\', "\\\\");
-    let escaped_db = clean_db.replace('\\', "\\\\");
+    let port = std::env::var("GRAPHFINDER_MCP_PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(45123);
 
     let config_json = format!(
         r#"{{
   "mcpServers": {{
     "graphfinder": {{
-      "command": "{}",
-      "args": ["--mcp"],
-      "env": {{
-        "GRAPHFINDER_VAULT": "{}",
-        "GRAPHFINDER_DB": "{}"
-      }}
+      "type": "sse",
+      "url": "http://127.0.0.1:{}/sse"
     }}
   }}
 }}"#,
-        escaped_exe, escaped_vault, escaped_db
+        port
     );
 
     Ok(McpConfigInfo {
@@ -258,6 +255,20 @@ pub fn run() {
             println!("[GraphFinder Tauri] Carregando motor semântico com suporte a múltiplos projetos/vaults...");
             let embeddings = Arc::new(EmbeddingEngine::new().expect("Falha ao inicializar embeddings locais"));
             let manager = Arc::new(VaultManager::new(embeddings).expect("Falha ao inicializar VaultManager"));
+
+            // Inicia o Servidor MCP HTTP/SSE Nativo (Localhost)
+            let mcp_port = std::env::var("GRAPHFINDER_MCP_PORT")
+                .ok()
+                .and_then(|p| p.parse::<u16>().ok())
+                .unwrap_or(45123);
+
+            let manager_for_mcp = Arc::clone(&manager);
+            let app_handle_for_mcp = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = mcp::server::start_http_mcp_server(manager_for_mcp, Some(app_handle_for_mcp), mcp_port).await {
+                    eprintln!("[GraphFinder MCP Error] Falha ao rodar servidor HTTP/SSE na porta {}: {}", mcp_port, e);
+                }
+            });
 
             let manager_for_sync = Arc::clone(&manager);
             let app_handle = app.handle().clone();
