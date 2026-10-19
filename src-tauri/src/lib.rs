@@ -202,7 +202,7 @@ async fn get_mcp_config(manager: State<'_, Arc<VaultManager>>) -> Result<McpConf
     let engine = manager.active_engine().await;
     let exe_path = std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "graphfinder.exe".to_string());
+        .unwrap_or_else(|_| "GraphFinder.exe".to_string());
 
     let abs_vault = std::fs::canonicalize(engine.vault_path())
         .map(|p| p.to_string_lossy().to_string())

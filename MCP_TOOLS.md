@@ -1,6 +1,6 @@
 # GraphFinder MCP Server Tools Specification
 
-All tools described below are **fully implemented and active** using the official Model Context Protocol Rust SDK (`rmcp`) within the GraphFinder embedded HTTP/SSE server (`http://127.0.0.1:45123/mcp` and `http://127.0.0.1:45123/sse`) and when started in headless mode with `graphfinder.exe --mcp`.
+All tools described below are **fully implemented and active** using the official Model Context Protocol Rust SDK (`rmcp`) within the GraphFinder embedded HTTP/SSE server (`http://127.0.0.1:45123/mcp` and `http://127.0.0.1:45123/sse`) and when started in headless mode with `GraphFinder.exe --mcp`.
 
 ---
 

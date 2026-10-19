@@ -138,7 +138,7 @@ If you want agents to query or index notes without opening the desktop applicati
 {
   "mcpServers": {
     "graphfinder": {
-      "command": "graphfinder.exe",
+      "command": "GraphFinder.exe",
       "args": ["--mcp"]
     }
   }
