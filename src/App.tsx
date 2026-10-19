@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import {
   fetchGraph,
   fetchNotes,
@@ -117,10 +118,24 @@ export const App: React.FC = () => {
     }
 
     initApp();
+
+    let unlistenSync: (() => void) | undefined;
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      listen<number>('vault-sync-complete', (event) => {
+        loadData();
+        if (event.payload > 0) {
+          showToast(`${event.payload} nota(s) sincronizadas em segundo plano`, 'info');
+        }
+      }).then((unlisten) => {
+        unlistenSync = unlisten;
+      });
+    }
+
     return () => {
       isCancelled = true;
+      if (unlistenSync) unlistenSync();
     };
-  }, []);
+  }, [loadData, showToast]);
 
   const handleNavigateNote = async (titleOrId: string) => {
     const found = notes.find(

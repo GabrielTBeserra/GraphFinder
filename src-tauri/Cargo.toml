@@ -28,3 +28,10 @@ chrono = { version = "0.4", features = ["serde"] }
 walkdir = "2"
 log = "0.4"
 rfd = "0.15"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
