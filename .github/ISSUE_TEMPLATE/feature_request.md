@@ -1,22 +1,22 @@
 ---
-name: Sugestao de Funcionalidade
-about: Proponha uma nova ideia, ferramenta MCP ou melhoria de arquitetura
+name: Feature Request
+about: Propose a new capability, MCP tool, or architecture improvement
 title: "[FEAT] "
 labels: ["enhancement"]
 assignees: []
 ---
 
-## A sua proposta esta relacionada a um problema existente?
-Uma descricao clara e concisa do problema. Ex: Eu sempre tenho dificuldades quando [...]
+## Is your feature request related to a problem?
+A clear and concise description of the problem. (e.g., I struggle to [...] when [...])
 
-## Descreva a Solucao Proposta
-Uma explicacao clara e concisa do que voce gostaria que acontecesse.
+## Describe the Proposed Solution
+A clear and concise explanation of what you would like to happen.
 
-## Como isso afeta a Economia de Tokens ou a Experiencia do Usuario?
-Explique se a proposta envolve novas ferramentas MCP, melhorias no fatiamento H2/H3 ou aperfeicoamentos na interface do grafo.
+## Token Economy & User Experience Impact
+Explain how this feature impacts agent token efficiency, H2/H3 chunking accuracy, or graph navigation performance.
 
-## Alternativas Consideradas
-Descricao de quaisquer solucoes ou funcionalidades alternativas que voce considerou.
+## Alternatives Considered
+A description of any alternative solutions, tools, or workarounds you considered.
 
-## Contexto Adicional
-Adicione qualquer outra informacao ou mockups conceituais aqui.
+## Additional Context
+Add any other context, mockup references, or relevant architecture diagrams here.

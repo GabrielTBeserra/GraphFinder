@@ -1,96 +1,103 @@
-# Ferramentas (Tools) do MCP Server do GraphFinder
+# GraphFinder MCP Server Tools Specification
 
-Todas as ferramentas abaixo estão **100% implementadas e ativas** no executável `graphfinder.exe --mcp`.
+All tools described below are **fully implemented and active** within the executable when started with `graphfinder.exe --mcp`.
 
 ---
 
-## 1. `search_semantic` (Busca Semântica por Seções)
-* **Objetivo**: Recuperação cirúrgica de conhecimento com máxima economia de tokens.
-* **Como funciona**: Em vez de devolver notas inteiras, busca na tabela `note_chunks` e retorna apenas os 5 trechos mais afins (2 a 4 linhas cada), indicando o deep link `[[Nota#Seção]]` e a contagem estimada de tokens.
-* **Parâmetros**:
+## 1. `search_semantic` (Atomic Chunk Retrieval)
+* **Purpose**: Surgical knowledge retrieval with minimal token overhead.
+* **Mechanism**: Queries the `note_chunks` SQLite table to return the top 5 most relevant subsections (2 to 4 lines each), specifying the deep link `[[Note#Section]]` and token count estimate.
+* **Parameters**:
   ```json
   {
-    "query": "string (termo ou pergunta em linguagem natural)",
-    "limit": "integer (opcional, padrão: 5)",
-    "format": "dense_chunks | summaries (opcional, padrão: dense_chunks)"
+    "query": "string (search query or natural language question)",
+    "limit": "integer (optional, default: 5)",
+    "format": "dense_chunks | summaries (optional, default: dense_chunks)",
+    "project": "string (optional, target specific vault id)"
   }
   ```
 
 ---
 
-## 2. `get_compressed_context` (Contexto Comprimido)
-* **Objetivo**: Fornecer a estrutura completa de uma nota consumindo menos de 100 tokens.
-* **Como funciona**: Retorna um resumo executivo de 2 linhas, as conexões no grafo (backlinks e outgoing) e a lista de todas as seções H2/H3 com suas respectivas estimativas de tokens.
-* **Parâmetros**:
+## 2. `get_compressed_context` (Structural Compression)
+* **Purpose**: Inspect the full layout and structure of a note while consuming under 100 tokens.
+* **Mechanism**: Returns a 2-line executive summary, incoming and outgoing graph links, and a complete index of all H2/H3 headers with individual token estimates.
+* **Parameters**:
   ```json
   {
-    "target": "string (título ou ID da nota)"
+    "target": "string (note title or note id)",
+    "project": "string (optional, target specific vault id)"
   }
   ```
 
 ---
 
-## 3. `suggest_links` (Auto-Linker Semântico)
-* **Objetivo**: Conectar pensamentos e evitar notas isoladas no grafo.
-* **Como funciona**: Analisa um texto ou rascunho em tempo real, calcula o embedding vetorial e compara com todos os nós e seções do cofre, retornando conexões recomendadas com score de afinidade.
-* **Parâmetros**:
+## 3. `suggest_links` (Semantic Auto-Linker)
+* **Purpose**: Connect ideas and prevent orphaned notes within the graph.
+* **Mechanism**: Analyzes draft text in real time, generates a vector embedding, and calculates cosine similarity against all vault notes and chunks, returning recommended wikilink targets with affinity scores.
+* **Parameters**:
   ```json
   {
-    "text": "string (parágrafo ou rascunho de texto)",
-    "current_note": "string (opcional, ID da nota atual para ignorar auto-referência)",
-    "threshold": "number (opcional, padrão: 0.60)"
+    "text": "string (draft paragraph or sentence)",
+    "current_note": "string (optional, note id to exclude self-reference)",
+    "threshold": "number (optional, default: 0.60)",
+    "project": "string (optional, target specific vault id)"
   }
   ```
 
 ---
 
-## 4. `store_context` (Gravação de Memória)
-* **Objetivo**: Registrar ou atualizar notas no cofre a partir da IA.
-* **Como funciona**: Salva o arquivo `.md` no vault, divide o texto por cabeçalhos (`##` e `###`), calcula os embeddings locais offline e indexa na tabela `note_chunks`.
-* **Parâmetros**:
+## 4. `store_context` (Memory Persistence)
+* **Purpose**: Create or update notes in the vault directly from an AI agent.
+* **Mechanism**: Writes the `.md` file to the vault directory, splits text by `##` and `###` headers, computes offline ONNX embeddings, and indexes them into the `note_chunks` table.
+* **Parameters**:
   ```json
   {
-    "title": "string (título da nota)",
-    "content": "string (conteúdo formatado em Markdown)",
-    "tags": ["array de strings (opcional)"],
-    "links": ["array de notas para conectar com wikilinks (opcional)"]
+    "title": "string (note title)",
+    "content": "string (Markdown formatted body)",
+    "tags": ["array of strings (optional)"],
+    "links": ["array of note titles to connect via wikilinks (optional)"],
+    "project": "string (optional, target specific vault id)"
   }
   ```
 
 ---
 
-## 5. `get_graph_neighborhood` (Expansão no Grafo)
-* **Objetivo**: Navegar pela topologia de relações sem ler o corpo dos arquivos.
-* **Como funciona**: Retorna todos os nós conectados a uma nota em um raio de 1 ou 2 saltos.
-* **Parâmetros**:
+## 5. `get_graph_neighborhood` (Graph Topology Expansion)
+* **Purpose**: Explore relational graph structure without reading document bodies.
+* **Mechanism**: Returns all adjacent nodes connected to the target within a 1-hop or 2-hop radius.
+* **Parameters**:
   ```json
   {
-    "target": "string (título ou ID da nota)",
-    "depth": "integer (1 ou 2)"
+    "target": "string (note title or note id)",
+    "depth": "integer (1 or 2)",
+    "project": "string (optional, target specific vault id)"
   }
   ```
 
 ---
 
-## 6. `link_notes` (Criação de Ligação)
-* **Objetivo**: Criar uma conexão explícita entre duas notas no cofre.
-* **Como funciona**: Adiciona a sintaxe `[[Nome da Nota]]` no final do arquivo de origem e atualiza o grafo.
-* **Parâmetros**:
+## 6. `link_notes` (Edge Creation)
+* **Purpose**: Establish an explicit connection between two notes in the vault.
+* **Mechanism**: Appends the `[[Target Note]]` wikilink to the origin Markdown file and updates the relational graph table.
+* **Parameters**:
   ```json
   {
-    "from_note": "string (nota de origem)",
-    "to_note": "string (nota de destino)"
+    "from_note": "string (source note title or id)",
+    "to_note": "string (destination note title or id)",
+    "project": "string (optional, target specific vault id)"
   }
   ```
 
 ---
 
-## 7. `list_recent_notes` (Listagem Rápida)
-* **Objetivo**: Mapeamento inicial do cofre pela IA.
-* **Como funciona**: Lista os títulos, tags e resumos ultracompactos das últimas notas modificadas.
-* **Parâmetros**:
+## 7. `list_recent_notes` (Rapid Inventory)
+* **Purpose**: Initial vault reconnaissance for AI agents.
+* **Mechanism**: Returns titles, tags, and compact summaries of the most recently modified notes.
+* **Parameters**:
   ```json
   {
-    "limit": "integer (opcional, padrão: 10)"
+    "limit": "integer (optional, default: 10)",
+    "project": "string (optional, target specific vault id)"
   }
   ```

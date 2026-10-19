@@ -16,35 +16,28 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
   onSwitchProject,
   onOpenNewProjectModal,
 }) => {
-  const displayName = activeProject ? activeProject.name : 'Selecionar Projeto';
-  const noteCount = activeProject ? activeProject.note_count : 0;
+  const displayName = activeProject ? activeProject.name : 'Principal';
 
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          className="flex items-center gap-2.5 px-3 py-1.5 rounded-md bg-zinc-900/80 hover:bg-zinc-800/90 border border-zinc-800/90 hover:border-zinc-700/80 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
-          title="Alternar cofre de notas / projeto ativo"
+          className="flex items-center gap-2 h-7 px-3 rounded-md bg-[#161922] hover:bg-[#1a1e28] border border-[#262a36] hover:border-[#333947] transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
+          title="Alternar cofre de notas ativo"
         >
-          <div className="flex items-center justify-center w-5 h-5 rounded bg-zinc-800/80 text-zinc-400">
-            <Folder size={13} weight="regular" />
-          </div>
+          {/* Emerald Status Dot from banner.svg */}
+          <span className="w-2 h-2 rounded-full bg-[#10b981] shrink-0" />
 
-          <div className="flex flex-col">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 leading-none">
-              Cofre Ativo
-            </span>
-            <span className="text-xs font-semibold text-zinc-200 leading-tight truncate max-w-[140px]">
+          {/* Path notation: vaults / name */}
+          <div className="flex items-center gap-1 text-[11px] font-medium text-[#cbd5e1]">
+            <span className="text-[#64748b]">vaults /</span>
+            <span className="text-[#f1f5f9] font-semibold truncate max-w-[150px]">
               {displayName}
             </span>
           </div>
 
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800/60 text-zinc-400 border border-zinc-700/40 ml-1">
-            {noteCount} {noteCount === 1 ? 'nota' : 'notas'}
-          </span>
-
-          <CaretDown size={12} weight="bold" className="text-zinc-500 ml-0.5" />
+          <CaretDown size={11} weight="bold" className="text-[#64748b] ml-1" />
         </button>
       </DropdownMenu.Trigger>
 
@@ -52,16 +45,16 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
         <DropdownMenu.Content
           align="center"
           sideOffset={6}
-          className="z-50 w-80 rounded-lg bg-zinc-900/95 border border-zinc-800 p-1.5 shadow-2xl backdrop-blur-md animate-in fade-in-0 zoom-in-95"
+          className="z-50 w-80 rounded-lg bg-[#12151c] border border-[#1f232d] p-1.5 shadow-2xl backdrop-blur-md animate-in fade-in-0 zoom-in-95"
         >
           {/* Header */}
-          <div className="px-2.5 py-2 border-b border-zinc-800/70 mb-1">
-            <div className="flex items-center gap-1.5 text-zinc-200">
-              <Database size={13} weight="bold" className="text-zinc-400" />
-              <span className="text-xs font-semibold">Cofres & Projetos</span>
+          <div className="px-2.5 py-2 border-b border-[#1f232d] mb-1">
+            <div className="flex items-center gap-1.5 text-[#f1f5f9]">
+              <Database size={13} weight="bold" className="text-[#64748b]" />
+              <span className="text-xs font-semibold">Cofres de Conhecimento</span>
             </div>
-            <p className="text-[11px] text-zinc-400 mt-0.5">
-              Bases Markdown e vetores FastEmbed isolados
+            <p className="text-[11px] text-[#64748b] mt-0.5">
+              Bases Markdown locais com vetores FastEmbed independentes
             </p>
           </div>
 
@@ -79,8 +72,8 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                   }}
                   className={`flex items-center justify-between w-full px-2.5 py-2 rounded-md text-left transition-colors cursor-pointer select-none outline-none ${
                     isActive
-                      ? 'bg-indigo-950/40 text-zinc-100 border border-indigo-800/40'
-                      : 'hover:bg-zinc-800/60 text-zinc-300'
+                      ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
+                      : 'hover:bg-[#161922] text-[#94a3b8]'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0 pr-2">
@@ -88,7 +81,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                       className={`flex items-center justify-center w-6 h-6 rounded shrink-0 ${
                         isActive
                           ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
-                          : 'bg-zinc-800/70 text-zinc-400 border border-zinc-700/40'
+                          : 'bg-[#161922] text-[#64748b] border border-[#262a36]'
                       }`}
                     >
                       <Folder size={13} weight={isActive ? 'fill' : 'regular'} />
@@ -96,23 +89,23 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
 
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-medium text-zinc-200 truncate">
+                        <span className="text-xs font-medium text-[#f1f5f9] truncate">
                           {proj.name}
                         </span>
                         {proj.id === 'default' && (
-                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/50">
+                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-[#1e222d] text-[#94a3b8] border border-[#2d3342]">
                             Padrao
                           </span>
                         )}
                       </div>
-                      <span className="block text-[10px] font-mono text-zinc-400 truncate max-w-[180px]">
+                      <span className="block text-[10px] font-mono text-[#64748b] truncate max-w-[180px]">
                         {proj.path}
                       </span>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[10px] font-mono text-zinc-400">
+                    <span className="text-[10px] font-mono text-[#64748b]">
                       {proj.note_count}
                     </span>
                     {isActive && (
@@ -125,13 +118,13 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
           </div>
 
           {/* Footer Create Action */}
-          <div className="border-t border-zinc-800/70 pt-1 mt-1">
+          <div className="border-t border-[#1f232d] pt-1 mt-1">
             <DropdownMenu.Item
               onSelect={onOpenNewProjectModal}
-              className="flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/30 transition-colors cursor-pointer select-none outline-none"
+              className="flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-xs font-medium text-[#10b981] hover:text-emerald-300 hover:bg-emerald-950/20 transition-colors cursor-pointer select-none outline-none"
             >
               <FolderPlus size={14} weight="bold" />
-              <span>Criar Novo Projeto / Vault</span>
+              <span>Novo Cofre / Escolher Pasta</span>
             </DropdownMenu.Item>
           </div>
         </DropdownMenu.Content>

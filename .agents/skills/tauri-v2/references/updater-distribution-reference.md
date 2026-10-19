@@ -6,7 +6,7 @@
 - Part 2: Distribution and Signing
 - Part 3: Bundle Configuration
 
-> ⚠️ **Signing is MANDATORY for production updates.** Unsigned artifacts will be rejected by the Tauri updater. Production update endpoints MUST use HTTPS.
+> **Signing is MANDATORY for production updates.** Unsigned artifacts will be rejected by the Tauri updater. Production update endpoints MUST use HTTPS.
 
 ## Part 1: Updater (tauri-plugin-updater)
 

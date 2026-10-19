@@ -1,21 +1,21 @@
-## Descricao das Alteracoes
-Descreva de forma clara e concisa o que este Pull Request introduz, corrige ou melhora.
+## Description of Changes
+Provide a clear and concise description of what this pull request introduces, fixes, or improves.
 
-## Tipo de Mudanca
-Marque com um [x] o que se aplica:
-- [ ] Correcao de bug (bugfix)
-- [ ] Nova funcionalidade (feature)
-- [ ] Nova ferramenta ou melhoria no servidor MCP
-- [ ] Refatoracao interna de codigo ou performance
-- [ ] Atualizacao de documentacao ou design assets
+## Type of Change
+Select all that apply:
+- [ ] Bug fix (non-breaking change fixing an issue)
+- [ ] New feature (non-breaking change adding functionality)
+- [ ] MCP tool or protocol enhancement
+- [ ] Performance optimization or refactoring
+- [ ] Documentation or asset update
 
-## Issue Relacionada
-Fecha a issue: # (se aplicavel)
+## Related Issues
+Closes # (if applicable)
 
-## Checklist de Verificacao
-- [ ] O codigo compila sem erros (`npm run build`).
-- [ ] O linter passa sem erros ou avisos (`npm run lint`).
-- [ ] O backend Rust compila sem avisos (`cargo check --manifest-path src-tauri/Cargo.toml`).
-- [ ] Nenhum emoji foi introduzido em arquivos de interface, codigo ou documentacao.
-- [ ] O principio Local-First e a integridade de dados do cofre Markdown foram preservados.
-- [ ] Se aplicavel, o arquivo CHANGELOG.md foi atualizado.
+## Verification Checklist
+- [ ] Code compiles and passes all checks (`npm run build`).
+- [ ] Code passes linter without warnings or errors (`npm run lint`).
+- [ ] Rust backend compiles cleanly (`cargo check --manifest-path src-tauri/Cargo.toml`).
+- [ ] Zero emojis have been added to code, UI, or documentation.
+- [ ] Local-first architecture and Markdown vault data integrity are preserved.
+- [ ] CHANGELOG.md has been updated (if applicable).

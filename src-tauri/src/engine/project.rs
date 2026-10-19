@@ -17,10 +17,13 @@ pub struct ProjectInfo {
     pub is_active: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 struct ProjectsMeta {
     active_project: String,
+    #[serde(default)]
     custom_names: HashMap<String, String>,
+    #[serde(default)]
+    custom_paths: HashMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -29,6 +32,7 @@ pub struct VaultManager {
     embeddings: Arc<EmbeddingEngine>,
     active_project_id: Arc<RwLock<String>>,
     custom_names: Arc<RwLock<HashMap<String, String>>>,
+    custom_paths: Arc<RwLock<HashMap<String, String>>>,
     engines: Arc<RwLock<HashMap<String, Arc<Engine>>>>,
 }
 
@@ -63,18 +67,18 @@ impl VaultManager {
         }
 
         let meta_file = vaults_dir.join("projects.json");
-        let (active_id, custom_names) = if meta_file.exists() {
+        let (active_id, custom_names, custom_paths) = if meta_file.exists() {
             if let Ok(data) = fs::read_to_string(&meta_file) {
                 if let Ok(meta) = serde_json::from_str::<ProjectsMeta>(&data) {
-                    (meta.active_project, meta.custom_names)
+                    (meta.active_project, meta.custom_names, meta.custom_paths)
                 } else {
-                    ("default".to_string(), HashMap::new())
+                    ("default".to_string(), HashMap::new(), HashMap::new())
                 }
             } else {
-                ("default".to_string(), HashMap::new())
+                ("default".to_string(), HashMap::new(), HashMap::new())
             }
         } else {
-            ("default".to_string(), HashMap::new())
+            ("default".to_string(), HashMap::new(), HashMap::new())
         };
 
         let manager = Self {
@@ -82,6 +86,7 @@ impl VaultManager {
             embeddings,
             active_project_id: Arc::new(RwLock::new(active_id)),
             custom_names: Arc::new(RwLock::new(custom_names)),
+            custom_paths: Arc::new(RwLock::new(custom_paths)),
             engines: Arc::new(RwLock::new(HashMap::new())),
         };
 
@@ -120,7 +125,7 @@ impl VaultManager {
         }
 
         // Create new engine for this project vault
-        let (vault_path, db_path) = self.resolve_project_paths(id);
+        let (vault_path, db_path) = self.resolve_project_paths(id).await;
 
         let engine = Arc::new(
             Engine::new(&vault_path, &db_path, Arc::clone(&self.embeddings))
@@ -142,26 +147,37 @@ impl VaultManager {
         engine
     }
 
-    fn resolve_project_paths(&self, project_id: &str) -> (PathBuf, PathBuf) {
+    async fn resolve_project_paths(&self, project_id: &str) -> (PathBuf, PathBuf) {
         if project_id == "default" {
             (resolve_vault_path(), resolve_db_path())
         } else {
-            let project_vault = self.base_dir.join("vaults").join(project_id);
-            if !project_vault.exists() {
-                let _ = fs::create_dir_all(&project_vault);
+            let custom_paths = self.custom_paths.read().await;
+            if let Some(custom_path_str) = custom_paths.get(project_id) {
+                let p = PathBuf::from(custom_path_str);
+                if !p.exists() {
+                    let _ = fs::create_dir_all(&p);
+                }
+                let db_path = p.join("index.db");
+                (p, db_path)
+            } else {
+                let project_vault = self.base_dir.join("vaults").join(project_id);
+                if !project_vault.exists() {
+                    let _ = fs::create_dir_all(&project_vault);
+                }
+                let project_db = project_vault.join("index.db");
+                (project_vault, project_db)
             }
-            let project_db = project_vault.join("index.db");
-            (project_vault, project_db)
         }
     }
 
     pub async fn list_projects(&self) -> Vec<ProjectInfo> {
         let active = self.active_project_id().await;
         let names = self.custom_names.read().await;
+        let custom_paths = self.custom_paths.read().await;
         let mut list = Vec::new();
 
         // 1. Default / Principal project
-        let (def_vault, def_db) = self.resolve_project_paths("default");
+        let (def_vault, def_db) = self.resolve_project_paths("default").await;
         let def_count = count_notes_in_dir(&def_vault);
         list.push(ProjectInfo {
             id: "default".to_string(),
@@ -172,14 +188,38 @@ impl VaultManager {
             is_active: active == "default",
         });
 
-        // 2. Discover subdirectories in ./vaults
+        // 2. Custom path projects
+        for (id, path_str) in custom_paths.iter() {
+            if id == "default" {
+                continue;
+            }
+            let p = PathBuf::from(path_str);
+            let name = names.get(id).cloned().unwrap_or_else(|| id.clone());
+            let db_path = p.join("index.db").to_string_lossy().to_string();
+            let count = count_notes_in_dir(&p);
+
+            list.push(ProjectInfo {
+                id: id.clone(),
+                name,
+                path: p.to_string_lossy().to_string(),
+                db_path,
+                note_count: count,
+                is_active: active == *id,
+            });
+        }
+
+        // 3. Subdirectories in ./vaults that are not already listed
         let vaults_dir = self.base_dir.join("vaults");
         if let Ok(entries) = fs::read_dir(vaults_dir) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
                 if path.is_dir() {
                     let folder_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if folder_name.is_empty() || folder_name.starts_with('.') || folder_name == "default" {
+                    if folder_name.is_empty()
+                        || folder_name.starts_with('.')
+                        || folder_name == "default"
+                        || custom_paths.contains_key(folder_name)
+                    {
                         continue;
                     }
 
@@ -220,7 +260,7 @@ impl VaultManager {
         self.get_project_info(target_id).await
     }
 
-    pub async fn create_project(&self, name: &str) -> Result<ProjectInfo, String> {
+    pub async fn create_project(&self, name: &str, custom_path: Option<String>) -> Result<ProjectInfo, String> {
         let clean_name = name.trim();
         if clean_name.is_empty() {
             return Err("Nome do projeto não pode ser vazio".to_string());
@@ -231,7 +271,19 @@ impl VaultManager {
             return Err("Nome do projeto inválido".to_string());
         }
 
-        let (vault_path, _) = self.resolve_project_paths(&slug);
+        // If a custom directory path was chosen by the user
+        if let Some(path_str) = custom_path {
+            let clean_path = path_str.trim();
+            if !clean_path.is_empty() {
+                let p = PathBuf::from(clean_path);
+                if !p.exists() {
+                    fs::create_dir_all(&p).map_err(|e| format!("Falha ao criar diretório: {}", e))?;
+                }
+                let canonical = fs::canonicalize(&p).unwrap_or(p);
+                let mut paths = self.custom_paths.write().await;
+                paths.insert(slug.clone(), canonical.to_string_lossy().to_string());
+            }
+        }
 
         // Store custom display name
         {
@@ -239,16 +291,22 @@ impl VaultManager {
             names.insert(slug.clone(), clean_name.to_string());
         }
 
-        // Create an introductory welcome note in the new vault
-        let starter_note = vault_path.join(format!("{}.md", clean_name));
-        if !starter_note.exists() {
-            let note_body = format!(
-                "# {}\n\nCofre de conhecimento isolado para o projeto **{}**.\n\n## 1. Visão Geral\n- Este vault armazena notas e embeddings de forma 100% independente.\n- Conecte suas ideias usando wikilinks como `[[{}#1. Visão Geral]]`.\n\nTags: #projeto #{}\n",
-                clean_name, clean_name, clean_name, slug
-            );
-            let _ = fs::write(starter_note, note_body);
+        let (vault_path, _) = self.resolve_project_paths(&slug).await;
+
+        // If folder doesn't have any markdown files, create an initial starter note
+        let existing_count = count_notes_in_dir(&vault_path);
+        if existing_count == 0 {
+            let starter_note = vault_path.join(format!("{}.md", clean_name));
+            if !starter_note.exists() {
+                let note_body = format!(
+                    "# {}\n\nCofre de conhecimento para o projeto **{}**.\n\n## 1. Visão Geral\n- Este vault armazena notas e embeddings locais de forma independente.\n- Conecte suas ideias usando wikilinks como `[[{}#1. Visão Geral]]`.\n\nTags: #projeto #{}\n",
+                    clean_name, clean_name, clean_name, slug
+                );
+                let _ = fs::write(starter_note, note_body);
+            }
         }
 
+        self.save_meta().await;
         self.switch_project(&slug).await
     }
 
@@ -263,9 +321,11 @@ impl VaultManager {
     async fn save_meta(&self) {
         let active = self.active_project_id().await;
         let names = self.custom_names.read().await.clone();
+        let custom_paths = self.custom_paths.read().await.clone();
         let meta = ProjectsMeta {
             active_project: active,
             custom_names: names,
+            custom_paths,
         };
 
         let vaults_dir = self.base_dir.join("vaults");

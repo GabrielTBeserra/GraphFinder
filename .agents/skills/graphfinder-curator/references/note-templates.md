@@ -1,71 +1,71 @@
-# Modelos de Notas para o GraphFinder
+# GraphFinder Note Templates
 
-Utilize estes templates para manter a máxima consistência e otimização de fatiamento semântico nas notas do cofre.
+Use these templates to maintain structural consistency and optimal semantic chunking across vault notes.
 
 ---
 
-## 1. Modelo de Conceito Técnico
+## 1. Technical Concept Template
 
 ```markdown
-# [Nome do Conceito]
+# [Concept Name]
 
-Breve resumo executivo explicando o conceito em 2 ou 3 linhas. Alta densidade de informação sem introduções genéricas.
+Brief executive summary explaining the concept in 2 to 3 lines. High informational density with no generic filler.
 
-## Definição e Princípios
-- **Ponto Central**: Explicação concisa do funcionamento.
-- **Diferenciais**: Por que este conceito é relevante.
-- Relação direta com [[Outro Conceito Relevante]].
+## Core Definition and Principles
+- **Core Mechanism**: Concise explanation of how it operates.
+- **Key Advantages**: Why this concept matters.
+- Direct relationship with [[Related Concept]].
 
-## Aplicação Prática
-Exemplo conciso ou casos de uso principais estruturados em tópicos objetivos.
+## Practical Application
+Concise real-world example or primary use case formatted into bullet points.
 
-## Conexões e Referências
-- Ver detalhes de implementação em [[Arquitetura do Sistema]].
-- Guia prático disponível em [[Guia de Uso]].
+## References and Related Notes
+- Implementation details documented in [[System Architecture]].
+- Practical workflow available in [[Usage Guide]].
 
-Tags: #conceito #tecnologia #aprendizado
+Tags: #concept #technology #learning
 ```
 
 ---
 
-## 2. Modelo de Decisão de Arquitetura (ADR)
+## 2. Architecture Decision Record (ADR) Template
 
 ```markdown
-# ADR: [Título da Decisão Técnica]
+# ADR: [Decision Title]
 
-Registro da decisão arquitetural tomada, contexto e justificativas técnicas.
+Record of an architectural decision, technical context, and decision drivers.
 
-## Contexto e Problema
-Descrição do desafio técnico e dos requisitos avaliados.
+## Context and Problem Statement
+Description of the technical challenge, constraints, and evaluated requirements.
 
-## Decisão Tomada
-- **Opção Escolhida**: Explicação direta da solução adotada.
-- **Motivação**: Por que supera as alternativas.
-- Integração planejada com [[Componente Relacionado]].
+## Decision Outcome
+- **Chosen Option**: Direct statement of the adopted design.
+- **Rationale**: Why this design outperforms alternatives.
+- Planned integration with [[Related Component]].
 
-## Consequências e Trade-offs
-- **Positivo**: Ganhos de performance ou simplificação.
-- **Negativo**: Complexidade adicional ou débitos conhecidos.
+## Consequences and Trade-offs
+- **Positive**: Performance improvements or architectural simplification.
+- **Negative**: Additional complexity or accepted technical trade-offs.
 
-Tags: #adr #arquitetura #decisao
+Tags: #adr #architecture #decision
 ```
 
 ---
 
-## 3. Modelo de Registro de Contexto de IA (MCP Context)
+## 3. AI Agent Context Record Template (MCP Context)
 
 ```markdown
-# Sessão: [Tópico Investigado pela IA]
+# Session: [Investigation Topic]
 
-Resumo do resultado da investigação ou tarefa executada pelo agente.
+Summary of findings or automated tasks executed by the AI agent.
 
-## Descobertas Principais
-- Ponto 1 descoberto durante a análise.
-- Ponto 2 com referência a [[Nota Relevante#Seção]].
+## Key Discoveries
+- Finding 1 discovered during codebase analysis.
+- Finding 2 referencing [[Relevant Note#Section]].
 
-## Decisões e Próximos Passos
-- Ações imediatas a serem seguidas.
-- Itens pendentes de validação.
+## Decisions and Next Actions
+- Immediate next steps to execute.
+- Open items requiring validation.
 
-Tags: #ia #contexto #registro
+Tags: #ai #context #session
 ```

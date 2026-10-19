@@ -1,31 +1,31 @@
 ---
-name: Relato de Bug
-about: Crie um relatorio para nos ajudar a reproduzir e corrigir um problema
+name: Bug Report
+about: Create a report to help reproduce and fix an issue
 title: "[BUG] "
 labels: ["bug"]
 assignees: []
 ---
 
-## Descricao do Bug
-Uma descricao clara e concisa do que aconteceu de forma inesperada.
+## Bug Description
+A clear and concise description of the unexpected behavior.
 
-## Passos para Reproduzir
-1. Va para '...'
-2. Clique em '....'
-3. Observe o erro ocorrido
+## Steps to Reproduce
+1. Go to '...'
+2. Click on '....'
+3. Observe the error
 
-## Comportamento Esperado
-Uma explicacao clara e concisa do que deveria acontecer.
+## Expected Behavior
+A clear and concise explanation of what you expected to happen.
 
-## Capturas de Tela
-Se aplicavel, adicione imagens para ajudar a explicar o problema.
+## Screenshots / Terminal Output
+If applicable, add screenshots or console output to clarify the issue.
 
-## Ambiente
-* Sistema Operacional: [ex: Windows 11, macOS Sequoia, Ubuntu 24.04]
-* Versao do GraphFinder: [ex: 0.2.0]
-* Versao do Node.js: [ex: 20.10.0]
-* Versao do Rust: [ex: 1.78.0]
-* Cliente MCP (se aplicavel): [ex: Claude Desktop, Cursor, Gemini Antigravity]
+## Environment
+* Operating System: [e.g., Windows 11, macOS Sonoma, Ubuntu 24.04]
+* GraphFinder Version: [e.g., 0.2.0]
+* Node.js Version: [e.g., 20.10.0]
+* Rust Version: [e.g., 1.78.0]
+* MCP Client (if applicable): [e.g., Claude Desktop, Cursor, Gemini Antigravity]
 
-## Contexto Adicional
-Adicione qualquer outro contexto relevante sobre o problema aqui.
+## Additional Context
+Add any other relevant context or log snippets here.

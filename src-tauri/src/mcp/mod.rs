@@ -269,6 +269,37 @@ async fn handle_request(manager: &Arc<VaultManager>, req: JsonRpcRequest) -> Opt
                                 "project": { "type": "string", "description": "ID do projeto/vault específico (opcional)" }
                             }
                         }
+                    },
+                    {
+                        "name": "list_projects",
+                        "description": "Lista todos os projetos e cofres de notas disponíveis no GraphFinder.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "name": "create_project",
+                        "description": "Cria um novo cofre de notas em qualquer diretório do computador ou na pasta padrão de vaults.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string", "description": "Nome do projeto ou cofre" },
+                                "path": { "type": "string", "description": "Caminho absoluto opcional da pasta no computador" }
+                            },
+                            "required": ["name"]
+                        }
+                    },
+                    {
+                        "name": "switch_project",
+                        "description": "Alterna o cofre ativo no GraphFinder.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "project_id": { "type": "string", "description": "ID do projeto a ser ativado" }
+                            },
+                            "required": ["project_id"]
+                        }
                     }
                 ]
             });
@@ -339,7 +370,7 @@ async fn execute_tool(
             let projects = manager.list_projects().await;
             let mut out = String::from("Projetos e Vaults no GraphFinder:\n\n");
             for p in projects {
-                let status = if p.is_active { " (Ativo ✅)" } else { "" };
+                let status = if p.is_active { " (Ativo)" } else { "" };
                 out.push_str(&format!(
                     "- **{}** (ID: `{}`){} | {} notas\n  Caminho: {}\n\n",
                     p.name, p.id, status, p.note_count, p.path
@@ -352,9 +383,13 @@ async fn execute_tool(
                 .get("name")
                 .and_then(|v| v.as_str())
                 .ok_or("Campo 'name' é obrigatório")?;
-            let project = manager.create_project(name).await.map_err(|e| e)?;
+            let custom_path = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let project = manager.create_project(name, custom_path).await.map_err(|e| e)?;
             Ok(format!(
-                "Projeto '{}' (ID: '{}') criado com sucesso!\nCofre de notas isolado: {}\nBanco SQLite de vetores: {}",
+                "Projeto '{}' (ID: '{}') criado com sucesso!\nCofre de notas: {}\nBanco SQLite de vetores: {}",
                 project.name, project.id, project.path, project.db_path
             ))
         }

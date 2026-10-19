@@ -178,9 +178,9 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleCreateProject = async (name: string) => {
+  const handleCreateProject = async (name: string, path?: string) => {
     try {
-      const project = await createProject(name);
+      const project = await createProject(name, path);
       setActiveProject(project);
       setSelectedNoteId(null);
       setActiveNote(null);
@@ -221,43 +221,38 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col w-screen h-screen overflow-hidden bg-[#090a0f] text-zinc-100 select-none">
-      {/* Top Application Header */}
-      <header className="h-14 px-4 flex items-center justify-between border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md shrink-0 z-40">
+    <div className="flex flex-col w-screen h-screen overflow-hidden bg-[#090a0f] text-[#f1f5f9] select-none">
+      {/* Titlebar matching banner.svg lines 15-35 */}
+      <header className="h-12 px-4 flex items-center justify-between border-b border-[#1f232d] bg-[#14171f] shrink-0 z-40">
+        {/* Left Section: Window dots & Brand */}
         <div className="flex items-center gap-3">
+          {/* Subtle Window Control Dots from banner.svg */}
+          <div className="hidden sm:flex items-center gap-1.5 mr-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#323642]" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#323642]" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#323642]" />
+          </div>
+
           <button
             type="button"
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="flex items-center justify-center w-8 h-8 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+            className="flex items-center justify-center w-7 h-7 rounded-md text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
             title={isSidebarOpen ? 'Ocultar Painel Lateral' : 'Exibir Painel Lateral'}
           >
-            <SidebarSimple size={18} weight="regular" />
+            <SidebarSimple size={16} weight="regular" />
           </button>
 
-          <div className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center w-7 h-7 rounded-md bg-zinc-900 border border-zinc-800 overflow-hidden">
-              <img
-                src="/favicon.svg"
-                alt="GraphFinder"
-                className="w-5 h-5 object-contain"
-              />
-            </div>
-            <div className="flex flex-col">
-              <div className="flex items-center gap-1.5 leading-none">
-                <span className="text-sm font-bold tracking-tight text-zinc-100">
-                  GraphFinder
-                </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/50">
-                  v0.2.0
-                </span>
-              </div>
-              <span className="text-[10px] text-zinc-400 mt-0.5 font-medium">
-                Neural Knowledge Graph & Semantic Vault
-              </span>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-semibold tracking-[0.3px] text-[#f1f5f9]">
+              GraphFinder
+            </span>
+            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-[#1e222d] text-[#94a3b8] border border-[#2d3342]">
+              v0.2.0
+            </span>
           </div>
         </div>
 
+        {/* Center Section: Capsule Vault Indicator from banner.svg */}
         <div className="flex items-center">
           <ProjectSwitcher
             projects={projects}
@@ -267,36 +262,41 @@ export const App: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Right Section: Telemetry pill & Actions */}
+        <div className="flex items-center gap-2.5">
+          <span className="hidden md:inline font-mono text-[11px] text-[#64748b]">
+            stdio: --mcp active
+          </span>
+
           <button
             type="button"
             onClick={handleSync}
             disabled={isSyncing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-zinc-300 transition-all cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-medium bg-[#13161f] hover:bg-[#1a1e28] border border-[#1e222d] hover:border-[#2d3342] text-[#cbd5e1] transition-all cursor-pointer disabled:opacity-50"
             title="Sincronizar arquivos .md do Vault com chunking semantico"
           >
             <ArrowClockwise
-              size={13}
+              size={12}
               weight="bold"
-              className={isSyncing ? 'animate-spin text-indigo-400' : 'text-zinc-400'}
+              className={isSyncing ? 'animate-spin text-indigo-400' : 'text-[#64748b]'}
             />
-            <span>{isSyncing ? 'Indexando...' : 'Sincronizar Vault'}</span>
+            <span className="text-[11px]">{isSyncing ? 'Indexando...' : 'Sincronizar'}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsMcpModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-zinc-300 transition-all cursor-pointer"
-            title="Copiar Regras do Agente, Skill de Curadoria e Configuracao MCP para seu Editor"
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-medium bg-[#13161f] hover:bg-[#1a1e28] border border-[#1e222d] hover:border-[#2d3342] text-[#cbd5e1] transition-all cursor-pointer"
+            title="Copiar Regras do Agente, Skill de Curadoria e Configuracao MCP"
           >
-            <Robot size={14} weight="regular" className="text-zinc-400" />
-            <span>Conectar IA & MCP</span>
+            <Robot size={13} weight="regular" className="text-[#64748b]" />
+            <span className="text-[11px]">Conectar IA & MCP</span>
           </button>
         </div>
       </header>
 
-      {/* Main Studio Body */}
-      <div className="flex-1 flex overflow-hidden relative">
+      {/* Main Studio Body with border framing */}
+      <div className="flex-1 flex overflow-hidden relative bg-[#111318]">
         <Sidebar
           notes={notes}
           selectedNoteId={selectedNoteId}
@@ -308,7 +308,7 @@ export const App: React.FC = () => {
           isCollapsed={!isSidebarOpen}
         />
 
-        <main className="flex-1 relative h-full overflow-hidden">
+        <main className="flex-1 relative h-full overflow-hidden bg-[#090a0f]">
           <GraphView
             graphData={graphData}
             selectedNodeId={selectedNoteId}
@@ -342,9 +342,9 @@ export const App: React.FC = () => {
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-900/95 border border-zinc-800 text-xs font-medium text-zinc-200 shadow-xl backdrop-blur-md pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-200"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#14171f] border border-[#262933] text-xs font-medium text-[#f1f5f9] shadow-2xl backdrop-blur-md pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-200"
             >
-              <CheckCircle size={15} weight="fill" className="text-emerald-400 shrink-0" />
+              <CheckCircle size={14} weight="fill" className="text-[#10b981] shrink-0" />
               <span>{toast.message}</span>
             </div>
           ))}

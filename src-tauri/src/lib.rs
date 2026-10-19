@@ -25,9 +25,19 @@ async fn switch_project(
 #[tauri::command]
 async fn create_project(
     name: String,
+    path: Option<String>,
     manager: State<'_, Arc<VaultManager>>,
 ) -> Result<ProjectInfo, String> {
-    manager.create_project(&name).await
+    manager.create_project(&name, path).await
+}
+
+#[tauri::command]
+async fn pick_directory() -> Result<Option<String>, String> {
+    let folder = rfd::AsyncFileDialog::new()
+        .set_title("Selecionar Pasta para o Cofre de Notas")
+        .pick_folder()
+        .await;
+    Ok(folder.map(|f| f.path().to_string_lossy().to_string()))
 }
 
 #[tauri::command]
@@ -261,7 +271,8 @@ pub fn run() {
             get_mcp_config,
             list_projects,
             switch_project,
-            create_project
+            create_project,
+            pick_directory
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

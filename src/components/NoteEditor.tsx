@@ -9,7 +9,6 @@ import {
   LinkSimple,
   ArrowRight,
   ArrowLeft,
-  Lightning,
   Plus,
   Check,
 } from '@phosphor-icons/react';
@@ -127,53 +126,51 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     }
   };
 
+  const displayFilename = title.endsWith('.md') ? title : `${title}.md`;
+
   return (
-    <div className="absolute right-0 top-0 bottom-0 z-30 flex flex-col bg-zinc-950/95 border-l border-zinc-800 shadow-2xl backdrop-blur-md w-full md:w-[620px] lg:w-[720px] transition-all">
-      {/* Editor Header */}
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-zinc-800/80 bg-zinc-900/50">
-        <input
-          type="text"
-          className="flex-1 bg-transparent text-sm font-semibold text-zinc-100 placeholder-zinc-500 focus:outline-none"
-          value={title}
-          onChange={handleTitleChange}
-          placeholder="Titulo da Nota..."
-          aria-label="Titulo da Nota"
-        />
+    <div className="absolute right-0 top-0 bottom-0 z-30 flex flex-col bg-[#0d0f14] border-l border-[#1f232d] shadow-2xl backdrop-blur-md w-full md:w-[620px] lg:w-[720px] transition-all">
+      {/* Editor Header matching banner.svg lines 113-116 */}
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#1f232d] bg-[#111318]">
+        <div className="flex-1 min-w-0">
+          <input
+            type="text"
+            className="w-full bg-transparent text-sm font-bold text-[#f8fafc] placeholder-[#64748b] focus:outline-none"
+            value={title}
+            onChange={handleTitleChange}
+            placeholder="Titulo da Nota..."
+            aria-label="Titulo da Nota"
+          />
+          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#64748b]">
+            <span className="font-mono">{displayFilename}</span>
+            <span>•</span>
+            <span className="font-mono text-[#10b981]">~{estimatedTokens} tokens</span>
+            <span>•</span>
+            <span>Local FastEmbed &amp; SQLite WAL</span>
+          </div>
+        </div>
 
-        <div className="flex items-center gap-2">
-          {/* Token Estimate Badge */}
-          <span
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono border ${
-              estimatedTokens < 150
-                ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/40'
-                : 'bg-indigo-950/40 text-indigo-400 border-indigo-800/40'
-            }`}
-            title="Estimativa de tokens para contexto de IA"
-          >
-            <Lightning size={11} className={estimatedTokens < 150 ? 'text-emerald-400' : 'text-indigo-400'} />
-            ~{estimatedTokens} tok
-          </span>
-
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={handleSave}
             disabled={isSaving}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
               isDirty
-                ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-950'
-                : 'bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 border border-zinc-700/50'
+                ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm'
+                : 'bg-[#13161f] hover:bg-[#1a1e28] text-[#cbd5e1] border border-[#1e222d]'
             }`}
             title="Salvar alteracoes (Ctrl+S / Cmd+S)"
           >
             {isDirty ? (
               <>
-                <FloppyDisk size={13} weight="bold" />
+                <FloppyDisk size={12} weight="bold" />
                 <span>{isSaving ? 'Salvando...' : 'Salvar'}</span>
               </>
             ) : (
               <>
-                <Check size={13} weight="bold" className="text-emerald-400" />
-                <span className="text-zinc-300">Salvo</span>
+                <Check size={12} weight="bold" className="text-[#10b981]" />
+                <span className="text-[#cbd5e1]">Salvo</span>
               </>
             )}
           </button>
@@ -181,26 +178,26 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="flex items-center justify-center w-7 h-7 rounded-md text-[#64748b] hover:text-[#f8fafc] hover:bg-[#1a1e28] transition-colors cursor-pointer"
             title="Fechar Painel (Esc)"
           >
-            <X size={15} />
+            <X size={14} />
           </button>
         </div>
       </div>
 
       {/* Editor Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800/70 bg-zinc-950/80 text-xs">
-        <div className="flex items-center gap-1 bg-zinc-900/90 border border-zinc-800 p-0.5 rounded-lg">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[#1f232d] bg-[#0d0f14] text-xs">
+        <div className="flex items-center gap-1 bg-[#13161f] border border-[#1e222d] p-0.5 rounded-md">
           <button
             type="button"
             role="tab"
             aria-selected={viewMode === 'edit'}
             onClick={() => setViewMode('edit')}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-all cursor-pointer ${
               viewMode === 'edit'
-                ? 'bg-zinc-800 text-zinc-100 shadow-xs'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
+                : 'text-[#64748b] hover:text-[#cbd5e1]'
             }`}
           >
             <PencilSimple size={12} />
@@ -212,10 +209,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             role="tab"
             aria-selected={viewMode === 'preview'}
             onClick={() => setViewMode('preview')}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-all cursor-pointer ${
               viewMode === 'preview'
-                ? 'bg-zinc-800 text-zinc-100 shadow-xs'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
+                : 'text-[#64748b] hover:text-[#cbd5e1]'
             }`}
           >
             <Eye size={12} />
@@ -227,10 +224,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             role="tab"
             aria-selected={viewMode === 'split'}
             onClick={() => setViewMode('split')}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-all cursor-pointer ${
               viewMode === 'split'
-                ? 'bg-zinc-800 text-zinc-100 shadow-xs'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
+                : 'text-[#64748b] hover:text-[#cbd5e1]'
             }`}
           >
             <Columns size={12} />
@@ -243,38 +240,38 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             type="button"
             onClick={handleSuggestLinks}
             disabled={isSuggesting}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 text-xs transition-colors cursor-pointer"
-            title="Auto-Linker Semantico: detecta automaticamente afinidades com outras notas"
+            className="inline-flex items-center gap-1.5 h-6 px-2 rounded bg-[#171b26] border border-[#2d3446] hover:bg-[#1e222d] text-[#cbd5e1] text-[11px] transition-colors cursor-pointer"
+            title="Auto-Linker Semantico: detecta automaticamente afinidades conceituais"
           >
-            <LinkSimple size={12} />
+            <LinkSimple size={11} className="text-[#38bdf8]" />
             <span>{isSuggesting ? 'Analisando...' : 'Auto-Linker'}</span>
           </button>
 
           <button
             type="button"
             onClick={insertWikilink}
-            className="p-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="flex items-center justify-center w-6 h-6 rounded bg-[#13161f] border border-[#1e222d] text-[#64748b] hover:text-[#f8fafc] transition-colors cursor-pointer"
             title="Inserir Wikilink [[Link]]"
           >
-            <LinkSimple size={14} />
+            <LinkSimple size={12} />
           </button>
         </div>
       </div>
 
-      {/* Auto-Linker Drawer */}
+      {/* Auto-Linker Drawer matching banner.svg lines 135-139 */}
       {suggestions.length > 0 && (
-        <div className="p-3 bg-zinc-900/90 border-b border-indigo-900/40 space-y-2">
-          <div className="flex items-center justify-between text-xs text-indigo-300">
+        <div className="p-3 bg-[#111318] border-b border-[#1f232d] space-y-2">
+          <div className="flex items-center justify-between text-xs text-[#cbd5e1]">
             <span className="flex items-center gap-1.5 font-medium">
-              <LinkSimple size={13} className="text-indigo-400" />
-              Sugestoes de Conexao no Grafo ({suggestions.length})
+              <LinkSimple size={12} className="text-[#38bdf8]" />
+              Sugestoes de Conexao Semantica ({suggestions.length})
             </span>
             <button
               type="button"
               onClick={() => setSuggestions([])}
-              className="text-zinc-400 hover:text-zinc-200 cursor-pointer"
+              className="text-[#64748b] hover:text-[#f8fafc] cursor-pointer"
             >
-              <X size={13} />
+              <X size={12} />
             </button>
           </div>
 
@@ -282,20 +279,22 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             {suggestions.map((s) => (
               <div
                 key={s.deep_link}
-                className="flex items-center justify-between gap-2 p-2 rounded-md bg-zinc-950/70 border border-zinc-800/80 text-xs"
+                className="flex items-center justify-between gap-2 p-2 rounded bg-[#13161f] border border-[#222736] text-xs"
               >
                 <div className="min-w-0">
-                  <strong className="text-zinc-200 truncate block">{s.deep_link}</strong>
-                  <span className="text-[10px] text-zinc-400">
-                    {Math.round(s.similarity_score * 100)}% afinidade semantica
-                  </span>
+                  <div className="font-mono text-[10px] font-semibold text-[#10b981]">
+                    Match {Math.round(s.similarity_score * 100)}% affinity
+                  </div>
+                  <strong className="text-[#e2e8f0] font-sans text-xs truncate block">
+                    {s.deep_link}
+                  </strong>
                 </div>
                 <button
                   type="button"
                   onClick={() => handleApplySuggestion(s)}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-medium transition-colors cursor-pointer shrink-0"
+                  className="inline-flex items-center gap-1 h-6 px-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10.5px] font-medium transition-colors cursor-pointer shrink-0"
                 >
-                  <Plus size={11} weight="bold" />
+                  <Plus size={10} weight="bold" />
                   <span>Conectar</span>
                 </button>
               </div>
@@ -305,10 +304,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       )}
 
       {/* Editor Body */}
-      <div className="flex-1 flex overflow-hidden min-h-0">
+      <div className="flex-1 flex overflow-hidden min-h-0 bg-[#0d0f14]">
         {(viewMode === 'edit' || viewMode === 'split') && (
           <textarea
-            className={`h-full p-4 font-mono text-xs text-zinc-200 bg-transparent resize-none focus:outline-none border-r border-zinc-800/60 leading-relaxed ${
+            className={`h-full p-4 font-mono text-xs text-[#e2e8f0] bg-transparent resize-none focus:outline-none border-r border-[#1f232d] leading-relaxed placeholder-[#64748b] ${
               viewMode === 'split' ? 'w-1/2' : 'w-full'
             }`}
             value={content}
@@ -321,7 +320,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         {(viewMode === 'preview' || viewMode === 'split') && (
           <div
             className={`h-full p-4 overflow-y-auto preview-content ${
-              viewMode === 'split' ? 'w-1/2 bg-zinc-950/40' : 'w-full'
+              viewMode === 'split' ? 'w-1/2 bg-[#090a0f]' : 'w-full'
             }`}
             dangerouslySetInnerHTML={{ __html: renderedHtml }}
             onClick={handlePreviewClick}
@@ -331,11 +330,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
       {/* Connections Explorer (Footer) */}
       {note && (
-        <div className="p-3 border-t border-zinc-800/80 bg-zinc-900/40 space-y-2 text-xs">
+        <div className="p-3 border-t border-[#1f232d] bg-[#111318] space-y-2 text-xs">
           {note.backlinks && note.backlinks.length > 0 && (
             <div>
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 mb-1">
-                <ArrowLeft size={11} />
+              <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-[#64748b] uppercase tracking-[0.5px] mb-1">
+                <ArrowLeft size={10} />
                 <span>Notas que conectam aqui ({note.backlinks.length})</span>
               </div>
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -344,7 +343,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     key={b}
                     type="button"
                     onClick={() => onNavigateNote(b)}
-                    className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-indigo-300 font-mono text-[11px] transition-colors cursor-pointer"
+                    className="px-2 py-0.5 rounded bg-[#13161f] hover:bg-[#1a1e28] border border-[#1e222d] hover:border-[#2c3242] text-[#38bdf8] font-mono text-[10.5px] transition-colors cursor-pointer"
                   >
                     [[{b}]]
                   </button>
@@ -355,8 +354,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
           {note.outgoing_links && note.outgoing_links.length > 0 && (
             <div>
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 mb-1">
-                <ArrowRight size={11} />
+              <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-[#64748b] uppercase tracking-[0.5px] mb-1">
+                <ArrowRight size={10} />
                 <span>Links presentes nesta nota ({note.outgoing_links.length})</span>
               </div>
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -365,7 +364,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     key={l}
                     type="button"
                     onClick={() => onNavigateNote(l)}
-                    className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-indigo-300 font-mono text-[11px] transition-colors cursor-pointer"
+                    className="px-2 py-0.5 rounded bg-[#13161f] hover:bg-[#1a1e28] border border-[#1e222d] hover:border-[#2c3242] text-[#38bdf8] font-mono text-[10.5px] transition-colors cursor-pointer"
                   >
                     [[{l}]]
                   </button>

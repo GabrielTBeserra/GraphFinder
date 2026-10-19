@@ -1,7 +1,7 @@
 [package]
 name = "graphfinder"
 version = "0.2.0"
-description = "GraphFinder - Obsidian-style Semantic Memory & MCP in Tauri"
+description = "GraphFinder - Neural Knowledge Graph & Local Semantic Vault in Tauri"
 authors = ["GraphFinder Contributors"]
 edition = "2021"
 license = "MIT"
@@ -27,3 +27,4 @@ regex = "1.10"
 chrono = { version = "0.4", features = ["serde"] }
 walkdir = "2"
 log = "0.4"
+rfd = "0.15"

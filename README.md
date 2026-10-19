@@ -9,7 +9,7 @@
 ### Neural Knowledge Graph & High-Density Semantic Vault for Humans & AI Agents
 
 <p align="center">
-  <b>Local-First • Plain Markdown • Atomic Semantic Chunking • Native MCP Server • Obsidian Compatible</b>
+  <b>Local-First • Plain Markdown • Atomic Semantic Chunking • Native MCP Server • Zero Cloud Lock-in</b>
 </p>
 
 [![Release](https://img.shields.io/badge/release-v0.2.0-18181b?style=flat-square)](https://github.com)
@@ -22,15 +22,15 @@
 
 <br/>
 
-<a href="#visao-geral">Visao Geral</a> •
-<a href="#principais-recursos">Recursos</a> •
-<a href="#servidor-mcp">Servidor MCP</a> •
-<a href="#arquitetura">Arquitetura</a> •
-<a href="#instalacao-e-uso">Instalacao</a> •
-<a href="#multi-vaults">Multi-Vaults</a> •
-<a href="#curadoria-de-notas">Curadoria</a> •
-<a href="#contribuicao-e-comunidade">Contribuicao</a> •
-<a href="#licenca">Licenca</a>
+<a href="#overview">Overview</a> •
+<a href="#key-features">Key Features</a> •
+<a href="#mcp-server">MCP Server</a> •
+<a href="#architecture">Architecture</a> •
+<a href="#getting-started">Getting Started</a> •
+<a href="#vault-management">Vaults</a> •
+<a href="#note-curation-guidelines">Curation</a> •
+<a href="#contributing">Contributing</a> •
+<a href="#license">License</a>
 
 <br/><br/>
 
@@ -40,79 +40,80 @@
 
 ---
 
-## Visao Geral
+## Overview
 
-O **GraphFinder** e uma aplicacao desktop de alta performance projetada para unir o fluxo de pensamento humano a precisao de agentes de Inteligencia Artificial.
+**GraphFinder** is a high-performance desktop application designed to bridge human thought workflows with the surgical precision of Artificial Intelligence agents.
 
-A maioria dos sistemas de RAG tradicionais fatiam documentos arbitrariamente ou consomem janelas inteiras de contexto de LLMs com milhares de tokens desnecessarios. Ao mesmo tempo, gerenciadores de notas pessoais convencionais nao fornecem vetorizacao local nem APIs semanticas atomicas.
+Traditional RAG systems slice documents arbitrarily into fixed-length windows or force whole files into LLM context windows, wasting thousands of tokens. Meanwhile, conventional note-taking tools lack local vectorization and atomic semantic query APIs.
 
-O **GraphFinder** soluciona esse descompasso:
-1. **Para Humanos**: Um ambiente local-first, minimalista e fluido para redigir em Markdown puro, visualizar conexoes atraves de um grafo interativo e manter controle absoluto sobre seus arquivos locais.
-2. **Para Agentes de IA**: Um servidor MCP embutido que entrega recuperacao cirurgica no nivel de subsecao (`[[Nota#Secao]]`), gastando **~50 tokens por consulta** e garantindo zero poluicao de contexto.
-
----
-
-## Principais Recursos
-
-### 1. Chunking Semantico Atomico
-* O motor vetorial em Rust fatia os arquivos exclusivamente por cabecalhos logicos (`##` e `###`).
-* Cada secao gera um vetor independente via **FastEmbed** (ONNX local, sem dependencia de nuvem ou chaves de API).
-* O SQLite em modo WAL armazena e recupera metadados e chunks de maneira concorrente e imediata.
-
-### 2. Grafo Interativo 2D
-* Renderizacao limpa com fisica de forcas via Canvas/WebGL (`force-graph`).
-* Destaque topologico de vizinhanca e calculo de densidade de conexoes.
-* Agrupamento visual por taxonomia de hashtags (`#arquitetura`, `#sqlite`, `#mcp`).
-
-### 3. Servidor MCP Nativo (`--mcp`)
-* O executavel desktop suporta nativamente o modo MCP via `stdio`.
-* Disponibiliza 7 ferramentas prontas para clientes como Claude Desktop, Cursor, Gemini Antigravity, Windsurf e Zed.
-
-### 4. Multi-Vaults Isolados
-* Suporte nativo a multiplos cofres (`./vaults/<projeto_id>`), cada um com seu cofre Markdown e banco de dados vetorial isolado.
-* Zero contaminacao cruzada entre clientes, pesquisas ou bases de conhecimento.
-
-### 5. Local-First e Sem Vendor Lock-in
-* Seus arquivos permanecem salvos em `.md` no disco local.
-* 100% compativel com Obsidian — voce pode apontar o Obsidian e o GraphFinder para o mesmo diretorio.
-* Nenhuma informacao confidencial trafega para servidores externos.
+**GraphFinder solves this problem:**
+1. **For Humans**: A distraction-free, local-first environment to write in pure Markdown, explore connections through an interactive 2D graph, and retain absolute ownership of local files on disk.
+2. **For AI Agents**: A native embedded Model Context Protocol (MCP) server delivering sub-section level retrieval (`[[Note#Section]]`), consuming **~50 tokens per query** and eliminating context window pollution.
 
 ---
 
-## Servidor MCP
+## Key Features
 
-O protocolo Model Context Protocol (MCP) permite que agentes de IA interajam com sua base de notas com minima sobrecarga de contexto:
+### 1. Atomic Semantic Chunking
+* The Rust vector engine splits Markdown documents strictly by semantic headers (`##` and `###`).
+* Each section generates an independent embedding vector via **FastEmbed** (local ONNX runtime, zero cloud dependency, zero API keys required).
+* SQLite in WAL mode stores and retrieves chunks and relational metadata concurrently with sub-millisecond response times.
+
+### 2. Interactive 2D Knowledge Graph
+* Clean canvas rendering powered by force-directed physics (`force-graph`).
+* Real-time topological highlighting of 1-hop and 2-hop neighborhoods.
+* Automatic color clustering driven by document hashtag taxonomies (`#architecture`, `#sqlite`, `#mcp`).
+
+### 3. Native MCP Server (`--mcp`)
+* The desktop executable doubles as a native Model Context Protocol server over `stdio`.
+* Provides 8 ready-to-use tools for clients such as Claude Desktop, Cursor, Gemini Antigravity, Windsurf, and Zed.
+
+### 4. Custom Vaults & Project Isolation
+* Save vaults anywhere on your computer (custom directory picker) or in isolated project folders (`./vaults/<project_id>`).
+* Zero cross-contamination between clients, research topics, or knowledge bases.
+
+### 5. Local-First & Zero Vendor Lock-in
+* Your files stay in standard `.md` format directly on your filesystem.
+* 100% open plain Markdown — compatible with any text editor or viewer in the ecosystem.
+* Zero data transmitted to third-party cloud servers.
+
+---
+
+## MCP Server
+
+The Model Context Protocol (MCP) enables AI agents to query and curate your knowledge graph with minimal token overhead:
 
 ```
-[Pergunta do Usuario / Agente]
-            |
-            v
+[User Question / Agent Intent]
+             |
+             v
    1. search_semantic(query)
-      +--> Retorna ate 5 subsecoes atomicas (~50 tokens cada).
-            |
-            +--> Trecho suficiente? ---> Responde citando [[Nota#Secao]].
-            |
-            +--> Necessita do panorama da nota? ---> get_compressed_context(note_id)
-                                                      (Resumo executivo + mapa de secoes).
+      +--> Returns top atomic sub-sections (~50 tokens each).
+             |
+             +--> Sufficient detail? ---> Responds citing [[Note#Section]].
+             |
+             +--> Needs note overview? ---> get_compressed_context(note_id)
+                                            (Executive summary + section token map).
 ```
 
-### Ferramentas Integradas
+### Integrated Tools
 
-| Ferramenta | Descricao | Parametros Principais | Economia de Tokens |
+| Tool | Description | Key Parameters | Token Economy |
 | :--- | :--- | :--- | :--- |
-| `search_semantic` | Busca por similaridade vetorial na tabela de chunks | `query`, `limit`, `format` | **~90%** vs ler notas inteiras |
-| `get_compressed_context` | Resumo executivo, backlinks e lista de secoes | `target` (ID ou titulo) | Nota completa em **< 100 tokens** |
-| `suggest_links` | Analisa rascunho de texto e recomenda conexoes | `text`, `threshold` | Evita notas orfas no grafo |
-| `store_context` | Grava nota Markdown com chunking e vetorizacao imediata | `title`, `content`, `tags`, `links` | Memoria persistente local |
-| `get_graph_neighborhood` | Retorna nos conectados em 1 ou 2 saltos | `target`, `depth` | Navegacao topologica rapida |
-| `link_notes` | Adiciona wikilink bidirecional entre duas notas | `from_note`, `to_note` | Edicao estruturada direta |
-| `list_recent_notes` | Lista as notas mais recentes com resumos compactos | `limit` | Mapeamento inicial do vault |
+| `search_semantic` | Vector similarity search across chunked headers | `query`, `limit`, `format` | **~90%** savings vs reading full notes |
+| `get_compressed_context` | Executive summary, backlinks, and section token map | `target` (ID or title) | Full note mapped in **< 100 tokens** |
+| `suggest_links` | Analyzes draft text and recommends conceptual wikilinks | `text`, `threshold` | Prevents orphan notes in the graph |
+| `store_context` | Writes or updates Markdown note with immediate vectorization | `title`, `content`, `tags`, `links` | Persistent local memory |
+| `get_graph_neighborhood` | Returns connected nodes within 1 or 2 hops | `target`, `depth` | Fast topological graph navigation |
+| `link_notes` | Creates an explicit bidirectional wikilink between notes | `from_note`, `to_note` | Direct graph relationship creation |
+| `list_recent_notes` | Lists notes with single-line summaries and token counts | `limit` | Initial vault mapping |
+| `create_project` | Creates a new vault at any path on disk | `name`, `path` | Dynamic multi-vault provisioning |
 
-> Todas as ferramentas aceitam o parametro opcional `project: "<id>"` para consultar cofres alternativos.
+> All tools accept the optional `project: "<id>"` parameter to target specific vaults without context contamination.
 
 ---
 
-### Configuracao nos Agentes
+### Agent Configuration
 
 #### Claude Desktop (`claude_desktop_config.json`)
 ```json
@@ -131,7 +132,7 @@ O protocolo Model Context Protocol (MCP) permite que agentes de IA interajam com
   }
 }
 ```
-*(Ou aponte para o executavel compilado `graphfinder.exe --mcp`)*
+*(Or point directly to the compiled executable `graphfinder.exe --mcp`)*
 
 #### Cursor / Gemini Antigravity / Windsurf (`mcp_config.json`)
 ```json
@@ -147,7 +148,7 @@ O protocolo Model Context Protocol (MCP) permite que agentes de IA interajam com
 
 ---
 
-## Arquitetura
+## Architecture
 
 ```mermaid
 flowchart TB
@@ -166,106 +167,107 @@ flowchart TB
         Chunker["Atomic H2/H3 Chunker"]
     end
 
-    subgraph Storage ["Armazenamento Local"]
-        VaultDir["Cofre Padrao (./vault/*.md)"]
-        VaultsDir["Projetos Isolados (./vaults/*)"]
-        DB["index.db (Embeddings & Metadados)"]
+    subgraph Storage ["Local Storage"]
+        VaultDir["Default Vault (./vault/*.md)"]
+        VaultsDir["Custom & Project Vaults"]
+        DB["index.db (Embeddings & Metadata)"]
     end
 
     Frontend <-->|Tauri IPC| RustCore
-    MCPServer <-->|JSON-RPC Stdio| AI["Agentes Externos (Claude, Cursor, etc.)"]
+    MCPServer <-->|JSON-RPC Stdio| AI["External Agents (Claude, Cursor, etc.)"]
     RustCore <--> Storage
 ```
 
-### Tecnologias
+### Core Technologies
 * **Desktop Runtime**: [Tauri v2](https://tauri.app/)
-* **Backend de Dados & Vetores**: [Rust](https://www.rust-lang.org/), [FastEmbed](https://github.com/Anush008/fastembed-rs), [Rusqlite](https://github.com/rusqlite/rusqlite)
-* **Frontend UI**: [React 19](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vitejs.dev/)
-* **Grafos**: [Force-Graph](https://github.com/vasturiano/force-graph)
+* **Data & Embedding Engine**: [Rust](https://www.rust-lang.org/), [FastEmbed](https://github.com/Anush008/fastembed-rs), [Rusqlite](https://github.com/rusqlite/rusqlite)
+* **Frontend UI**: [React 19](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Tailwind CSS v4](https://tailwindcss.com/), [Vite](https://vitejs.dev/)
+* **Primitives & Icons**: [Radix UI](https://www.radix-ui.com/), [Phosphor Icons](https://phosphoricons.com/)
+* **Graph Physics**: [Force-Graph](https://github.com/vasturiano/force-graph)
 
 ---
 
-## Instalacao e Uso
+## Getting Started
 
-### Pre-requisitos
-* **Node.js** 18+ ([nodejs.org](https://nodejs.org/))
+### Prerequisites
+* **Node.js** 20+ ([nodejs.org](https://nodejs.org/))
 * **Rust & Cargo** 1.75+ ([rustup.rs](https://rustup.rs/))
-* No Windows: Ferramentas de compilacao C++ (Visual Studio Build Tools)
+* On Windows: C++ Build Tools (Visual Studio C++ Build Tools)
 
-### 1. Clonar e Instalar Dependencias
+### 1. Clone and Install
 ```bash
 git clone https://github.com/SEU_USUARIO/GraphFinder.git
 cd GraphFinder
 npm install
 ```
 
-### 2. Executar o Aplicativo Desktop
+### 2. Run the Desktop App (Development)
 ```bash
 npm run app
 ```
 
-### 3. Executar o Servidor MCP
+### 3. Run the MCP Server Standalone
 ```bash
 npm run mcp
 ```
 
-### 4. Compilar para Producao
+### 4. Build Production Bundle
 ```bash
 npm run tauri build
 ```
-Os executaveis finais serao gerados em `src-tauri/target/release/bundle/`.
+Production binaries and installers will be generated under `src-tauri/target/release/bundle/`.
 
 ---
 
-## Multi-Vaults
+## Vault Management
 
-Estrutura de diretorios do projeto:
+Directory layout of the workspace:
 
 ```
 GraphFinder/
-├── assets/                  # Identidade visual vetorial e assets do repositorio
-├── public/                  # Icones estaticos e favicon
-├── src/                     # Codigo React / TypeScript
-│   ├── components/          # Componentes visuais (GraphView, NoteEditor, etc.)
-│   ├── services/            # Servicos de API e comunicacao IPC
-│   └── index.css            # Design System minimalista
-├── src-tauri/               # Backend Rust e Servidor MCP
-│   ├── src/                 # Logica de embeddings, SQLite e comandos
-│   └── Cargo.toml           # Manifesto do Rust
-├── vault/                   # Cofre principal de notas Markdown
-└── vaults/                  # Cofres adicionais isolados por projeto
+├── assets/                  # Brand vectors and repository assets
+├── public/                  # Static assets and icons
+├── src/                     # React 19 / TypeScript frontend
+│   ├── components/          # UI components (GraphView, NoteEditor, etc.)
+│   ├── services/            # API services and Tauri IPC bindings
+│   └── index.css            # Swiss minimalism design system
+├── src-tauri/               # Rust backend and MCP server
+│   ├── src/                 # Embedding pipeline, SQLite WAL, and IPC handlers
+│   └── Cargo.toml           # Rust manifest
+├── vault/                   # Default Markdown knowledge vault
+└── vaults/                  # Additional isolated vaults and metadata
 ```
 
 ---
 
-## Curadoria de Notas
+## Note Curation Guidelines
 
-Para maximizar a precisao da recuperacao vetorial e a economia de contexto:
+To maximize vector retrieval accuracy and token efficiency:
 
-1. **H1 com Titulo e Resumo**: Inicie o documento com `# Titulo da Nota` e um resumo direto de 2 a 3 linhas.
-2. **Subsecoes H2 e H3**: Mantenha blocos concisos entre **40 e 150 tokens**. Use titulos semanticos claros (ex: `## 2. Configuracao do SQLite WAL`).
-3. **Wikilinks**: Utilize `[[Nome da Nota]]` ou `[[Nome da Nota#Secao]]` para tecer o grafo e evitar nos orfaos.
-4. **Hashtags de Taxonomia**: Adicione tags em minusculas (ex: `#arquitetura #mcp #rust`) no final dos topicos para clusterizacao visual.
-
----
-
-## Contribuicao e Comunidade
-
-O GraphFinder e um projeto 100% open source. Contribuicoes de codigo, documentacao, relatorios de bugs e propostas de novas ferramentas MCP sao muito bem-vindas.
-
-* **Guia de Contribuicao**: Consulte o [CONTRIBUTING.md](CONTRIBUTING.md) para configuracao do ambiente local e padroes de commit.
-* **Codigo de Conduta**: Seguimos o padrao [Contributor Covenant](CODE_OF_CONDUCT.md).
-* **Seguranca**: Leia a nossa [Politica de Seguranca](SECURITY.md) para reporte responsavel de vulnerabilidades.
-* **Historico de Versoes**: Acompanhe as novidades e melhorias no [CHANGELOG.md](CHANGELOG.md).
+1. **H1 Title and Executive Summary**: Begin each note with `# Note Title` followed by a concise 2-3 line executive summary.
+2. **H2 and H3 Sub-sections**: Keep content blocks concise (**40 to 150 tokens**). Use descriptive semantic headers (e.g. `## 2. SQLite WAL Configuration`).
+3. **Wikilinks**: Connect concepts using `[[Note Name]]` or `[[Note Name#Section]]` to prevent orphan nodes in the graph.
+4. **Taxonomy Hashtags**: Add lowercase tags (e.g. `#architecture #mcp #rust`) at the bottom of topics for visual clustering.
 
 ---
 
-## Licenca
+## Contributing
 
-Distribuido sob a licenca [MIT](LICENSE). O codigo e livre para estudo, modificacao e distribuicao.
+GraphFinder is 100% open source under the MIT License. Contributions through bug reports, feature proposals, documentation improvements, and pull requests are warmly welcomed.
+
+* **Contributing Guide**: Check [CONTRIBUTING.md](CONTRIBUTING.md) for local environment setup, architecture notes, and PR guidelines.
+* **Code of Conduct**: We adhere to the [Contributor Covenant](CODE_OF_CONDUCT.md).
+* **Security Policy**: See [SECURITY.md](SECURITY.md) for responsible vulnerability disclosure.
+* **Changelog**: Review release notes and updates in [CHANGELOG.md](CHANGELOG.md).
+
+---
+
+## License
+
+Distributed under the [MIT License](LICENSE). Free for personal, academic, and commercial use.
 
 ---
 
 <div align="center">
-  <sub>Construido com foco em privacidade local, economia de tokens e arquitetura de conhecimento.</sub>
+  <sub>Built for local-first privacy, token economy, and high-density knowledge curation.</sub>
 </div>

@@ -1,35 +1,35 @@
 # Changelog
 
-Todas as mudancas notaveis neste projeto serao documentadas neste arquivo.
+All notable changes to this project will be documented in this file.
 
-O formato e baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
 ## [0.2.0] - 2026-10-19
 
-### Adicionado
-* Suporte nativo a Multi-Vaults isolados com bancos SQLite vetoriais independentes por projeto.
-* Servidor MCP integrado no executavel principal via argumento CLI `--mcp`.
-* Implementacao das 7 ferramentas MCP atômicas: `search_semantic`, `get_compressed_context`, `suggest_links`, `store_context`, `get_graph_neighborhood`, `link_notes` e `list_recent_notes`.
-* Parametro opcional `project` em todas as ferramentas MCP para operacoes em vaults secundarios sem contaminacao cruzada.
-* Modal interativo de exportacao de configuracao MCP, regras AGENTS.md e skill de curadoria.
-* Componente de alternancia rapida de vaults na barra superior (`ProjectSwitcher`).
-* Modal de criacao de novos projetos e vaults (`NewProjectModal`).
-* Identidade visual minimalista em SVG vetorial sem efeitos neon.
+### Added
+* Native multi-vault support with isolated SQLite databases and independent vector embeddings per project.
+* Embedded MCP server compiled into the primary desktop binary via the `--mcp` CLI argument.
+* 7 atomic MCP tools: `search_semantic`, `get_compressed_context`, `suggest_links`, `store_context`, `get_graph_neighborhood`, `link_notes`, and `list_recent_notes`.
+* Optional `project` parameter across all MCP tools for zero-cross-contamination multi-vault operations.
+* Interactive modal for exporting MCP configuration snippets, agent rules, and curator skills (`IntegrationModal`).
+* Top bar project switcher (`ProjectSwitcher`) and new project creation modal (`NewProjectModal`).
+* Custom file dialog for selecting arbitrary directories on the filesystem as vaults.
+* Minimalist matte SVG visual identity without neon glows or fluorescent shadows.
 
-### Modificado
-* Refatoracao completa do design system para estetica minimalista fosca (paleta OLED Charcoal, remocao de halos de neon e sombras fluorescentes).
-* Renderizacao do grafo 2D atualizada com aneis concentricos precisos e paleta sobria de tags.
-* Motor vetorial em Rust com SQLite em modo WAL para consultas concorrentes de alta velocidade.
+### Changed
+* Complete design system refactor adopting a Swiss minimal devtool aesthetic (monochrome OLED Charcoal, technical borders, Phosphor icons, zero emojis).
+* 2D force-directed graph renderer optimized with subtle concentric orbital rings and low-saturation tag clusters.
+* Rust vector engine utilizing SQLite in WAL mode for high-throughput concurrent indexing and retrieval.
 
 ---
 
 ## [0.1.0] - 2026-10-01
 
-### Adicionado
-* Versao inicial com suporte a cofre unico em `./vault`.
-* Chunking semantico atomico baseado em cabecalhos H2 e H3.
-* Motor FastEmbed local via ONNX Runtime.
-* Visualizacao interativa com física de forcas via Force-Graph Canvas.
-* Editor de Markdown com suporte a wikilinks `[[Link]]` e preview em tempo real.
+### Added
+* Initial release with single-vault architecture targeting `./vault`.
+* Atomic semantic chunking splitting Markdown documents strictly by `##` and `###` headers.
+* Local FastEmbed vector engine powered by ONNX Runtime.
+* Interactive 2D force-directed graph canvas for bidirectional wikilink visualization.
+* Markdown editor supporting `[[Note]]` wikilinks and real-time preview.

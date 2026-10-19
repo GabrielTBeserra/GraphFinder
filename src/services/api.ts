@@ -15,48 +15,48 @@ const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
 const MOCK_NOTES: NoteRecord[] = [
   {
-    id: 'arquitetura',
-    path: 'Arquitetura.md',
-    title: 'Arquitetura do Sistema',
-    summary: 'Divisão em três pilares: Armazenamento Físico SQLite, Motor Semântico FastEmbed e Protocolo MCP.',
-    content: `# Arquitetura do Sistema\n\nA arquitetura do GraphFinder é dividida em três pilares principais de alta densidade semântica:\n\n## 1. Armazenamento Físico e SQLite\n- **Arquivos Markdown (\`.md\`)**: Localizados no diretório local do vault. Legíveis por humanos, compatíveis com Obsidian.\n- **SQLite Local**: Guarda a tabela de nós, arestas (links bidirecionais extraídos do markdown) e vetores de embedding calculados localmente com suporte a WAL mode.\n\n## 2. Motor Semântico em Rust\n- Utiliza **FastEmbed** para calcular representações vetoriais semânticas via ONNX Runtime local sem enviar dados para a nuvem.\n- Expõe algoritmos de grafo (k-hop expansion) para extrair subgrafos relevantes ao redor de uma pesquisa ou nota.\n- Veja mais em [[Boas-vindas]].\n\n## 3. Protocolo MCP (Model Context Protocol)\n- Permite que ferramentas de IA usem comandos como \`store_context\` e \`search_semantic\` diretamente do seu editor.\n- Saiba como interagir em [[Guia de Uso]].\n\nTags: #arquitetura #rust #sqlite #embeddings #mcp\n\n- Conexão Semântica: [[Boas-vindas#O que torna o GraphFinder especial?]]\n- Conexão Semântica: [[Guia de Uso#Usando via MCP]]`,
+    id: 'architecture',
+    path: 'Architecture.md',
+    title: 'System Architecture',
+    summary: 'Divided into three pillars: SQLite Storage, FastEmbed Semantic Engine, and MCP Server.',
+    content: `# System Architecture\n\nGraphFinder is built upon three high-density architectural pillars designed for data sovereignty and surgical token efficiency:\n\n## 1. Local Storage and SQLite\n- **Plain Markdown (\`.md\`) Files**: Stored directly in your local vault directory. 100% human-readable with standard wikilinks [[Link]].\n- **Local SQLite Engine**: Stores nodes, relational edges, and vector embeddings in WAL mode for concurrent, low-latency queries.\n\n## 2. Rust Semantic Engine\n- Powered by **FastEmbed** and ONNX Runtime for offline embeddings with zero cloud dependencies.\n- Implements graph traversal algorithms (k-hop expansion) to extract focused neighborhoods around any query or note.\n- Learn more in [[Welcome]].\n\n## 3. Model Context Protocol (MCP) Server\n- Exposes tools like \`search_semantic\`, \`get_compressed_context\`, and \`store_context\` via stdio for AI coding assistants.\n- See integration workflows in the [[Usage Guide]].\n\nTags: #architecture #rust #sqlite #embeddings #mcp`,
     updated_at: Math.floor(Date.now() / 1000) - 3600,
-    tags: ['arquitetura', 'rust', 'sqlite', 'embeddings', 'mcp'],
-    outgoing_links: ['Boas-vindas', 'Guia de Uso'],
-    backlinks: ['Boas-vindas', 'Conceitos de IA e RAG'],
+    tags: ['architecture', 'rust', 'sqlite', 'embeddings', 'mcp'],
+    outgoing_links: ['Welcome', 'Usage Guide'],
+    backlinks: ['Welcome', 'AI Concepts and RAG'],
   },
   {
-    id: 'boas-vindas',
-    path: 'Boas-vindas.md',
-    title: 'Boas-vindas ao GraphFinder',
-    summary: 'Visão geral do cofre de conhecimento em grafo e motor de busca semântica local.',
-    content: `# Boas-vindas ao GraphFinder\n\nO GraphFinder é um sistema local-first de gerenciamento de conhecimento baseado em grafos e busca vetorial.\n\n## O que torna o GraphFinder especial?\n- **Busca Semântica Local**: Encontre notas por significado conceitual, não apenas palavras-chave exatas.\n- **Grafo Bidirecional**: Conecte ideias naturalmente através de [[Arquitetura]].\n- **Zero Telemetria**: Todo o processamento de IA roda localmente na sua máquina.\n\n## Primeiros Passos\n1. Explore as conexões no grafo interativo.\n2. Crie novas notas e use a sintaxe [[Nome da Nota]] para conectar conceitos.\n3. Configure o servidor MCP para integrar seus assistentes de IA.\n\nTags: #inicio #boasvindas #tutorial\n\n- Conexão Semântica: [[Arquitetura#1. Armazenamento Físico e SQLite]]`,
+    id: 'welcome',
+    path: 'Welcome.md',
+    title: 'Welcome to GraphFinder',
+    summary: 'Overview of the neural graph knowledge vault and local semantic search engine.',
+    content: `# Welcome to GraphFinder\n\nGraphFinder is a local-first knowledge management system powered by an interactive graph and local vector search.\n\n## What Makes GraphFinder Unique?\n- **Local Semantic Retrieval**: Discover notes by conceptual meaning, not just exact keywords.\n- **Bidirectional Graph**: Connect ideas naturally through [[Architecture]].\n- **Zero Telemetry**: All AI vector processing runs locally on your machine with zero cloud dependencies.\n\n## Getting Started\n1. Explore connections in the interactive graph canvas.\n2. Create new notes using the [[Note Title]] syntax to link concepts.\n3. Follow the [[Usage Guide]] to configure the embedded MCP server for your AI coding assistants.\n4. Read [[AI Concepts and RAG]] to understand our atomic chunking model.\n\nTags: #welcome #onboarding #tutorial`,
     updated_at: Math.floor(Date.now() / 1000) - 7200,
-    tags: ['inicio', 'boasvindas', 'tutorial'],
-    outgoing_links: ['Arquitetura'],
-    backlinks: ['Arquitetura', 'Guia de Uso'],
+    tags: ['welcome', 'onboarding', 'tutorial'],
+    outgoing_links: ['Architecture', 'Usage Guide', 'AI Concepts and RAG'],
+    backlinks: ['Architecture', 'Usage Guide'],
   },
   {
-    id: 'guia-de-uso',
-    path: 'Guia de Uso.md',
-    title: 'Guia de Uso e Operação',
-    summary: 'Manual prático para criar notas, navegar no grafo e integrar com assistentes de IA via MCP.',
-    content: `# Guia de Uso e Operação\n\nAprenda a extrair o máximo do GraphFinder com fluxos de trabalho otimizados para economia de tokens.\n\n## 1. Criando e Conectando Notas\nPara ligar uma ideia a outra, digite \`[[Nome da Nota]]\` em qualquer lugar do texto.\nO grafo atualizará automaticamente em tempo real.\n\n## 2. Usando via MCP com Agentes de IA\nSeu agente de IA pode consultar o cofre utilizando as ferramentas MCP registradas.\nAs ferramentas retornam deep links no formato \`[[Nota#Seção]]\` para poupar tokens de contexto.\n\n## 3. Auto-Linker Semântico\nAo editar uma nota, clique em **Auto-Linker** para que a IA analise a afinidade do texto com outras notas já existentes no cofre.\n\nTags: #guia #tutorial #mcp #ia\n\n- Conexão Semântica: [[Arquitetura#3. Protocolo MCP]]`,
+    id: 'usage-guide',
+    path: 'Usage Guide.md',
+    title: 'Usage Guide',
+    summary: 'Practical workflows to maximize productivity and token efficiency in GraphFinder.',
+    content: `# Usage Guide\n\nPractical workflows to maximize productivity and token efficiency in GraphFinder:\n\n## 1. Creating and Connecting Notes\n- To connect notes, use the standard wikilink syntax \`[[Note Title]]\`.\n- Example: Link directly to [[Architecture]] or return to [[Welcome]].\n- The interactive 2D graph updates in real time as you type.\n\n## 2. Tags and Categorization\n- Add contextual hashtags such as \`#research\`, \`#project\`, or \`#architecture\` to your notes.\n- The graph canvas groups and visualizes nodes by color based on their dominant tag clusters.\n\n## 3. Operating via MCP\n- AI agents query your knowledge vault using surgical atomic tools (\`search_semantic\`).\n- Agents receive precise deep links like \`[[Note#Section]]\` consuming ~50 tokens rather than whole files.\n- Check our RAG foundations in [[AI Concepts and RAG]].\n\nTags: #guide #tutorial #productivity #mcp`,
     updated_at: Math.floor(Date.now() / 1000) - 10800,
-    tags: ['guia', 'tutorial', 'mcp', 'ia'],
-    outgoing_links: ['Arquitetura'],
-    backlinks: ['Arquitetura', 'Boas-vindas'],
+    tags: ['guide', 'tutorial', 'productivity', 'mcp'],
+    outgoing_links: ['Architecture', 'Welcome', 'AI Concepts and RAG'],
+    backlinks: ['Architecture', 'Welcome'],
   },
   {
-    id: 'conceitos-de-ia-e-rag',
-    path: 'Conceitos de IA e RAG.md',
-    title: 'Conceitos de IA e RAG Atômico',
-    summary: 'Fundamentos de Retrieval-Augmented Generation atômico, chunking semântico e economia de contexto.',
-    content: `# Conceitos de IA e RAG Atômico\n\nComo o GraphFinder transforma markdown convencional em uma base de conhecimento hiper-eficiente para LLMs.\n\n## 1. Chunking Atômico por Cabeçalhos\nAo invés de vetorizar documentos inteiros, o GraphFinder divide o arquivo por cabeçalhos \`##\` e \`###\` gerando vetores independentes de 40 a 150 tokens.\n\n## 2. Deep Linking Inteligente\nQuando o agente de IA faz uma busca semântica, ele recebe apenas a subseção exata necessária acompanhada do deep link \`[[Nota#Seção]]\`.\n\nTags: #ia #rag #embeddings #arquitetura`,
+    id: 'ai-concepts-and-rag',
+    path: 'AI Concepts and RAG.md',
+    title: 'AI Concepts and Atomic RAG',
+    summary: 'Foundations of atomic Retrieval-Augmented Generation, semantic chunking, and context conservation.',
+    content: `# AI Concepts and Atomic RAG\n\nHow GraphFinder transforms standard Markdown into a high-density, token-efficient knowledge base for LLMs:\n\n## 1. Atomic Chunking by Headers\n- Rather than vectorizing entire documents or arbitrary character windows, GraphFinder splits notes strictly across \`##\` and \`###\` headers.\n- Each chunk averages 40 to 150 tokens, creating fine-grained vectors with clear semantic boundaries.\n\n## 2. Deep Linking and Context Economy\n- When an AI agent performs a semantic query, the MCP server returns only the exact matching subsection with a \`[[Note#Section]]\` deep link.\n- This preserves context window budget and eliminates prompt degradation.\n- Review technical implementation in [[Architecture]].\n\nTags: #ai #rag #embeddings #architecture`,
     updated_at: Math.floor(Date.now() / 1000) - 14400,
-    tags: ['ia', 'rag', 'embeddings', 'arquitetura'],
-    outgoing_links: ['Arquitetura'],
-    backlinks: [],
+    tags: ['ai', 'rag', 'embeddings', 'architecture'],
+    outgoing_links: ['Architecture'],
+    backlinks: ['Welcome', 'Usage Guide'],
   },
 ];
 
@@ -66,21 +66,21 @@ export async function fetchGraph(): Promise<GraphData> {
   }
   return {
     nodes: [
-      { id: 'arquitetura', title: 'Arquitetura do Sistema', tags: ['arquitetura', 'rust', 'sqlite'], degree: 4 },
-      { id: 'boas-vindas', title: 'Boas-vindas ao GraphFinder', tags: ['inicio', 'boasvindas'], degree: 3 },
-      { id: 'guia-de-uso', title: 'Guia de Uso e Operação', tags: ['guia', 'tutorial', 'mcp'], degree: 3 },
-      { id: 'conceitos-de-ia-e-rag', title: 'Conceitos de IA e RAG Atômico', tags: ['ia', 'rag', 'arquitetura'], degree: 2 },
-      { id: 'fastembed-local', title: 'Motor FastEmbed ONNX', tags: ['rust', 'embeddings'], degree: 2 },
-      { id: 'sqlite-wal', title: 'Armazenamento SQLite WAL', tags: ['sqlite', 'arquitetura'], degree: 2 },
+      { id: 'architecture', title: 'System Architecture', tags: ['architecture', 'rust', 'sqlite'], degree: 4 },
+      { id: 'welcome', title: 'Welcome to GraphFinder', tags: ['welcome', 'onboarding'], degree: 3 },
+      { id: 'usage-guide', title: 'Usage Guide', tags: ['guide', 'tutorial', 'mcp'], degree: 3 },
+      { id: 'ai-concepts-and-rag', title: 'AI Concepts and Atomic RAG', tags: ['ai', 'rag', 'architecture'], degree: 2 },
+      { id: 'fastembed-local', title: 'FastEmbed ONNX Engine', tags: ['rust', 'embeddings'], degree: 2 },
+      { id: 'sqlite-wal', title: 'SQLite WAL Storage', tags: ['sqlite', 'architecture'], degree: 2 },
     ],
     links: [
-      { source: 'arquitetura', target: 'boas-vindas', label: 'contexto' },
-      { source: 'arquitetura', target: 'guia-de-uso', label: 'instruções' },
-      { source: 'conceitos-de-ia-e-rag', target: 'arquitetura', label: 'implementa' },
-      { source: 'guia-de-uso', target: 'boas-vindas', label: 'onboarding' },
-      { source: 'fastembed-local', target: 'arquitetura', label: 'motor' },
-      { source: 'sqlite-wal', target: 'arquitetura', label: 'persistencia' },
-      { source: 'conceitos-de-ia-e-rag', target: 'fastembed-local', label: 'vetoriza' },
+      { source: 'architecture', target: 'welcome', label: 'context' },
+      { source: 'architecture', target: 'usage-guide', label: 'instructions' },
+      { source: 'ai-concepts-and-rag', target: 'architecture', label: 'implements' },
+      { source: 'usage-guide', target: 'welcome', label: 'onboarding' },
+      { source: 'fastembed-local', target: 'architecture', label: 'engine' },
+      { source: 'sqlite-wal', target: 'architecture', label: 'persistence' },
+      { source: 'ai-concepts-and-rag', target: 'fastembed-local', label: 'vectorizes' },
     ],
   };
 }
@@ -158,31 +158,31 @@ export async function searchChunks(query: string, limit: number = 8): Promise<Ch
   return [
     {
       chunk_id: 'chk-1',
-      note_id: 'arquitetura',
-      note_title: 'Arquitetura do Sistema',
-      heading: '2. Motor Semântico em Rust',
-      deep_link: '[[Arquitetura#2. Motor Semântico em Rust]]',
-      content: 'Utiliza FastEmbed para calcular representações vetoriais semânticas via ONNX Runtime local sem enviar dados para a nuvem.',
+      note_id: 'architecture',
+      note_title: 'System Architecture',
+      heading: '2. Rust Semantic Engine',
+      deep_link: '[[Architecture#2. Rust Semantic Engine]]',
+      content: 'Powered by FastEmbed and ONNX Runtime for offline embeddings with zero cloud dependencies.',
       token_estimate: 48,
       score: 0.94,
     },
     {
       chunk_id: 'chk-2',
-      note_id: 'conceitos-de-ia-e-rag',
-      note_title: 'Conceitos de IA e RAG Atômico',
-      heading: '1. Chunking Atômico por Cabeçalhos',
-      deep_link: '[[Conceitos de IA e RAG Atômico#1. Chunking Atômico]]',
-      content: 'Ao invés de vetorizar documentos inteiros, divide o arquivo por cabeçalhos gerando vetores independentes de 40 a 150 tokens.',
+      note_id: 'ai-concepts-and-rag',
+      note_title: 'AI Concepts and Atomic RAG',
+      heading: '1. Atomic Chunking by Headers',
+      deep_link: '[[AI Concepts and RAG#1. Atomic Chunking by Headers]]',
+      content: 'Rather than vectorizing entire documents, splits notes strictly across headers generating independent vectors of 40 to 150 tokens.',
       token_estimate: 56,
       score: 0.89,
     },
     {
       chunk_id: 'chk-3',
-      note_id: 'guia-de-uso',
-      note_title: 'Guia de Uso e Operação',
-      heading: '2. Usando via MCP com Agentes de IA',
-      deep_link: '[[Guia de Uso#2. Usando via MCP com Agentes de IA]]',
-      content: 'As ferramentas retornam deep links no formato [[Nota#Seção]] para poupar tokens de contexto na janela de atenção da LLM.',
+      note_id: 'usage-guide',
+      note_title: 'Usage Guide',
+      heading: '3. Operating via MCP',
+      deep_link: '[[Usage Guide#3. Operating via MCP]]',
+      content: 'Tools return deep links in [[Note#Section]] format to preserve context window tokens in LLM attention layers.',
       token_estimate: 52,
       score: 0.84,
     },
@@ -204,20 +204,20 @@ export async function suggestLinks(
   }
   return [
     {
-      target_note_id: 'arquitetura',
-      target_title: 'Arquitetura do Sistema',
-      heading: '1. Armazenamento Físico e SQLite',
-      deep_link: '[[Arquitetura#1. Armazenamento Físico e SQLite]]',
+      target_note_id: 'architecture',
+      target_title: 'System Architecture',
+      heading: '1. Local Storage and SQLite',
+      deep_link: '[[Architecture#1. Local Storage and SQLite]]',
       similarity_score: 0.89,
-      preview: 'SQLite Local: Guarda a tabela de nós, arestas e vetores de embedding calculados localmente.',
+      preview: 'Local SQLite Engine: Stores nodes, relational edges, and vector embeddings in WAL mode.',
     },
     {
-      target_note_id: 'conceitos-de-ia-e-rag',
-      target_title: 'Conceitos de IA e RAG Atômico',
-      heading: 'Chunking Atômico',
-      deep_link: '[[Conceitos de IA e RAG Atômico#Chunking Atômico]]',
+      target_note_id: 'ai-concepts-and-rag',
+      target_title: 'AI Concepts and Atomic RAG',
+      heading: 'Atomic Chunking',
+      deep_link: '[[AI Concepts and RAG#Atomic Chunking]]',
       similarity_score: 0.82,
-      preview: 'Segmentação atômica por seções para conservação de tokens.',
+      preview: 'Fine-grained section segmentation for LLM token conservation.',
     },
   ];
 }
@@ -310,15 +310,23 @@ export async function switchProject(projectId: string): Promise<ProjectInfo> {
   };
 }
 
-export async function createProject(name: string): Promise<ProjectInfo> {
+export async function pickDirectory(): Promise<string | null> {
   if (isTauri) {
-    return await invoke<ProjectInfo>('create_project', { name });
+    return await invoke<string | null>('pick_directory');
   }
+  return null;
+}
+
+export async function createProject(name: string, path?: string): Promise<ProjectInfo> {
+  if (isTauri) {
+    return await invoke<ProjectInfo>('create_project', { name, path: path || null });
+  }
+  const cleanPath = path || `./vaults/${name.toLowerCase()}`;
   return {
     id: name.toLowerCase(),
     name,
-    path: `./vaults/${name.toLowerCase()}`,
-    db_path: `./vaults/${name.toLowerCase()}/index.db`,
+    path: cleanPath,
+    db_path: `${cleanPath}/index.db`,
     note_count: 1,
     is_active: true,
   };
