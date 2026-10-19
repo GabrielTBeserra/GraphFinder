@@ -155,7 +155,8 @@ async fn handle_request(
                         "inputSchema": {
                             "type": "object",
                             "properties": {
-                                "name": { "type": "string", "description": "Nome do novo projeto (ex: 'HomeLab', 'Finanças', 'Estudos')" }
+                                "name": { "type": "string", "description": "Nome do novo projeto (ex: 'HomeLab', 'Finanças', 'Estudos')" },
+                                "path": { "type": "string", "description": "Caminho absoluto opcional da pasta no computador" }
                             },
                             "required": ["name"]
                         }
@@ -275,37 +276,6 @@ async fn handle_request(
                             "properties": {
                                 "project": { "type": "string", "description": "ID do projeto/vault específico (opcional)" }
                             }
-                        }
-                    },
-                    {
-                        "name": "list_projects",
-                        "description": "Lista todos os projetos e cofres de notas disponíveis no GraphFinder.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {}
-                        }
-                    },
-                    {
-                        "name": "create_project",
-                        "description": "Cria um novo cofre de notas em qualquer diretório do computador ou na pasta padrão de vaults.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "name": { "type": "string", "description": "Nome do projeto ou cofre" },
-                                "path": { "type": "string", "description": "Caminho absoluto opcional da pasta no computador" }
-                            },
-                            "required": ["name"]
-                        }
-                    },
-                    {
-                        "name": "switch_project",
-                        "description": "Alterna o cofre ativo no GraphFinder.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "project_id": { "type": "string", "description": "ID do projeto a ser ativado" }
-                            },
-                            "required": ["project_id"]
                         }
                     }
                 ]
