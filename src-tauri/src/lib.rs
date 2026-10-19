@@ -42,12 +42,22 @@ async fn pick_directory() -> Result<Option<String>, String> {
 
 #[tauri::command]
 async fn get_graph(manager: State<'_, Arc<VaultManager>>) -> Result<GraphData, String> {
-    manager.active_engine().await.get_graph().await.map_err(|e| e.to_string())
+    manager
+        .active_engine()
+        .await
+        .get_graph()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn list_notes(manager: State<'_, Arc<VaultManager>>) -> Result<Vec<NoteSummary>, String> {
-    manager.active_engine().await.list_notes().await.map_err(|e| e.to_string())
+    manager
+        .active_engine()
+        .await
+        .list_notes()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -55,7 +65,12 @@ async fn get_note(
     id: String,
     manager: State<'_, Arc<VaultManager>>,
 ) -> Result<Option<NoteRecord>, String> {
-    manager.active_engine().await.get_note(&id).await.map_err(|e| e.to_string())
+    manager
+        .active_engine()
+        .await
+        .get_note(&id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -166,7 +181,12 @@ async fn link_notes(
 
 #[tauri::command]
 async fn sync_vault(manager: State<'_, Arc<VaultManager>>) -> Result<usize, String> {
-    manager.active_engine().await.sync_vault().await.map_err(|e| e.to_string())
+    manager
+        .active_engine()
+        .await
+        .sync_vault()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[derive(serde::Serialize)]
@@ -200,7 +220,7 @@ async fn get_mcp_config(manager: State<'_, Arc<VaultManager>>) -> Result<McpConf
     let escaped_db = clean_db.replace('\\', "\\\\");
 
     let config_json = format!(
-r#"{{
+        r#"{{
   "mcpServers": {{
     "graphfinder": {{
       "command": "{}",

@@ -2,13 +2,11 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
-static WIKILINK_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\[\[(.*?)\]\]").expect("valid regex for wikilinks")
-});
+static WIKILINK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\[\[(.*?)\]\]").expect("valid regex for wikilinks"));
 
-static TAG_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:^|\s)#([a-zA-Z0-9_\-\p{L}]+)").expect("valid regex for tags")
-});
+static TAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|\s)#([a-zA-Z0-9_\-\p{L}]+)").expect("valid regex for tags"));
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedChunk {
@@ -39,7 +37,7 @@ pub fn parse_markdown(filename_stem: &str, content: &str) -> ParsedNote {
     let lines: Vec<&str> = content.lines().collect();
     let mut i = 0;
 
-    if lines.first().map_or(false, |l| l.trim() == "---") {
+    if lines.first().is_some_and(|l| l.trim() == "---") {
         _in_frontmatter = true;
         i = 1;
         while i < lines.len() {
@@ -114,7 +112,12 @@ pub fn parse_markdown(filename_stem: &str, content: &str) -> ParsedNote {
         if let Some(rest) = trimmed.strip_prefix("tags:") {
             let rest = rest.trim().trim_matches('[').trim_matches(']');
             for part in rest.split(',') {
-                let tag = part.trim().trim_matches('"').trim_matches('\'').trim_start_matches('#').trim();
+                let tag = part
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .trim_start_matches('#')
+                    .trim();
                 if !tag.is_empty() {
                     note_tags_set.insert(tag.to_lowercase());
                 }
@@ -244,7 +247,11 @@ fn extract_summary(lines: &[&str]) -> String {
     for line in lines {
         let trimmed = line.trim();
         // Skip headings, horizontal rules, frontmatter
-        if trimmed.starts_with('#') || trimmed.starts_with("---") || trimmed.starts_with("```") || trimmed.is_empty() {
+        if trimmed.starts_with('#')
+            || trimmed.starts_with("---")
+            || trimmed.starts_with("```")
+            || trimmed.is_empty()
+        {
             continue;
         }
         clean_sentences.push(trimmed);

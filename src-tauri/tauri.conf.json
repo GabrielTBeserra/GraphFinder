@@ -30,9 +30,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": [
-      "../models/all-MiniLM-L6-v2/*"
-    ],
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

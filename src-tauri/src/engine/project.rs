@@ -59,7 +59,9 @@ pub fn slugify(name: &str) -> String {
 }
 
 impl VaultManager {
-    pub fn new(embeddings: Arc<EmbeddingEngine>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn new(
+        embeddings: Arc<EmbeddingEngine>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let base_dir = resolve_base_dir();
         let vaults_dir = base_dir.join("vaults");
         if !vaults_dir.exists() {
@@ -114,7 +116,11 @@ impl VaultManager {
     }
 
     pub async fn get_or_create_engine(&self, project_id: &str) -> Arc<Engine> {
-        let id = if project_id.trim().is_empty() { "default" } else { project_id };
+        let id = if project_id.trim().is_empty() {
+            "default"
+        } else {
+            project_id
+        };
 
         // Check if already in cache
         {
@@ -181,7 +187,10 @@ impl VaultManager {
         let def_count = count_notes_in_dir(&def_vault);
         list.push(ProjectInfo {
             id: "default".to_string(),
-            name: names.get("default").cloned().unwrap_or_else(|| "Principal".to_string()),
+            name: names
+                .get("default")
+                .cloned()
+                .unwrap_or_else(|| "Principal".to_string()),
             path: def_vault.to_string_lossy().to_string(),
             db_path: def_db.to_string_lossy().to_string(),
             note_count: def_count,
@@ -224,7 +233,10 @@ impl VaultManager {
                     }
 
                     let id = folder_name.to_string();
-                    let name = names.get(&id).cloned().unwrap_or_else(|| folder_name.to_string());
+                    let name = names
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_else(|| folder_name.to_string());
                     let db_path = path.join("index.db").to_string_lossy().to_string();
                     let count = count_notes_in_dir(&path);
 
@@ -244,7 +256,11 @@ impl VaultManager {
     }
 
     pub async fn switch_project(&self, project_id: &str) -> Result<ProjectInfo, String> {
-        let target_id = if project_id.trim().is_empty() { "default" } else { project_id.trim() };
+        let target_id = if project_id.trim().is_empty() {
+            "default"
+        } else {
+            project_id.trim()
+        };
 
         // Ensure engine is loaded and synchronized
         let engine = self.get_or_create_engine(target_id).await;
@@ -260,7 +276,11 @@ impl VaultManager {
         self.get_project_info(target_id).await
     }
 
-    pub async fn create_project(&self, name: &str, custom_path: Option<String>) -> Result<ProjectInfo, String> {
+    pub async fn create_project(
+        &self,
+        name: &str,
+        custom_path: Option<String>,
+    ) -> Result<ProjectInfo, String> {
         let clean_name = name.trim();
         if clean_name.is_empty() {
             return Err("Nome do projeto não pode ser vazio".to_string());
@@ -277,7 +297,8 @@ impl VaultManager {
             if !clean_path.is_empty() {
                 let p = PathBuf::from(clean_path);
                 if !p.exists() {
-                    fs::create_dir_all(&p).map_err(|e| format!("Falha ao criar diretório: {}", e))?;
+                    fs::create_dir_all(&p)
+                        .map_err(|e| format!("Falha ao criar diretório: {}", e))?;
                 }
                 let canonical = fs::canonicalize(&p).unwrap_or(p);
                 let mut paths = self.custom_paths.write().await;
@@ -344,6 +365,8 @@ fn count_notes_in_dir(dir: &Path) -> usize {
     walkdir::WalkDir::new(dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file() && e.path().extension().and_then(|s| s.to_str()) == Some("md"))
+        .filter(|e| {
+            e.path().is_file() && e.path().extension().and_then(|s| s.to_str()) == Some("md")
+        })
         .count()
 }

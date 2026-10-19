@@ -75,7 +75,10 @@ impl EmbeddingEngine {
         }
 
         let model = if let Some(dir) = local_dir {
-            eprintln!("[GraphFinder] Carregando modelo local offline de {}...", dir.display());
+            eprintln!(
+                "[GraphFinder] Carregando modelo local offline de {}...",
+                dir.display()
+            );
             let onnx_file = std::fs::read(dir.join("model.onnx"))?;
             let tokenizer_files = TokenizerFiles {
                 tokenizer_file: std::fs::read(dir.join("tokenizer.json"))?,
@@ -96,7 +99,10 @@ impl EmbeddingEngine {
         })
     }
 
-    pub async fn embed_text(&self, text: &str) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn embed_text(
+        &self,
+        text: &str,
+    ) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         let texts = vec![text.to_string()];
         let model = self.model.lock().await;
         let mut embeddings = model.embed(texts, None)?;
@@ -108,7 +114,10 @@ impl EmbeddingEngine {
     }
 
     #[allow(dead_code)]
-    pub async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn embed_batch(
+        &self,
+        texts: Vec<String>,
+    ) -> Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
