@@ -29,7 +29,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
     if (isOpen) {
       fetchMcpConfig()
         .then((info) => setMcpInfo(info))
-        .catch((err) => console.error('Erro ao detectar caminhos do MCP:', err));
+        .catch((err) => console.error('Error detecting MCP paths:', err));
     }
   }, [isOpen]);
 
@@ -44,8 +44,8 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm animate-in fade-in-0 duration-200" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-2xl max-h-[90vh] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#111318] border border-[#262933] p-6 shadow-2xl flex flex-col animate-in fade-in-0 zoom-in-95 duration-200 focus:outline-none overflow-hidden text-[#f1f5f9]">
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-2xl max-h-[90vh] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#111318] border border-[#262933] p-6 shadow-2xl flex flex-col focus:outline-none overflow-hidden text-[#f1f5f9]">
           {/* Header */}
           <div className="flex items-start justify-between gap-4 pb-4 border-b border-[#1f232d]">
             <div className="flex items-center gap-3">
@@ -54,10 +54,10 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               </div>
               <div>
                 <Dialog.Title className="text-sm font-semibold text-[#f8fafc]">
-                  Integracao com IA: Regras, Skill & MCP
+                  AI Integration: Rules, Skill & MCP
                 </Dialog.Title>
                 <Dialog.Description className="text-xs text-[#64748b] mt-0.5">
-                  Regras de economia de tokens e configuracao prontas para seu editor ou agente.
+                  Token economy rules and configuration ready for your editor or AI agent.
                 </Dialog.Description>
               </div>
             </div>
@@ -66,7 +66,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               <button
                 type="button"
                 className="rounded-md p-1.5 text-[#64748b] hover:text-[#f8fafc] hover:bg-[#1a1e28] transition-colors cursor-pointer"
-                title="Fechar"
+                title="Close"
               >
                 <X size={15} />
               </button>
@@ -83,12 +83,12 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               {copiedType === 'rule-quick' ? (
                 <>
                   <Check size={14} weight="bold" className="text-[#10b981]" />
-                  <span className="text-[#10b981]">Regra Copiada!</span>
+                  <span className="text-[#10b981]">Rule Copied!</span>
                 </>
               ) : (
                 <>
                   <FileText size={14} className="text-[#64748b]" />
-                  <span>Copiar AGENTS.md</span>
+                  <span>Copy AGENTS.md</span>
                 </>
               )}
             </button>
@@ -101,12 +101,12 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               {copiedType === 'skill-quick' ? (
                 <>
                   <Check size={14} weight="bold" className="text-[#10b981]" />
-                  <span className="text-[#10b981]">Skill Copiada!</span>
+                  <span className="text-[#10b981]">Skill Copied!</span>
                 </>
               ) : (
                 <>
                   <BookOpen size={14} className="text-[#64748b]" />
-                  <span>Copiar SKILL.md</span>
+                  <span>Copy SKILL.md</span>
                 </>
               )}
             </button>
@@ -119,12 +119,12 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               {copiedType === 'mcp-quick' ? (
                 <>
                   <Check size={14} weight="bold" className="text-[#10b981]" />
-                  <span className="text-[#10b981]">Config Copiada!</span>
+                  <span className="text-[#10b981]">Config Copied!</span>
                 </>
               ) : (
                 <>
                   <TerminalWindow size={14} className="text-[#64748b]" />
-                  <span>Copiar Config JSON</span>
+                  <span>Copy Config JSON</span>
                 </>
               )}
             </button>
@@ -138,7 +138,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#64748b] hover:text-[#cbd5e1] data-[state=active]:bg-[#1a1e28] data-[state=active]:text-[#f8fafc] data-[state=active]:border data-[state=active]:border-[#2c3242] transition-all cursor-pointer outline-none"
               >
                 <FileText size={13} />
-                <span>Regra do Agente (AGENTS.md)</span>
+                <span>Agent Rule (AGENTS.md)</span>
               </Tabs.Trigger>
 
               <Tabs.Trigger
@@ -146,7 +146,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#64748b] hover:text-[#cbd5e1] data-[state=active]:bg-[#1a1e28] data-[state=active]:text-[#f8fafc] data-[state=active]:border data-[state=active]:border-[#2c3242] transition-all cursor-pointer outline-none"
               >
                 <BookOpen size={13} />
-                <span>Skill de Curadoria (SKILL.md)</span>
+                <span>Curator Skill (SKILL.md)</span>
               </Tabs.Trigger>
 
               <Tabs.Trigger
@@ -154,7 +154,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#64748b] hover:text-[#cbd5e1] data-[state=active]:bg-[#1a1e28] data-[state=active]:text-[#f8fafc] data-[state=active]:border data-[state=active]:border-[#2c3242] transition-all cursor-pointer outline-none"
               >
                 <Cpu size={13} />
-                <span>Protocolo MCP & Tools</span>
+                <span>MCP Protocol & Tools</span>
               </Tabs.Trigger>
             </Tabs.List>
 
@@ -163,15 +163,15 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               <div className="rounded-lg bg-[#161922] border border-[#262a36] p-3 text-xs text-[#cbd5e1]">
                 <div className="flex items-center gap-1.5 font-semibold text-[#f8fafc] mb-1">
                   <CheckCircle size={14} className="text-[#10b981]" />
-                  <span>Como usar no seu editor:</span>
+                  <span>How to use in your editor:</span>
                 </div>
                 <p className="text-[11px] text-[#94a3b8] leading-relaxed">
-                  Cole este conteudo no arquivo <code>AGENTS.md</code> ou <code>.cursorrules</code> na raiz do projeto, ou nas instrucoes de sistema do Cursor, Windsurf, Claude Desktop ou Antigravity.
+                  Paste this content into <code>AGENTS.md</code> or <code>.cursorrules</code> at your workspace root, or into system instructions for Cursor, Windsurf, Claude Desktop, or Antigravity.
                 </p>
               </div>
 
               <div className="flex items-center justify-between text-xs text-[#64748b]">
-                <span className="font-medium text-[#cbd5e1]">Previa de AGENTS.md:</span>
+                <span className="font-medium text-[#cbd5e1]">Preview of AGENTS.md:</span>
                 <button
                   type="button"
                   onClick={() => copyToClipboard(AGENT_RULE_CONTENT, 'rule-tab')}
@@ -180,12 +180,12 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                   {copiedType === 'rule-tab' ? (
                     <>
                       <Check size={12} weight="bold" className="text-[#10b981]" />
-                      <span className="text-[#10b981]">Copiado!</span>
+                      <span className="text-[#10b981]">Copied!</span>
                     </>
                   ) : (
                     <>
                       <Copy size={12} />
-                      <span>Copiar Texto</span>
+                      <span>Copy Text</span>
                     </>
                   )}
                 </button>
@@ -201,15 +201,15 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               <div className="rounded-lg bg-[#161922] border border-[#262a36] p-3 text-xs text-[#cbd5e1]">
                 <div className="flex items-center gap-1.5 font-semibold text-[#f8fafc] mb-1">
                   <CheckCircle size={14} className="text-[#a78bfa]" />
-                  <span>Como instalar a Skill:</span>
+                  <span>How to install this skill:</span>
                 </div>
                 <p className="text-[11px] text-[#94a3b8] leading-relaxed">
-                  Salve o conteudo em <code>.agents/skills/graphfinder-curator/SKILL.md</code>. O Antigravity carregara a skill automaticamente sob demanda.
+                  Save this content into <code>.agents/skills/graphfinder-curator/SKILL.md</code>. Antigravity will automatically load the skill on demand.
                 </p>
               </div>
 
               <div className="flex items-center justify-between text-xs text-[#64748b]">
-                <span className="font-medium text-[#cbd5e1]">Previa de SKILL.md:</span>
+                <span className="font-medium text-[#cbd5e1]">Preview of SKILL.md:</span>
                 <button
                   type="button"
                   onClick={() => copyToClipboard(SKILL_CONTENT, 'skill-tab')}
@@ -218,12 +218,12 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                   {copiedType === 'skill-tab' ? (
                     <>
                       <Check size={12} weight="bold" className="text-[#10b981]" />
-                      <span className="text-[#10b981]">Copiada!</span>
+                      <span className="text-[#10b981]">Copied!</span>
                     </>
                   ) : (
                     <>
                       <Copy size={12} />
-                      <span>Copiar Skill</span>
+                      <span>Copy Skill</span>
                     </>
                   )}
                 </button>
@@ -240,18 +240,18 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                 <div className="rounded-lg bg-[#161922] border border-[#262a36] p-3 text-xs text-[#cbd5e1]">
                   <div className="flex items-center gap-1.5 font-semibold text-[#38bdf8] mb-1">
                     <Folder size={14} className="text-[#38bdf8]" />
-                    <span>Caminhos detectados no sistema:</span>
+                    <span>Detected System Paths:</span>
                   </div>
                   <div className="font-mono text-[11px] space-y-0.5 text-[#94a3b8] break-all">
-                    <div><strong>Executavel:</strong> {mcpInfo.executable_path}</div>
-                    <div><strong>Cofre (Vault):</strong> {mcpInfo.vault_path}</div>
-                    <div><strong>Banco de Dados:</strong> {mcpInfo.db_path}</div>
+                    <div><strong>Executable:</strong> {mcpInfo.executable_path}</div>
+                    <div><strong>Vault Directory:</strong> {mcpInfo.vault_path}</div>
+                    <div><strong>Database:</strong> {mcpInfo.db_path}</div>
                   </div>
                 </div>
               )}
 
               <div className="flex items-center justify-between text-xs text-[#64748b]">
-                <span className="font-medium text-[#cbd5e1]">Configuracao JSON pronta para copiar:</span>
+                <span className="font-medium text-[#cbd5e1]">JSON configuration ready to copy:</span>
                 <button
                   type="button"
                   onClick={() => copyToClipboard(currentConfigJson, 'mcp-tab')}
@@ -260,12 +260,12 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                   {copiedType === 'mcp-tab' ? (
                     <>
                       <Check size={12} weight="bold" className="text-[#10b981]" />
-                      <span className="text-[#10b981]">JSON Copiado!</span>
+                      <span className="text-[#10b981]">JSON Copied!</span>
                     </>
                   ) : (
                     <>
                       <Copy size={12} />
-                      <span>Copiar JSON</span>
+                      <span>Copy JSON</span>
                     </>
                   )}
                 </button>
@@ -278,14 +278,14 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               <div className="space-y-1.5 pt-1">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-[#cbd5e1]">
                   <Cpu size={13} className="text-[#64748b]" />
-                  <span>Ferramentas Atomicas Disponiveis:</span>
+                  <span>Available Atomic MCP Tools:</span>
                 </div>
                 <ul className="text-xs text-[#94a3b8] space-y-1 pl-4 list-disc">
-                  <li><code>search_semantic(query)</code>: Retorna trechos atomicos com deep links <code>[[Nota#Secao]]</code>.</li>
-                  <li><code>get_compressed_context(note_id)</code>: Digest e mapa de secoes (~100 tokens).</li>
-                  <li><code>suggest_links(text)</code>: Auto-linker semantico em tempo real para novos paragrafos.</li>
-                  <li><code>store_context(title, content, tags)</code>: Registra nota com chunking e embeddings locais.</li>
-                  <li><code>get_graph_neighborhood(note_id)</code>: Raio topologico de nos vizinhos.</li>
+                  <li><code>search_semantic(query)</code>: Returns atomic chunks with <code>[[Note#Section]]</code> deep links.</li>
+                  <li><code>get_compressed_context(note_id)</code>: Structural digest and section map (~100 tokens).</li>
+                  <li><code>suggest_links(text)</code>: Real-time semantic auto-linker for draft paragraphs.</li>
+                  <li><code>store_context(title, content, tags)</code>: Stores note with local chunking and ONNX embeddings.</li>
+                  <li><code>get_graph_neighborhood(note_id)</code>: Topological traversal radius of adjacent nodes.</li>
                 </ul>
               </div>
             </Tabs.Content>
@@ -298,7 +298,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               onClick={onClose}
               className="px-4 py-1.5 text-xs font-semibold rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer"
             >
-              Concluir
+              Done
             </button>
           </div>
         </Dialog.Content>

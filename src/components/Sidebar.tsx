@@ -83,10 +83,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           type="button"
           onClick={onNewNote}
           className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#161922] hover:bg-[#1a1e28] border border-[#262a36] text-[11px] font-medium text-[#cbd5e1] transition-all cursor-pointer"
-          title="Criar nova nota Markdown"
+          title="Create new Markdown note"
         >
           <Plus size={11} weight="bold" />
-          <span>Nota</span>
+          <span>Note</span>
         </button>
       </div>
 
@@ -107,14 +107,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 type="button"
                 onClick={() => setSearchTerm('')}
                 className="absolute right-2 p-0.5 rounded text-[#64748b] hover:text-[#f1f5f9] transition-colors cursor-pointer"
-                title="Limpar busca"
+                title="Clear search"
               >
                 <X size={12} />
               </button>
             ) : (
               <span
                 className="absolute right-2 flex items-center justify-center w-3.5 h-3.5 rounded bg-[#1e222d] text-[#64748b] text-[9px]"
-                title="Pressione Enter para busca semantica"
+                title="Press Enter for semantic search"
               >
                 <ArrowElbowDownLeft size={9} />
               </span>
@@ -137,7 +137,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }`}
         >
           <FileText size={12} />
-          <span>Notas ({notes.length})</span>
+          <span>Notes ({notes.length})</span>
         </button>
 
         <button
@@ -157,7 +157,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }`}
         >
           <Stack size={12} />
-          <span>Secoes ({chunkResults.length})</span>
+          <span>Chunks ({chunkResults.length})</span>
         </button>
 
         <button
@@ -186,7 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-rose-950/60 text-rose-300 border border-rose-800/40 hover:bg-rose-900/50 transition-colors cursor-pointer shrink-0"
             >
               <X size={10} />
-              Limpar Filtro
+              Clear Filter
             </button>
           )}
           {tagCounts.map(([tag, count]) => {
@@ -217,9 +217,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {isSearching ? (
               <div className="py-8 text-center text-[#64748b] text-xs">
                 <Stack size={18} className="mx-auto mb-2 text-indigo-400 animate-spin" />
-                <span className="font-medium text-[#cbd5e1] block">Calculando Embeddings...</span>
+                <span className="font-medium text-[#cbd5e1] block">Calculating Embeddings...</span>
                 <span className="text-[11px] text-[#64748b] block mt-1">
-                  FastEmbed local isolando chunks
+                  Local FastEmbed isolating chunks
                 </span>
               </div>
             ) : chunkResults.length === 0 ? (
@@ -227,8 +227,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="w-8 h-8 rounded-lg bg-[#12151c] border border-[#1e222d] flex items-center justify-center mx-auto mb-2 text-[#64748b]">
                   <Stack size={14} />
                 </div>
-                <strong className="block text-[#cbd5e1] mb-1">Busca Semantica</strong>
-                Digite um termo e pressione Enter para recuperar secoes atômicas.
+                <strong className="block text-[#cbd5e1] mb-1">Semantic Search</strong>
+                Enter a query and press Enter to retrieve atomic sections.
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -265,7 +265,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ) : filteredNotes.length === 0 ? (
           <div className="py-8 text-center text-[#64748b] text-xs">
             <FileText size={20} className="mx-auto mb-2 opacity-40" />
-            Nenhuma nota encontrada {searchTerm ? `para "${searchTerm}"` : ''}.
+            No notes found {searchTerm ? `for "${searchTerm}"` : ''}.
           </div>
         ) : (
           filteredNotes.map((note) => {
