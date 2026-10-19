@@ -8,62 +8,62 @@ description: >-
 
 # GraphFinder Curator Skill
 
-Esta skill guia agentes e editores no gerenciamento do cofre de conhecimento do **GraphFinder**, garantindo máxima economia de tokens, preservação do grafo semântico e fatiamento correto por seções atômicas.
+This skill guides AI agents and human editors in managing the **GraphFinder** knowledge vault, ensuring maximal token efficiency, relational graph coherence, and atomic semantic chunking across sections.
 
 ---
 
-## Quando Usar Esta Skill
-- Ao redigir ou estruturar novas notas no diretório `./vault` ou em vaults de projeto (`./vaults/<projeto>`).
-- Ao alternar entre múltiplos projetos com `list_projects`, `switch_project` ou criar novos com `create_project`.
-- Ao interagir com o GraphFinder através do servidor MCP (stdio).
-- Ao realizar buscas semânticas sem estourar o limite de tokens da LLM.
-- Ao solicitar ou aplicar sugestões automáticas de links no grafo.
+## When to Use This Skill
+- When drafting or structuring new notes in `./vault` or isolated project vaults (`./vaults/<project>`).
+- When toggling between workspaces with `list_projects`, `switch_project`, or creating new ones with `create_project`.
+- When communicating with GraphFinder via the embedded MCP server (stdio).
+- When executing semantic searches while preserving LLM context budget.
+- When generating or applying bidirectional graph links.
 
 ---
 
-## Fluxo de Leitura e Consulta (Recuperação de Baixo Custo)
+## Read and Query Workflow (Cost-Effective Retrieval)
 
-Quando o usuário pedir para você consultar ou responder a partir do conhecimento armazenado:
+When requested to answer or retrieve context from stored knowledge:
 
-1. **Passo 1: Busca Semântica por Trechos**
-   - Execute a tool MCP `search_semantic(query)`.
-   - Avalie os trechos retornados com seus respectivos scores de afinidade e contagens de tokens (~50-100 tokens cada).
-   - Identifique os deep links no formato `[[Nota#Seção]]`.
+1. **Step 1: Atomic Semantic Search**
+   - Execute the MCP tool `search_semantic(query)`.
+   - Review returned chunks, cosine affinity scores, and estimated token counts (~50–100 tokens per chunk).
+   - Identify precise deep links formatted as `[[Note#Section]]`.
 
-2. **Passo 2: Exploração de Vizinhança (Opcional)**
-   - Se o trecho mencionar outras notas conectadas ou se você precisar de contexto adjacente, chame `get_graph_neighborhood(note_id, depth: 1)`.
-   - Isso revela conexões de entrada (*backlinks*) e saída sem ler o corpo das notas.
+2. **Step 2: Neighborhood Exploration (Optional)**
+   - If a chunk references related concepts or adjacent context is required, call `get_graph_neighborhood(note_id, depth: 1)`.
+   - This exposes incoming backlinks and outgoing links without retrieving full document bodies.
 
-3. **Passo 3: Sumário Estrutural (Se necessário)**
-   - Se precisar saber a estrutura inteira de uma nota sem gastar tokens com o texto completo, chame `get_compressed_context(note_id)`.
-   - Isso traz o resumo em 2 linhas e a lista de seções com suas contagens de tokens.
-
----
-
-## Fluxo de Escrita e Curadoria (Adicionando Conhecimento)
-
-Ao criar ou atualizar notas no cofre:
-
-### 1. Estruturação em Seções Atômicas
-O motor semântico vetoriza os arquivos fatiando-os por cabeçalhos. Cada seção `##` ou `###` deve:
-- Conter um único conceito claro.
-- Ter entre 30 e 150 tokens.
-- Possuir um título descritivo que faça sentido isoladamente (ex: `## 2. Configuração do SQLite WAL` em vez de `## Configuração`).
-
-### 2. Auto-Linker Pré-Gravação
-Antes de salvar a nota:
-1. Pegue o texto ou parágrafo principal e passe para `suggest_links(text)`.
-2. O motor retornará notas ou seções existentes com alta similaridade vetorial (ex: `Score: 84%`).
-3. Incorpore essas referências no texto usando a sintaxe `[[Nome da Nota#Seção]]`.
-
-### 3. Registro no Cofre
-- Se operando via MCP: chame `store_context(title, content, tags)`.
-- Se editando diretamente o sistema de arquivos: salve o arquivo em `./vault/<Título>.md` e acione `sync_vault` ou deixe a sincronização automática indexar.
+3. **Step 3: Structural Compression (If Needed)**
+   - To inspect a note's complete outline without loading full text, call `get_compressed_context(note_id)`.
+   - Returns a 2-line executive summary and a list of all H2/H3 sections with respective token counts.
 
 ---
 
-## Documentação e Referências Adicionais
+## Write and Curation Workflow (Persisting Knowledge)
 
-Para modelos prontos e especificações detalhadas:
-- [Templates de Notas](./references/note-templates.md): Modelos prontos para Conceitos, Decisões de Arquitetura (ADR) e Tutoriais.
-- [Especificação de Ferramentas MCP](./references/mcp-spec.md): Parâmetros, retornos e payloads de cada comando MCP.
+When authoring or updating vault notes:
+
+### 1. Structural Chunking by Headers
+The semantic engine vectorizes documents by splitting on headers. Each `##` or `###` section must:
+- Cover a single coherent concept.
+- Span approximately 30 to 150 tokens.
+- Feature a self-explanatory title that maintains clarity out of context (e.g., `## 2. SQLite WAL Configuration` instead of `## Configuration`).
+
+### 2. Pre-Save Auto-Linker
+Before committing a new note:
+1. Pass draft paragraphs to `suggest_links(text)`.
+2. The engine returns matching vault sections with high vector affinity (e.g., `Score: 84%`).
+3. Embed these references into the text using wikilink syntax `[[Note Title#Section]]`.
+
+### 3. Vault Persistence
+- Via MCP: Call `store_context(title, content, tags)`.
+- Via Direct Filesystem: Save as `./vault/<Title>.md` and trigger `sync_vault` or allow automatic watcher indexing.
+
+---
+
+## Reference Documentation
+
+For ready-to-use schemas and tool specifications:
+- [Note Templates](./references/note-templates.md): Structured templates for Concepts, Architecture Decision Records (ADR), and MCP Sessions.
+- [MCP Tools Specification](./references/mcp-spec.md): Parameter schemas, return types, and protocol payloads.

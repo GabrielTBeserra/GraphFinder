@@ -71,18 +71,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className="w-80 h-full flex flex-col bg-zinc-950/95 border-r border-zinc-800/80 shrink-0 select-none z-10"
+      className="w-72 h-full flex flex-col bg-[#0d0f14] border-r border-[#1f232d] shrink-0 select-none z-10"
       aria-label="Painel de Navegacao e Busca"
     >
-      {/* Search Bar */}
-      <div className="p-3 border-b border-zinc-800/70">
+      {/* Section Label matching banner.svg line 41 */}
+      <div className="px-3.5 pt-3 pb-1 flex items-center justify-between">
+        <span className="text-[11px] font-bold text-[#64748b] tracking-[0.8px] uppercase">
+          Knowledge Vault
+        </span>
+        <button
+          type="button"
+          onClick={onNewNote}
+          className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#161922] hover:bg-[#1a1e28] border border-[#262a36] text-[11px] font-medium text-[#cbd5e1] transition-all cursor-pointer"
+          title="Criar nova nota Markdown"
+        >
+          <Plus size={11} weight="bold" />
+          <span>Nota</span>
+        </button>
+      </div>
+
+      {/* Search Bar matching banner.svg line 129 */}
+      <div className="p-3 pt-1.5 border-b border-[#1f232d]">
         <form onSubmit={handleSearchSubmit}>
-          <div className="relative flex items-center w-full rounded-lg bg-zinc-900/80 border border-zinc-800 focus-within:border-indigo-500/80 focus-within:ring-1 focus-within:ring-indigo-500/40 transition-all">
-            <MagnifyingGlass size={14} className="absolute left-3 text-zinc-400 pointer-events-none" />
+          <div className="relative flex items-center w-full rounded-md bg-[#171b26] border border-[#2d3446] focus-within:border-indigo-500/80 focus-within:ring-1 focus-within:ring-indigo-500/30 transition-all">
+            <MagnifyingGlass size={13} className="absolute left-2.5 text-[#64748b] pointer-events-none" />
             <input
               type="text"
-              className="w-full pl-9 pr-8 py-2 text-xs text-zinc-200 placeholder-zinc-400 bg-transparent focus:outline-none"
-              placeholder="Buscar ou Enter para IA..."
+              className="w-full pl-8 pr-7 py-1.5 text-xs text-[#f1f5f9] placeholder-[#64748b] bg-transparent focus:outline-none"
+              placeholder="search_semantic()..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -90,50 +106,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 p-0.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+                className="absolute right-2 p-0.5 rounded text-[#64748b] hover:text-[#f1f5f9] transition-colors cursor-pointer"
                 title="Limpar busca"
               >
-                <X size={13} />
+                <X size={12} />
               </button>
             ) : (
               <span
-                className="absolute right-2.5 flex items-center justify-center w-4 h-4 rounded bg-zinc-800 text-zinc-400 text-[10px]"
+                className="absolute right-2 flex items-center justify-center w-3.5 h-3.5 rounded bg-[#1e222d] text-[#64748b] text-[9px]"
                 title="Pressione Enter para busca semantica"
               >
-                <ArrowElbowDownLeft size={10} />
+                <ArrowElbowDownLeft size={9} />
               </span>
             )}
           </div>
         </form>
       </div>
 
-      {/* Action Button */}
-      <div className="px-3 pt-2 pb-1">
-        <button
-          type="button"
-          onClick={onNewNote}
-          className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all cursor-pointer shadow-sm shadow-indigo-950"
-          title="Criar uma nova nota Markdown"
-        >
-          <Plus size={14} weight="bold" />
-          <span>Nova Nota</span>
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-zinc-800/70" role="tablist">
+      {/* Segmented Navigation Tabs */}
+      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[#1f232d]" role="tablist">
         <button
           type="button"
           role="tab"
           aria-selected={activeTab === 'notes'}
           onClick={() => setActiveTab('notes')}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+          className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${
             activeTab === 'notes'
-              ? 'bg-zinc-800/90 text-zinc-100 border border-zinc-700/60 shadow-xs'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+              ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
+              : 'text-[#64748b] hover:text-[#cbd5e1] hover:bg-[#13161f]'
           }`}
         >
-          <FileText size={13} />
+          <FileText size={12} />
           <span>Notas ({notes.length})</span>
         </button>
 
@@ -147,13 +150,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onSearchSemantic(searchTerm);
             }
           }}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+          className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${
             activeTab === 'semantic'
-              ? 'bg-zinc-800/90 text-zinc-100 border border-zinc-700/60 shadow-xs'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+              ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
+              : 'text-[#64748b] hover:text-[#cbd5e1] hover:bg-[#13161f]'
           }`}
         >
-          <Stack size={13} />
+          <Stack size={12} />
           <span>Secoes ({chunkResults.length})</span>
         </button>
 
@@ -162,25 +165,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
           role="tab"
           aria-selected={activeTab === 'tags'}
           onClick={() => setActiveTab('tags')}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+          className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${
             activeTab === 'tags'
-              ? 'bg-zinc-800/90 text-zinc-100 border border-zinc-700/60 shadow-xs'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+              ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
+              : 'text-[#64748b] hover:text-[#cbd5e1] hover:bg-[#13161f]'
           }`}
         >
-          <Tag size={13} />
+          <Tag size={12} />
           <span>Tags ({tagCounts.length})</span>
         </button>
       </div>
 
       {/* Tag Filters Bar */}
       {activeTab === 'tags' && (
-        <div className="flex items-center gap-1.5 p-2 overflow-x-auto border-b border-zinc-800/70 bg-zinc-900/30">
+        <div className="flex items-center gap-1.5 p-2 overflow-x-auto border-b border-[#1f232d] bg-[#12151c]">
           {selectedTag && (
             <button
               type="button"
               onClick={() => setSelectedTag(null)}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-rose-950/60 text-rose-300 border border-rose-800/40 hover:bg-rose-900/50 transition-colors cursor-pointer shrink-0"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-rose-950/60 text-rose-300 border border-rose-800/40 hover:bg-rose-900/50 transition-colors cursor-pointer shrink-0"
             >
               <X size={10} />
               Limpar Filtro
@@ -193,14 +196,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={tag}
                 type="button"
                 onClick={() => setSelectedTag(isSelected ? null : tag)}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer shrink-0 ${
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer shrink-0 ${
                   isSelected
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-zinc-900/80 text-zinc-400 border border-zinc-800 hover:bg-zinc-800 hover:text-zinc-200'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-[#171b26] text-[#94a3b8] border border-[#262a36] hover:bg-[#1e222d] hover:text-[#f1f5f9]'
                 }`}
               >
-                <Hash size={10} />
-                {tag} <span className="opacity-70">({count})</span>
+                <Hash size={9} />
+                {tag} <span className="text-[#64748b]">({count})</span>
               </button>
             );
           })}
@@ -212,20 +215,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {activeTab === 'semantic' ? (
           <div>
             {isSearching ? (
-              <div className="py-8 text-center text-zinc-400 text-xs">
-                <Stack size={20} className="mx-auto mb-2 text-indigo-400 animate-spin" />
-                <span className="font-medium text-zinc-200 block">Calculando Embeddings...</span>
-                <span className="text-[11px] text-zinc-400 block mt-1">
-                  FastEmbed local isolando chunks semanticos
+              <div className="py-8 text-center text-[#64748b] text-xs">
+                <Stack size={18} className="mx-auto mb-2 text-indigo-400 animate-spin" />
+                <span className="font-medium text-[#cbd5e1] block">Calculando Embeddings...</span>
+                <span className="text-[11px] text-[#64748b] block mt-1">
+                  FastEmbed local isolando chunks
                 </span>
               </div>
             ) : chunkResults.length === 0 ? (
-              <div className="py-8 px-4 text-center text-zinc-400 text-xs">
-                <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto mb-2.5 text-zinc-400">
-                  <Stack size={16} />
+              <div className="py-8 px-3 text-center text-[#64748b] text-xs">
+                <div className="w-8 h-8 rounded-lg bg-[#12151c] border border-[#1e222d] flex items-center justify-center mx-auto mb-2 text-[#64748b]">
+                  <Stack size={14} />
                 </div>
-                <strong className="block text-zinc-200 mb-1">Busca Semantica RAG</strong>
-                Digite um conceito na barra e pressione Enter para recuperar secoes atomicas com economia de tokens.
+                <strong className="block text-[#cbd5e1] mb-1">Busca Semantica</strong>
+                Digite um termo e pressione Enter para recuperar secoes atômicas.
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -233,37 +236,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div
                     key={chunk.chunk_id}
                     onClick={() => onSelectNote(chunk.note_id)}
-                    className={`p-2.5 rounded-lg border transition-all cursor-pointer ${
+                    className={`p-2.5 rounded-md border transition-all cursor-pointer ${
                       selectedNoteId === chunk.note_id
-                        ? 'bg-indigo-950/40 border-indigo-500/40 shadow-xs'
-                        : 'bg-zinc-900/40 border-zinc-800/60 hover:bg-zinc-900/80 hover:border-zinc-700/60'
+                        ? 'bg-[#1a1e28] border-[#2c3242]'
+                        : 'bg-[#13161f] border-[#222736] hover:bg-[#171b26]'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-indigo-300 truncate">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#e2e8f0] truncate">
                         {chunk.deep_link}
                       </span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-zinc-800/80 border border-zinc-700/50 text-[10px] text-zinc-400">
-                          <Lightning size={10} className="text-amber-400" />
-                          ~{chunk.token_estimate} tok
-                        </span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/40">
-                          {Math.round(chunk.score * 100)}%
-                        </span>
-                      </div>
+                      <span className="text-[10px] font-mono font-semibold text-[#10b981] shrink-0">
+                        {Math.round(chunk.score * 100)}% match
+                      </span>
                     </div>
-                    <p className="text-[11px] text-zinc-400 line-clamp-3 mt-1.5 leading-relaxed font-sans">
+                    <p className="text-[10.5px] text-[#94a3b8] line-clamp-2 mt-1 leading-relaxed">
                       &quot;{chunk.content}&quot;
                     </p>
+                    <div className="flex items-center gap-1 text-[9.5px] font-mono text-[#64748b] mt-1.5">
+                      <Lightning size={9} className="text-amber-400" />
+                      <span>~{chunk.token_estimate} tokens</span>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
         ) : filteredNotes.length === 0 ? (
-          <div className="py-8 text-center text-zinc-400 text-xs">
-            <FileText size={22} className="mx-auto mb-2 opacity-40" />
+          <div className="py-8 text-center text-[#64748b] text-xs">
+            <FileText size={20} className="mx-auto mb-2 opacity-40" />
             Nenhuma nota encontrada {searchTerm ? `para "${searchTerm}"` : ''}.
           </div>
         ) : (
@@ -273,42 +274,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div
                 key={note.id}
                 onClick={() => onSelectNote(note.id)}
-                className={`p-2.5 rounded-lg border transition-all cursor-pointer ${
+                className={`px-3 py-2 rounded-md border transition-all cursor-pointer ${
                   isSelected
-                    ? 'bg-zinc-900 border-indigo-500/50 shadow-sm'
-                    : 'bg-zinc-950/60 border-zinc-900 hover:bg-zinc-900/60 hover:border-zinc-800'
+                    ? 'bg-[#1a1e28] border-[#2c3242] shadow-xs'
+                    : 'bg-transparent border-transparent hover:bg-[#13161f] hover:border-[#1e222d]'
                 }`}
               >
-                <div className="text-xs font-semibold text-zinc-200 truncate">
-                  {note.title}
+                <div
+                  className={`text-xs font-semibold truncate ${
+                    isSelected ? 'text-[#f8fafc]' : 'text-[#94a3b8] hover:text-[#f1f5f9]'
+                  }`}
+                >
+                  {note.title.endsWith('.md') ? note.title : `${note.title}.md`}
                 </div>
                 {note.summary && (
-                  <p className="text-[11px] text-zinc-400 line-clamp-2 mt-1 leading-snug">
+                  <p className="text-[11px] text-[#64748b] line-clamp-1 mt-0.5 leading-tight">
                     {note.summary}
                   </p>
                 )}
-                <div className="flex items-center justify-between gap-2 mt-2 pt-1 border-t border-zinc-800/40 text-[10px] text-zinc-400">
-                  <span>{new Date(note.updated_at * 1000).toLocaleDateString()}</span>
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {note.tags.slice(0, 2).map((t) => (
-                      <span
-                        key={t}
-                        className="px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400"
-                      >
-                        #{t}
-                      </span>
-                    ))}
-                    {note.tags.length > 2 && (
-                      <span className="px-1 py-0.2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
-                        +{note.tags.length - 2}
-                      </span>
-                    )}
-                  </div>
-                </div>
               </div>
             );
           })
         )}
+      </div>
+
+      {/* Vault Stats Box matching banner.svg lines 53-56 */}
+      <div className="p-3 border-t border-[#1f232d] bg-[#0d0f14]">
+        <div className="p-2.5 rounded-lg bg-[#12151c] border border-[#1e222d] space-y-1">
+          <span className="text-[11px] font-semibold text-[#cbd5e1] block">
+            Vault Overview
+          </span>
+          <div className="font-mono text-[11px] text-[#64748b] flex items-center justify-between">
+            <span>Nodes: <strong className="text-[#f8fafc] font-semibold">{notes.length}</strong></span>
+            <span>Edges: <strong className="text-[#f8fafc] font-semibold">{notes.reduce((acc, n) => acc + (n.tags.length || 1), 0)}</strong></span>
+          </div>
+          <div className="font-mono text-[10px] text-[#64748b]">
+            Local-First &amp; SQLite WAL
+          </div>
+        </div>
       </div>
     </aside>
   );

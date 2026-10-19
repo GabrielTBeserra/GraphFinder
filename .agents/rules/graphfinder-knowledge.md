@@ -1,16 +1,16 @@
-# Diretrizes de Curadoria de Conhecimento e Grafo Semântico
+# Knowledge Curation and Semantic Graph Guidelines
 
-Esta regra aplica-se a todas as operações de escrita, leitura e consulta no cofre de conhecimento do **GraphFinder**.
+This rule applies to all read, write, and query operations performed within the **GraphFinder** knowledge vault.
 
-## 1. Estrutura de Notas (Markdown)
-- **H1 Único**: `# Título` na primeira linha.
-- **Subseções Atômicas**: `## Seção` e `### Subseção` estruturando conceitos em blocos concisos (50–150 tokens). Isso viabiliza deep linking direto (`[[Nota#Seção]]`).
-- **Resumo no Topo**: O primeiro bloco de texto deve ser conciso e de alta densidade informacional.
-- **Wikilinks**: Sempre referenciar outras notas do cofre usando `[[Nome da Nota]]` ou `[[Nome da Nota#Seção]]`.
-- **Tags**: Incluir hashtags contextuais `#tag` para alimentação dos clusters de cores do grafo.
+## 1. Note Structure (Markdown)
+- **Single H1**: `# Note Title` on the first line.
+- **Atomic Subsections**: `## Section` and `### Subsection` structuring concepts into concise blocks (50–150 tokens). This enables direct deep linking (`[[Note#Section]]`).
+- **Top Summary**: The first block of text must be concise and exhibit high informational density.
+- **Wikilinks**: Always reference other notes in the vault using `[[Note Title]]` or `[[Note Title#Section]]`.
+- **Tags**: Include contextual `#tag` markers to inform color-coded semantic clusters in the graph.
 
-## 2. Consumo Eficiente via MCP (Economia de Tokens)
-- Sempre priorizar `search_semantic` (busca por trechos atômicos).
-- Usar `get_compressed_context` para inspecionar o sumário de seções sem consumir o corpo integral.
-- Utilizar `suggest_links` ao redigir novos parágrafos para estabelecer conexões semânticas com outros nós do cofre.
-- Evitar duplicação de conceitos; conectar novas ideias a notas existentes.
+## 2. Efficient MCP Consumption (Token Economy)
+- Always prioritize `search_semantic` (atomic chunk retrieval).
+- Use `get_compressed_context` to inspect section summaries without retrieving full document bodies.
+- Use `suggest_links` when drafting new content to discover semantic affinity with existing vault nodes.
+- Avoid duplicate concepts; connect new insights to existing notes.

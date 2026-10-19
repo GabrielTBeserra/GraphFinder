@@ -1,77 +1,76 @@
-# GraphFinder: Diretrizes de Conhecimento, Escrita e MCP
+# GraphFinder: Knowledge, Writing, and MCP Guidelines
 
-Este documento define as regras obrigatórias para agentes de IA, editores e desenvolvedores que operam ou gerenciam o cofre de notas do **GraphFinder**. O objetivo é garantir **máxima densidade semântica**, **economia extrema de tokens** e **alta conectividade no grafo**.
-
----
-
-## 1. Princípios Fundamentais de Arquitetura
-
-1. **Local-First & Markdown Puro**: Todas as notas vivem em arquivos `.md` no diretório `./vault` e devem ser 100% legíveis por humanos e compatíveis com Obsidian.
-2. **Chunking Semântico Atômico**: O motor FastEmbed/SQLite vetoriza as notas dividindo-as por cabeçalhos (`##` e `###`). Cada cabeçalho gera um vetor independente na tabela `note_chunks`.
-3. **Economia de Tokens**: Agentes de IA **NUNCA** devem solicitar ou injetar arquivos Markdown inteiros no contexto da LLM, a menos que estritamente requisitado pelo usuário. Sempre prefira trechos atômicos (`[[Nota#Seção]]`).
+This document establishes the mandatory rules for AI agents, editors, and contributors interacting with or managing the **GraphFinder** knowledge vault. The primary goals are **maximal semantic density**, **rigorous token economy**, and **high graph connectivity**.
 
 ---
 
-## 2. Padrões de Escrita e Estruturação de Notas
+## 1. Core Architectural Principles
 
-Toda nota criada ou editada no cofre DEVE seguir rigorosamente a seguinte estrutura:
-
-### A. Título e Resumo Executivo
-* A nota deve iniciar com um cabeçalho H1 (`# Título da Nota`).
-* O primeiro parágrafo após o H1 deve ser um resumo executivo de alta densidade (máximo 2 a 3 linhas), sintetizando o propósito do documento.
-
-### B. Granularidade de Cabeçalhos (`##` e `###`)
-* Divida o conteúdo em tópicos autocontidos de **40 a 150 tokens** cada.
-* Dê nomes semânticos e descritivos aos cabeçalhos (ex: `## 2. Configuração do SQLite WAL` em vez de apenas `## Config`).
-* O motor de busca usa esses títulos para criar deep links precisos: `[[Nota#2. Configuração do SQLite WAL]]`.
-
-### C. Conexões Bidirecionais Obrigatórias (Wikilinks)
-* Conecte termos e conceitos a outras notas existentes usando a sintaxe `[[Nome da Nota]]` ou `[[Nome da Nota#Seção]]`.
-* Cada nota deve possuir no mínimo **1 a 3 conexões** com outras partes do grafo para evitar nós órfãos.
-* Sempre verifique conexões potenciais chamando a ferramenta MCP `suggest_links`.
-
-### D. Taxonomia de Tags
-* Utilize hashtags `#tag` no final das seções ou da nota.
-* Use termos em minúsculas (ex: `#arquitetura`, `#sqlite`, `#rag`, `#mcp`).
-* O frontend do GraphFinder usa essas tags para colorir e agrupar visualmente os clusters do grafo.
+1. **Local-First & Plain Markdown**: All notes live in `.md` files within the `./vault` directory (or designated project directory). They must remain 100% human-readable, formatted in standard Markdown with bidirectional wikilinks `[[Link]]`.
+2. **Atomic Semantic Chunking**: The FastEmbed/SQLite engine indexes notes by splitting content strictly across headers (`##` and `###`). Every header generates an independent vector embedding in the `note_chunks` database table.
+3. **Token Conservation**: AI agents must **NEVER** request or inject full Markdown files into an LLM context window unless explicitly instructed by the user. Always prefer atomic excerpts via deep links (`[[Note#Section]]`).
 
 ---
 
-## 3. Protocolo de Operação para Agentes de IA via MCP
+## 2. Note Writing and Structural Standards
 
-Ao atuar como agente conectado ao servidor MCP do GraphFinder, siga este pipeline de decisão para poupar contexto:
+Every note created or modified in the vault MUST strictly adhere to the following schema:
+
+### A. Title and Executive Summary
+* The note must begin with a single H1 header (`# Note Title`).
+* The first paragraph immediately following the H1 must be a high-density executive summary (2 to 3 lines maximum), synthesizing the document's core purpose.
+
+### B. Header Granularity (`##` and `###`)
+* Divide the body into self-contained subsections of **40 to 150 tokens** each.
+* Use semantic, descriptive titles for headers (e.g., `## 2. SQLite WAL Configuration` instead of simply `## Configuration`).
+* The search engine uses these titles to construct precise deep links: `[[Note#2. SQLite WAL Configuration]]`.
+
+### C. Mandatory Bidirectional Connections (Wikilinks)
+* Connect terminology and concepts to related notes using `[[Note Title]]` or `[[Note Title#Section]]`.
+* Every note should maintain at least **1 to 3 connections** to other nodes in the graph to prevent orphaned knowledge.
+* Verify potential connections using the `suggest_links` MCP tool prior to saving.
+
+### D. Tag Taxonomy
+* Append context hashtags `#tag` at the end of sections or at the bottom of the document.
+* Use lowercase terms (e.g., `#architecture`, `#sqlite`, `#rag`, `#mcp`).
+* The GraphFinder frontend utilizes these tags to compute and render colored semantic graph clusters.
+
+---
+
+## 3. AI Agent MCP Operation Protocol
+
+When operating as an AI agent connected to the GraphFinder MCP server, follow this decision pipeline to minimize context consumption:
 
 ```
-[Pergunta do Usuário]
-        │
-        ▼
-1. Executar `search_semantic(query)`
-   - Retorna os 5 trechos mais relevantes (~50 tokens cada).
-        │
-        ├─► Resposta encontrada? ──► Responder citando os deep links [[Nota#Seção]].
-        │
-        └─► Precisa de visão geral? ──► Executar `get_compressed_context(note_id)`
-                                         (Resumo + mapa de seções com tokens).
+[User Question]
+       │
+       ▼
+1. Execute `search_semantic(query)`
+   - Returns top 5 relevant chunks (~50 tokens each).
+       │
+       ├─► Answer found? ──► Respond citing deep links [[Note#Section]].
+       │
+       └─► Need structural overview? ──► Execute `get_compressed_context(note_id)`
+                                          (Summary + section map with token estimates).
 ```
 
-### Regras de Ouro do MCP:
-1. **Nunca leia o arquivo bruto sem necessidade**: Use `search_semantic` primeiro. Ele já extrai a subseção exata onde a informação reside.
-2. **Ao salvar novo conhecimento (`store_context`)**:
-   - Forneça título claro.
-   - Forneça conteúdo bem formatado com seções `##`.
-   - Adicione wikilinks explícitos para notas que você consultou anteriormente.
-   - Forneça lista de `tags`.
-3. **Ao sugerir links (`suggest_links`)**:
-   - Passe o rascunho do texto antes de salvá-lo para descobrir afinidades com notas já existentes no cofre.
+### Golden Rules for MCP Agents:
+1. **Never read raw Markdown files unnecessarily**: Use `search_semantic` first. It extracts the exact subsection containing the required knowledge.
+2. **When saving new knowledge (`store_context`)**:
+   - Provide a clear, descriptive title.
+   - Format content cleanly with `##` headers.
+   - Include explicit wikilinks to notes consulted earlier in the session.
+   - Supply a relevant list of lowercase `tags`.
+3. **When evaluating links (`suggest_links`)**:
+   - Pass draft paragraphs before saving to identify semantic affinity with existing vault notes.
 
 ---
 
-## 4. Multi-Vaults & Suporte a Múltiplos Projetos
+## 4. Multi-Vault and Multi-Project Support
 
-O GraphFinder suporta múltiplos projetos isolados (`./vaults/<projeto_id>`), cada um com seu próprio cofre Markdown e banco de dados SQLite vetorial independente:
+GraphFinder supports isolated workspaces (`./vaults/<project_id>`), each with its own Markdown directory and independent SQLite vector database:
 
-- `list_projects()`: Lista todos os projetos disponíveis, caminhos e contagem de notas.
-- `create_project(name)`: Cria um novo cofre isolado em `./vaults/<slug>/` com nota inicial.
-- `switch_project(project_id)`: Alterna o cofre padrão ativo do GraphFinder.
-- **Acesso Direto por Vault**: As ferramentas de consulta e armazenamento (`search_semantic`, `store_context`, `get_compressed_context`, `get_graph_neighborhood`, `suggest_links`, `link_notes`) aceitam o parâmetro opcional `project: "<id>"`, permitindo que agentes operem diretamente em múltiplos cofres sem contaminação cruzada.
-
+* `list_projects()`: Lists all configured projects, file paths, and note counts.
+* `create_project(name)`: Initializes a new isolated vault at `./vaults/<slug>/` with an introductory note.
+* `switch_project(project_id)`: Toggles the active default vault.
+* **Direct Vault Targeting**: All querying and mutation tools (`search_semantic`, `store_context`, `get_compressed_context`, `get_graph_neighborhood`, `suggest_links`, `link_notes`) accept an optional `project: "<id>"` parameter, enabling multi-vault management without cross-project contamination.

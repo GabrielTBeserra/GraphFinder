@@ -1,6 +1,5 @@
 {
   "active_project": "default",
-  "custom_names": {
-    "homelab": "HomeLab"
-  }
+  "custom_names": {},
+  "custom_paths": {}
 }

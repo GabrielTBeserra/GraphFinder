@@ -1,69 +1,75 @@
-# Especificação das Ferramentas MCP do GraphFinder
+# GraphFinder MCP Server Specification
 
-O GraphFinder expõe ferramentas compatíveis com o protocolo **Model Context Protocol (JSON-RPC 2.0)** sobre stdio.
-
----
-
-## 1. `search_semantic` (Busca Atômica por Trechos)
-A ferramenta primária para recuperação de conhecimento com economia de tokens.
-
-* **Parâmetros**:
-  - `query` (string, obrigatório): Texto da busca ou pergunta em linguagem natural.
-  - `limit` (número, opcional): Quantidade de trechos (padrão: 5).
-* **Retorno**:
-  Lista de seções mais afins, indicando deep link `[[Nota#Seção]]`, porcentagem de afinidade e estimativa de tokens do trecho.
+GraphFinder exposes tools adhering to the **Model Context Protocol (JSON-RPC 2.0)** over stdio.
 
 ---
 
-## 2. `get_compressed_context` (Compressão Estrutural)
-Retorna uma visão ultracompacta de uma nota sem carregar o texto completo.
+## 1. `search_semantic` (Atomic Chunk Retrieval)
+Primary retrieval tool engineered for minimal token consumption.
 
-* **Parâmetros**:
-  - `note_id` (string, obrigatório): Nome ou identificador da nota.
-* **Retorno**:
-  - Resumo de alto nível (~30 tokens).
-  - Backlinks e links de saída.
-  - Lista de todas as seções H2/H3 com contagem estimada de tokens de cada uma.
-
----
-
-## 3. `suggest_links` (Auto-Linker Semântico)
-Identifica notas e seções existentes no cofre que possuem alta correlação temática com o texto fornecido.
-
-* **Parâmetros**:
-  - `text` (string, obrigatório): Parágrafo ou rascunho de conteúdo.
-  - `threshold` (número, opcional): Similaridade mínima de corte (ex: 0.65).
-* **Retorno**:
-  Lista de sugestões com sintaxe recomendada de wikilink (ex: `[[Arquitetura do Sistema#1. SQLite]]` com Score 81%).
+* **Parameters**:
+  - `query` (string, required): Search query or natural language question.
+  - `limit` (number, optional): Maximum chunks returned (default: 5).
+  - `project` (string, optional): Target specific vault project id.
+* **Returns**:
+  List of ranked sections with `[[Note#Section]]` deep links, cosine affinity scores, and chunk token estimates.
 
 ---
 
-## 4. `store_context` (Gravação de Memória)
-Salva uma nova nota ou atualiza uma nota existente com reindexação semântica imediata.
+## 2. `get_compressed_context` (Structural Compression)
+Returns an ultra-compact representation of a note without transferring full text.
 
-* **Parâmetros**:
-  - `title` (string, obrigatório): Título da nota (usado no nome do arquivo `.md`).
-  - `content` (string, obrigatório): Conteúdo em Markdown fatiado em seções `##`.
-  - `tags` (array de strings, opcional): Tags temáticas.
-* **Retorno**:
-  Confirmação de gravação e quantidade de seções atômicas indexadas no banco vetorial.
-
----
-
-## 5. `get_graph_neighborhood` (Expansão no Grafo)
-Retorna a vizinhança topológica de um nó.
-
-* **Parâmetros**:
-  - `note_id` (string, obrigatório): Identificador do nó central.
-  - `depth` (número, opcional): Profundidade do raio de busca (padrão: 1).
-* **Retorno**:
-  Lista de nós conectados, arestas direcionadas e tags relacionadas.
+* **Parameters**:
+  - `target` (string, required): Note title or note identifier.
+  - `project` (string, optional): Target specific vault project id.
+* **Returns**:
+  - Executive summary (~30 tokens).
+  - Incoming backlinks and outgoing graph edges.
+  - Comprehensive index of H2/H3 headers with token counts.
 
 ---
 
-## 6. `link_notes` (Criação de Aresta)
-Cria uma conexão bidirecional entre duas notas, inserindo o wikilink correspondente no arquivo Markdown de origem.
+## 3. `suggest_links` (Semantic Auto-Linker)
+Identifies notes and sections in the vault sharing high topical correlation with provided draft text.
 
-* **Parâmetros**:
-  - `from_note` (string, obrigatório): Nota de origem.
-  - `to_note` (string, obrigatório): Nota de destino.
+* **Parameters**:
+  - `text` (string, required): Draft paragraph or sentence.
+  - `threshold` (number, optional): Minimum cosine similarity cutoff (e.g., 0.65).
+  - `project` (string, optional): Target specific vault project id.
+* **Returns**:
+  List of recommended wikilinks (e.g., `[[System Architecture#1. SQLite]]` with 81% affinity).
+
+---
+
+## 4. `store_context` (Memory Persistence)
+Creates a new note or updates an existing one with immediate semantic reindexing.
+
+* **Parameters**:
+  - `title` (string, required): Note title (maps to `.md` filename).
+  - `content` (string, required): Markdown content structured with `##` headers.
+  - `tags` (string array, optional): Categorical hashtags.
+  - `project` (string, optional): Target specific vault project id.
+* **Returns**:
+  Write status and total count of indexed atomic chunks.
+
+---
+
+## 5. `get_graph_neighborhood` (Graph Expansion)
+Explores relational topology around a target node.
+
+* **Parameters**:
+  - `target` (string, required): Center node identifier.
+  - `depth` (number, optional): Traversal hop radius (default: 1).
+  - `project` (string, optional): Target specific vault project id.
+* **Returns**:
+  Connected nodes, directional edges, and associated tags.
+
+---
+
+## 6. `link_notes` (Edge Creation)
+Establishes a bidirectional relationship between two notes, inserting the wikilink into the source Markdown file.
+
+* **Parameters**:
+  - `from_note` (string, required): Source note title or id.
+  - `to_note` (string, required): Target note title or id.
+  - `project` (string, optional): Target specific vault project id.

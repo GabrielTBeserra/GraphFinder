@@ -8,40 +8,13 @@ import {
   Crosshair,
   Compass,
 } from '@phosphor-icons/react';
-import type { GraphData, GraphNode } from '../types';
+import type { GraphData } from '../types';
 
 interface GraphViewProps {
   graphData: GraphData;
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string) => void;
   onRefresh: () => void;
-}
-
-const TAG_COLORS: Record<string, string> = {
-  inicio: '#94a3b8',
-  boasvindas: '#cbd5e1',
-  arquitetura: '#64748b',
-  rust: '#d97706',
-  sqlite: '#64748b',
-  mcp: '#6366f1',
-  guia: '#10b981',
-  tutorial: '#059669',
-  ia: '#4f46e5',
-  rag: '#6366f1',
-  embeddings: '#0d9488',
-  inexistente: '#71717a',
-};
-
-function getNodeColor(node: GraphNode, isSelected: boolean, isHovered: boolean): string {
-  if (isSelected) return '#ffffff';
-  if (isHovered) return '#f1f5f9';
-  for (const tag of node.tags) {
-    const key = tag.toLowerCase();
-    if (TAG_COLORS[key]) {
-      return TAG_COLORS[key];
-    }
-  }
-  return '#94a3b8';
 }
 
 export const GraphView: React.FC<GraphViewProps> = ({
@@ -94,86 +67,97 @@ export const GraphView: React.FC<GraphViewProps> = ({
         .height(height)
         .backgroundColor('transparent')
         .nodeRelSize(4)
-        .nodeVal((node: any) => Math.max(3.5, Math.min(14, 3.5 + (node.degree || 0) * 1.5)))
+        .nodeVal((node: any) => Math.max(4, Math.min(12, 4 + (node.degree || 0) * 1.2)))
+        // Edges matching banner.svg lines 60-73 (#2c3344 normal, #4f46e5 active)
         .linkColor((link: any) => {
           const s = typeof link.source === 'object' ? link.source.id : link.source;
           const t = typeof link.target === 'object' ? link.target.id : link.target;
           if (connectedNodeIds.size > 0) {
             if (connectedNodeIds.has(s) && connectedNodeIds.has(t)) {
-              return 'rgba(255, 255, 255, 0.45)';
+              return '#4f46e5';
             }
-            return 'rgba(255, 255, 255, 0.03)';
+            return 'rgba(44, 51, 68, 0.15)';
           }
-          return 'rgba(255, 255, 255, 0.1)';
+          return '#2c3344';
         })
         .linkWidth((link: any) => {
           const s = typeof link.source === 'object' ? link.source.id : link.source;
           const t = typeof link.target === 'object' ? link.target.id : link.target;
-          if (connectedNodeIds.has(s) && connectedNodeIds.has(t)) return 1.5;
-          return 1;
+          if (connectedNodeIds.has(s) && connectedNodeIds.has(t)) return 2;
+          return 1.4;
         })
+        // Custom Node Rendering matching banner.svg lines 90-108
         .nodeCanvasObject((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
           const isSelected = node.id === selectedNodeId;
           const isHovered = node.id === hoverNodeId;
-          const isDimmed = connectedNodeIds.size > 0 && !connectedNodeIds.has(node.id);
+          const isConnected = connectedNodeIds.has(node.id);
+          const isDimmed = connectedNodeIds.size > 0 && !isConnected;
 
-          const r = Math.max(4, Math.min(13, 4 + (node.degree || 0) * 1.3));
-          const color = getNodeColor(node, isSelected, isHovered);
-
-          // Concentric target ring for active / hovered (No neon blooms)
           if (isSelected || isHovered) {
+            // Focal Found Node from banner.svg: outer ring #1e1b4b, stroke #6366f1
             ctx.beginPath();
-            ctx.arc(node.x, node.y, r + 4.5, 0, 2 * Math.PI, false);
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = isSelected ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.2)';
+            ctx.arc(node.x, node.y, 14, 0, 2 * Math.PI, false);
+            ctx.fillStyle = '#1e1b4b';
+            ctx.fill();
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = '#6366f1';
             ctx.stroke();
+
+            // Inner solid center dot: #ffffff
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, 6, 0, 2 * Math.PI, false);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+          } else {
+            // Normal solid node: fill #cbd5e1 or #94a3b8
+            const r = Math.max(4.5, Math.min(8, 4.5 + (node.degree || 0) * 1.1));
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
+            ctx.fillStyle = isDimmed ? 'rgba(71, 85, 105, 0.2)' : isConnected ? '#f8fafc' : '#cbd5e1';
+            ctx.fill();
+
+            // Hairline outline
+            if (!isDimmed) {
+              ctx.lineWidth = 1;
+              ctx.strokeStyle = '#475569';
+              ctx.stroke();
+            }
           }
 
-          // Main node circle
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
-          ctx.fillStyle = isDimmed ? 'rgba(71, 85, 105, 0.25)' : color;
-          ctx.fill();
-
-          // Concentric outer hairline border
-          if (isSelected) {
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = '#ffffff';
-            ctx.stroke();
-          } else if (!isDimmed) {
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-            ctx.stroke();
-          }
-
-          // Label text with contrast pill behind
+          // Node Tag / Title Label matching banner.svg line 106-107
           if (globalScale > 0.75 || isSelected || isHovered) {
-            const label = node.title || node.id;
-            const fontSize = Math.max(10 / globalScale, 9);
+            const rawLabel = node.title || node.id;
+            const label = rawLabel.endsWith('.md') ? rawLabel.replace(/\.md$/, '') : rawLabel;
+            const tagText = node.tags && node.tags.length > 0 ? `#${node.tags[0]}` : label;
+
+            const fontSize = Math.max(9 / globalScale, 9);
             ctx.font = `${isSelected ? '600 ' : '500 '}${fontSize}px 'Plus Jakarta Sans', system-ui, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            const textWidth = ctx.measureText(label).width;
-            const textY = node.y + r + fontSize * 0.9;
+            const textWidth = ctx.measureText(tagText).width;
+            const textY = node.y + (isSelected ? 20 : 12) + fontSize * 0.5;
 
-            // Background pill for contrast
-            ctx.fillStyle = isDimmed ? 'rgba(9, 10, 15, 0.4)' : 'rgba(9, 10, 15, 0.8)';
-            const paddingX = 5;
-            const paddingY = 2;
+            // Tag Pill box from banner.svg: fill #181b24, stroke #2b3140
+            const padX = 5;
+            const padY = 2.5;
             ctx.beginPath();
             ctx.roundRect(
-              node.x - textWidth / 2 - paddingX,
-              textY - fontSize / 2 - paddingY,
-              textWidth + paddingX * 2,
-              fontSize + paddingY * 2,
-              3
+              node.x - textWidth / 2 - padX,
+              textY - fontSize / 2 - padY,
+              textWidth + padX * 2,
+              fontSize + padY * 2,
+              4
             );
+            ctx.fillStyle = isDimmed ? 'rgba(24, 27, 36, 0.4)' : '#181b24';
             ctx.fill();
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = isDimmed ? 'rgba(43, 49, 64, 0.3)' : '#2b3140';
+            ctx.stroke();
 
             // Text
-            ctx.fillStyle = isDimmed ? 'rgba(148, 163, 184, 0.35)' : isSelected ? '#ffffff' : '#e2e8f0';
-            ctx.fillText(label, node.x, textY);
+            ctx.fillStyle = isDimmed ? 'rgba(100, 116, 139, 0.4)' : isSelected ? '#ffffff' : '#e2e8f0';
+            ctx.fillText(tagText, node.x, textY);
           }
         })
         .onNodeClick((node: any) => {
@@ -183,7 +167,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           setHoverNodeId(node ? node.id : null);
         });
 
-      // Configure force simulation for smooth organic physics
+      // Simulation physics
       graph.d3Force('charge')?.strength(-160);
       graph.d3Force('link')?.distance(65);
 
@@ -231,79 +215,79 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-[#090a0f]" ref={containerRef}>
-      {/* Floating Toolbar Deck */}
+      {/* Floating Toolbar Deck matching banner.svg */}
       <div
-        className="absolute top-4 right-4 z-20 flex items-center gap-1 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 shadow-xl backdrop-blur-md"
+        className="absolute top-4 right-4 z-20 flex items-center gap-1 p-1 rounded-md bg-[#12151c] border border-[#1e222d] shadow-2xl backdrop-blur-md"
         role="toolbar"
         aria-label="Controles do Grafo"
       >
         <button
           type="button"
-          className={`flex items-center justify-center w-8 h-8 rounded-md transition-colors cursor-pointer ${
+          className={`flex items-center justify-center w-7 h-7 rounded transition-colors cursor-pointer ${
             localOnly
               ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28]'
           }`}
-          title={localOnly ? 'Desativar Foco (Exibir Todo o Grafo)' : 'Ativar Modo Foco (Vizinhanca Imediata)'}
+          title={localOnly ? 'Desativar Foco (Exibir Todo o Grafo)' : 'Ativar Modo Foco'}
           onClick={() => setLocalOnly(!localOnly)}
         >
-          {localOnly ? <Crosshair size={16} weight="bold" /> : <Compass size={16} />}
+          {localOnly ? <Crosshair size={14} weight="bold" /> : <Compass size={14} />}
         </button>
 
-        <div className="w-[1px] h-4 bg-zinc-800 my-auto" />
+        <div className="w-[1px] h-3.5 bg-[#1f232d] my-auto" />
 
         <button
           type="button"
-          className="flex items-center justify-center w-8 h-8 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+          className="flex items-center justify-center w-7 h-7 rounded text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
           title="Aproximar Zoom (+)"
           onClick={handleZoomIn}
         >
-          <MagnifyingGlassPlus size={16} />
+          <MagnifyingGlassPlus size={14} />
         </button>
 
         <button
           type="button"
-          className="flex items-center justify-center w-8 h-8 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+          className="flex items-center justify-center w-7 h-7 rounded text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
           title="Afastar Zoom (-)"
           onClick={handleZoomOut}
         >
-          <MagnifyingGlassMinus size={16} />
+          <MagnifyingGlassMinus size={14} />
         </button>
 
         <button
           type="button"
-          className="flex items-center justify-center w-8 h-8 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+          className="flex items-center justify-center w-7 h-7 rounded text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
           title="Enquadrar Todos os Nos"
           onClick={handleFit}
         >
-          <ArrowsOut size={16} />
+          <ArrowsOut size={14} />
         </button>
 
-        <div className="w-[1px] h-4 bg-zinc-800 my-auto" />
+        <div className="w-[1px] h-3.5 bg-[#1f232d] my-auto" />
 
         <button
           type="button"
-          className="flex items-center justify-center w-8 h-8 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+          className="flex items-center justify-center w-7 h-7 rounded text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
           title="Recalcular Simulacao de Forca"
           onClick={onRefresh}
         >
-          <ArrowClockwise size={16} />
+          <ArrowClockwise size={14} />
         </button>
       </div>
 
       {/* Floating HUD Telemetry Capsule */}
-      <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-zinc-900/90 border border-zinc-800/90 shadow-lg backdrop-blur-md text-[11px] text-zinc-400">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+      <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2 px-3 py-1 rounded-md bg-[#12151c] border border-[#1e222d] shadow-xl backdrop-blur-md text-[11px] font-mono text-[#64748b]">
+        <span className="w-2 h-2 rounded-full bg-[#10b981] shrink-0" />
         <span>
-          <strong className="font-semibold text-zinc-200">{graphData.nodes.length}</strong> nos
+          Nodes: <strong className="font-semibold text-[#f8fafc]">{graphData.nodes.length}</strong>
         </span>
-        <span className="text-zinc-600">/</span>
+        <span className="text-[#2c3344]">•</span>
         <span>
-          <strong className="font-semibold text-zinc-200">{graphData.links.length}</strong> arestas
+          Edges: <strong className="font-semibold text-[#f8fafc]">{graphData.links.length}</strong>
         </span>
         {localOnly && (
           <>
-            <span className="text-zinc-600">/</span>
+            <span className="text-[#2c3344]">•</span>
             <span className="font-medium text-indigo-400">Foco Local</span>
           </>
         )}

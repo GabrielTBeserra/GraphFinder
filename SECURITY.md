@@ -1,32 +1,32 @@
-# Politica de Seguranca
+# Security Policy
 
-O GraphFinder adota o principio Local-First e processa todas as notas e vetores de embeddings exclusivamente na maquina do usuario. Levamos a seguranca e a integridade de dados locais muito a serio.
+GraphFinder adheres to a local-first architecture where all notes, graphs, and vector embeddings are processed strictly on the user's local machine. We treat data integrity and local sandbox security with highest priority.
 
 ---
 
-## Versoes Suportadas
+## Supported Versions
 
-Atualmente fornecemos atualizacoes de seguranca para as seguintes versoes:
+Security updates are actively provided for the following versions:
 
-| Versao | Suporte Ativo |
+| Version | Supported |
 | :--- | :--- |
-| 0.2.x | Sim |
-| < 0.2.0 | Nao |
+| 0.2.x | Yes |
+| < 0.2.0 | No |
 
 ---
 
-## Relatando uma Vulnerabilidade
+## Reporting a Vulnerability
 
-Se voce encontrar uma vulnerabilidade de seguranca no GraphFinder, solicitamos que nos informe de maneira responsavel:
+If you discover a security vulnerability in GraphFinder, please report it responsibly:
 
-1. **Nao abra uma issue publica** para expor falhas de seguranca ativas.
-2. Utilize o recurso de **Security Advisory Privado do GitHub** na aba "Security" deste repositorio.
-3. Se preferir contato direto, envie um e-mail para a equipe de manutencao do projeto com detalhes sobre o vetor de ataque e passos para reproducao.
+1. **Do not create a public issue** to disclose an active security vulnerability.
+2. Use GitHub's private vulnerability reporting feature under the **Security** tab of this repository.
+3. If private repository reporting is unavailable, reach out via the security contact listed on the repository owner's profile with detailed reproduction steps and threat vector analysis.
 
 ---
 
-## O que Esperar
+## What to Expect
 
-* Uma confirmacao de recebimento do seu relato em ate 48 horas.
-* Uma avaliacao do impacto e estimativa de prazo para correcao.
-* Abertura de credito publico no changelog apos a disponibilizacao do patch de seguranca.
+* An acknowledgment receipt within 48 hours.
+* An impact assessment and estimated resolution timeline.
+* Coordinated public disclosure and changelog attribution once the security patch is published.

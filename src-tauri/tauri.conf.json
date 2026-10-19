@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "GraphFinder - Obsidian Semantic Brain",
+        "title": "GraphFinder - Neural Knowledge Graph & Semantic Vault",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
