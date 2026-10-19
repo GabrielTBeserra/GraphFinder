@@ -111,6 +111,16 @@ pub struct DbManager {
 impl DbManager {
     pub fn new(path: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
+        conn.execute_batch(
+            r#"
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA cache_size = -64000;
+            PRAGMA mmap_size = 268435456;
+            PRAGMA foreign_keys = ON;
+            "#,
+        )?;
         let manager = Self { conn };
         manager.init_schema()?;
         Ok(manager)
@@ -122,6 +132,27 @@ impl DbManager {
         let manager = Self { conn };
         manager.init_schema()?;
         Ok(manager)
+    }
+
+    pub fn get_all_notes_mtimes(&self) -> Result<HashMap<String, i64>> {
+        let mut stmt = self.conn.prepare("SELECT id, updated_at FROM notes")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut map = HashMap::new();
+        for item in rows {
+            let (id, mtime) = item?;
+            map.insert(id, mtime);
+        }
+        Ok(map)
+    }
+
+    pub fn get_note_mtime(&self, id: &str) -> Result<Option<i64>> {
+        let mut stmt = self.conn.prepare("SELECT updated_at FROM notes WHERE id = ?1")?;
+        let mut rows = stmt.query(params![id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
     }
 
     fn init_schema(&self) -> Result<()> {
@@ -340,6 +371,18 @@ impl DbManager {
     }
 
     pub fn get_all_notes(&self) -> Result<Vec<NoteSummary>> {
+        // 1. Fetch all tags in a single query to eliminate N+1 roundtrips
+        let mut tag_stmt = self.conn.prepare("SELECT note_id, tag FROM tags ORDER BY tag ASC")?;
+        let tag_rows = tag_stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut tags_by_note: HashMap<String, Vec<String>> = HashMap::new();
+        for r in tag_rows {
+            let (note_id, tag) = r?;
+            tags_by_note.entry(note_id).or_default().push(tag);
+        }
+
+        // 2. Fetch all notes in a single query
         let mut stmt = self.conn.prepare(
             "SELECT id, path, title, summary, updated_at FROM notes ORDER BY updated_at DESC",
         )?;
@@ -356,7 +399,7 @@ impl DbManager {
         let mut results = Vec::new();
         for item in rows {
             let (id, path, title, summary, updated_at) = item?;
-            let tags = self.get_tags_for_note(&id)?;
+            let tags = tags_by_note.remove(&id).unwrap_or_default();
             results.push(NoteSummary {
                 id,
                 path,
@@ -422,9 +465,20 @@ impl DbManager {
             });
         }
 
+        // Pre-fetch all tags in a single query for graph nodes
+        let mut tag_stmt = self.conn.prepare("SELECT note_id, tag FROM tags ORDER BY tag ASC")?;
+        let tag_rows = tag_stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut tags_by_note: HashMap<String, Vec<String>> = HashMap::new();
+        for r in tag_rows {
+            let (note_id, tag) = r?;
+            tags_by_note.entry(note_id).or_default().push(tag);
+        }
+
         let mut nodes = Vec::new();
         for (id, title) in &id_to_title {
-            let tags = self.get_tags_for_note(id)?;
+            let tags = tags_by_note.remove(id).unwrap_or_default();
             let degree = *degree_map.get(id).unwrap_or(&0);
             nodes.push(GraphNode {
                 id: id.clone(),
@@ -510,51 +564,52 @@ impl DbManager {
 
     /// Dense Section Search: returns exact chunks/sections matching the query with token counts
     pub fn search_chunks(&self, query_vector: &[f32], limit: usize) -> Result<Vec<ChunkHit>> {
+        // Phase 1: Lightweight scan without loading large markdown content texts into RAM
         let mut stmt = self.conn.prepare(
             r#"
-            SELECT c.id, c.note_id, n.title, c.heading, c.content, c.token_estimate, c.vector
+            SELECT c.id, c.note_id, n.title, c.heading, c.token_estimate, c.vector
             FROM note_chunks c
             JOIN notes n ON n.id = c.note_id
             "#,
         )?;
+
+        struct ChunkMeta {
+            chunk_id: String,
+            note_id: String,
+            note_title: String,
+            heading: Option<String>,
+            token_estimate: usize,
+            score: f32,
+        }
 
         let rows = stmt.query_map([], |row| {
             let chunk_id: String = row.get(0)?;
             let note_id: String = row.get(1)?;
             let note_title: String = row.get(2)?;
             let heading: Option<String> = row.get(3)?;
-            let content: String = row.get(4)?;
-            let token_estimate: usize = row.get::<_, i64>(5)? as usize;
-            let bytes: Vec<u8> = row.get(6)?;
+            let token_estimate: usize = row.get::<_, i64>(4)? as usize;
+            let bytes: Vec<u8> = row.get(5)?;
             Ok((
                 chunk_id,
                 note_id,
                 note_title,
                 heading,
-                content,
                 token_estimate,
                 bytes,
             ))
         })?;
 
-        let mut scored: Vec<ChunkHit> = Vec::new();
+        let mut scored: Vec<ChunkMeta> = Vec::new();
         for r in rows {
-            let (chunk_id, note_id, note_title, heading, content, token_estimate, bytes) = r?;
+            let (chunk_id, note_id, note_title, heading, token_estimate, bytes) = r?;
             let chunk_vec = bytes_to_f32_vec(&bytes);
             let score = cosine_similarity(query_vector, &chunk_vec);
 
-            let deep_link = match &heading {
-                Some(h) if !h.trim().is_empty() => format!("[[{}#{}]]", note_title, h),
-                _ => format!("[[{}]]", note_title),
-            };
-
-            scored.push(ChunkHit {
+            scored.push(ChunkMeta {
                 chunk_id,
                 note_id,
                 note_title,
                 heading,
-                deep_link,
-                content,
                 token_estimate,
                 score,
             });
@@ -566,7 +621,36 @@ impl DbManager {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         scored.truncate(limit);
-        Ok(scored)
+
+        // Phase 2: Fetch markdown content ONLY for the top 'limit' matches
+        let mut content_stmt = self
+            .conn
+            .prepare("SELECT content FROM note_chunks WHERE id = ?1")?;
+
+        let mut hits = Vec::with_capacity(scored.len());
+        for meta in scored {
+            let content: String = content_stmt
+                .query_row(params![meta.chunk_id], |row| row.get(0))
+                .unwrap_or_default();
+
+            let deep_link = match &meta.heading {
+                Some(h) if !h.trim().is_empty() => format!("[[{}#{}]]", meta.note_title, h),
+                _ => format!("[[{}]]", meta.note_title),
+            };
+
+            hits.push(ChunkHit {
+                chunk_id: meta.chunk_id,
+                note_id: meta.note_id,
+                note_title: meta.note_title,
+                heading: meta.heading,
+                deep_link,
+                content,
+                token_estimate: meta.token_estimate,
+                score: meta.score,
+            });
+        }
+
+        Ok(hits)
     }
 
     /// Auto-Linker: Suggests notes and sections that are semantically relevant to a given draft text

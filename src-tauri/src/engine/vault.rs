@@ -76,6 +76,12 @@ impl Engine {
         let mut count = 0;
         let mut found_ids = Vec::new();
 
+        // 1. Fetch existing timestamps to perform instant incremental sync
+        let existing_mtimes = {
+            let db = self.db.lock().await;
+            db.get_all_notes_mtimes()?
+        };
+
         for entry in WalkDir::new(&self.vault_path)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -86,6 +92,29 @@ impl Engine {
                     .strip_prefix(&self.vault_path)?
                     .to_string_lossy()
                     .replace('\\', "/");
+                let id = rel_path.clone();
+                found_ids.push(id.clone());
+
+                let metadata = match fs::metadata(path) {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let updated_at = metadata
+                    .modified()
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64
+                    })
+                    .unwrap_or(0);
+
+                // Incremental check: if file already exists in DB with identical updated_at, skip re-embedding
+                if let Some(&existing_mtime) = existing_mtimes.get(&id) {
+                    if existing_mtime == updated_at {
+                        continue;
+                    }
+                }
+
                 let stem = path
                     .file_stem()
                     .and_then(|s| s.to_str())
@@ -96,32 +125,20 @@ impl Engine {
                     Err(_) => continue,
                 };
 
-                let metadata = fs::metadata(path)?;
-                let updated_at = metadata
-                    .modified()
-                    .map(|t| {
-                        t.duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs() as i64
-                    })
-                    .unwrap_or(0);
-
                 let parsed = parse_markdown(stem, &content);
-                let id = rel_path.clone();
-                found_ids.push(id.clone());
 
-                // Embed the note overview
+                // Batch all texts (overview + sections) into a single vectorized ONNX inference
                 let note_embed_text = format!(
                     "{} {}\n{}",
                     parsed.title,
                     parsed.tags.join(" "),
                     parsed.summary
                 );
-                let note_embedding = self.embeddings.embed_text(&note_embed_text).await?;
 
-                // Embed each section chunk individually for granular deep-linking
-                let mut chunk_embeddings = Vec::new();
-                for chunk in parsed.chunks {
+                let mut batch_texts = Vec::with_capacity(1 + parsed.chunks.len());
+                batch_texts.push(note_embed_text);
+
+                for chunk in &parsed.chunks {
                     let chunk_text = format!(
                         "{} {} {}\n{}",
                         parsed.title,
@@ -129,8 +146,18 @@ impl Engine {
                         chunk.tags.join(" "),
                         chunk.content
                     );
-                    let chunk_vec = self.embeddings.embed_text(&chunk_text).await?;
-                    chunk_embeddings.push((chunk, chunk_vec));
+                    batch_texts.push(chunk_text);
+                }
+
+                let mut all_vectors = self.embeddings.embed_batch(batch_texts).await?;
+                if all_vectors.is_empty() {
+                    continue;
+                }
+
+                let note_embedding = all_vectors.remove(0);
+                let mut chunk_embeddings = Vec::with_capacity(parsed.chunks.len());
+                for (chunk, vec) in parsed.chunks.into_iter().zip(all_vectors.into_iter()) {
+                    chunk_embeddings.push((chunk, vec));
                 }
 
                 let mut db = self.db.lock().await;
@@ -202,7 +229,7 @@ impl Engine {
 
         let id = rel_path.clone();
 
-        // 1. Initial parse of the note to compute semantic embeddings
+        // 1. Initial parse of the note and batch vectorization
         let parsed_initial = parse_markdown(stem, content);
         let note_embed_text = format!(
             "{} {}\n{}",
@@ -210,10 +237,30 @@ impl Engine {
             parsed_initial.tags.join(" "),
             parsed_initial.summary
         );
-        let note_embedding = self.embeddings.embed_text(&note_embed_text).await?;
+
+        let mut batch_texts = Vec::with_capacity(1 + parsed_initial.chunks.len());
+        batch_texts.push(note_embed_text);
+        for chunk in &parsed_initial.chunks {
+            let chunk_text = format!(
+                "{} {} {}\n{}",
+                parsed_initial.title,
+                chunk.heading.as_deref().unwrap_or(""),
+                chunk.tags.join(" "),
+                chunk.content
+            );
+            batch_texts.push(chunk_text);
+        }
+
+        let mut all_vectors = self.embeddings.embed_batch(batch_texts).await?;
+        let note_embedding = if !all_vectors.is_empty() {
+            all_vectors.remove(0)
+        } else {
+            vec![0.0f32; 384]
+        };
+        let chunk_vectors = all_vectors;
 
         // 2. Semantic Auto-Link (threshold: 0.65 = 65% affinity)
-        // Find existing notes and sections in the vault that have >= 65% affinity
+        // Re-use precomputed vectors instead of calling the ONNX model in loops
         let mut auto_suggestions = Vec::new();
         let mut seen_targets = std::collections::HashSet::new();
 
@@ -228,20 +275,10 @@ impl Engine {
                     }
                 }
             }
-        }
 
-        // Also check individual chunks (if note has multiple sections)
-        for chunk in &parsed_initial.chunks {
-            if chunk.content.trim().len() > 30 {
-                let chunk_text = format!(
-                    "{} {}\n{}",
-                    parsed_initial.title,
-                    chunk.heading.as_deref().unwrap_or(""),
-                    chunk.content
-                );
-                if let Ok(chunk_vec) = self.embeddings.embed_text(&chunk_text).await {
-                    let db = self.db.lock().await;
-                    if let Ok(suggestions) = db.suggest_links(&chunk_vec, &id, 0.65, 5) {
+            for (chunk, chunk_vec) in parsed_initial.chunks.iter().zip(chunk_vectors.iter()) {
+                if chunk.content.trim().len() > 30 {
+                    if let Ok(suggestions) = db.suggest_links(chunk_vec, &id, 0.65, 5) {
                         for s in suggestions {
                             let key = s.target_title.to_lowercase();
                             if !seen_targets.contains(&key) {
@@ -260,7 +297,6 @@ impl Engine {
 
         for s in auto_suggestions {
             let target_lower = s.target_title.to_lowercase();
-            // Check if content already contains [[TargetTitle or [[TargetTitle#...
             let already_linked = content_lower.contains(&format!("[[{}", target_lower));
             if !already_linked {
                 links_to_add.push(s);
@@ -300,18 +336,22 @@ impl Engine {
         // 6. Re-parse final_content so parsed.links includes the newly created wikilinks
         let parsed = parse_markdown(stem, &final_content);
 
-        // Generate chunk-level embeddings
+        // Reuse chunk embeddings for unchanged chunks, embed any newly appended chunk
         let mut chunk_embeddings = Vec::new();
-        for chunk in parsed.chunks {
-            let chunk_text = format!(
-                "{} {} {}\n{}",
-                parsed.title,
-                chunk.heading.as_deref().unwrap_or(""),
-                chunk.tags.join(" "),
-                chunk.content
-            );
-            let chunk_vec = self.embeddings.embed_text(&chunk_text).await?;
-            chunk_embeddings.push((chunk, chunk_vec));
+        for (i, chunk) in parsed.chunks.into_iter().enumerate() {
+            let vec = if i < chunk_vectors.len() {
+                chunk_vectors[i].clone()
+            } else {
+                let chunk_text = format!(
+                    "{} {} {}\n{}",
+                    parsed.title,
+                    chunk.heading.as_deref().unwrap_or(""),
+                    chunk.tags.join(" "),
+                    chunk.content
+                );
+                self.embeddings.embed_text(&chunk_text).await.unwrap_or_default()
+            };
+            chunk_embeddings.push((chunk, vec));
         }
 
         let now = std::time::SystemTime::now()

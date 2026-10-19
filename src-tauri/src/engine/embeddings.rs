@@ -3,8 +3,7 @@ use fastembed::{
     UserDefinedEmbeddingModel,
 };
 use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct EmbeddingEngine {
@@ -103,17 +102,10 @@ impl EmbeddingEngine {
         &self,
         text: &str,
     ) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        let texts = vec![text.to_string()];
-        let model = self.model.lock().await;
-        let mut embeddings = model.embed(texts, None)?;
-        if let Some(emb) = embeddings.pop() {
-            Ok(emb)
-        } else {
-            Err("No embedding generated".into())
-        }
+        let mut results = self.embed_batch(vec![text.to_string()]).await?;
+        results.pop().ok_or_else(|| "No embedding generated".into())
     }
 
-    #[allow(dead_code)]
     pub async fn embed_batch(
         &self,
         texts: Vec<String>,
@@ -121,9 +113,13 @@ impl EmbeddingEngine {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
-        let model = self.model.lock().await;
-        let embeddings = model.embed(texts, None)?;
-        Ok(embeddings)
+        let model = Arc::clone(&self.model);
+        tokio::task::spawn_blocking(move || {
+            let guard = model.lock().map_err(|e| e.to_string())?;
+            let embeddings = guard.embed(texts, None)?;
+            Ok(embeddings)
+        })
+        .await?
     }
 }
 
@@ -138,6 +134,10 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         dot += a[i] * b[i];
         norm_a += a[i] * a[i];
         norm_b += b[i] * b[i];
+    }
+    // Fast-path for L2 unit-normalized vectors (standard in all-MiniLM-L6-v2)
+    if (norm_a - 1.0).abs() < 1e-3 && (norm_b - 1.0).abs() < 1e-3 {
+        return dot;
     }
     let denom = norm_a.sqrt() * norm_b.sqrt();
     if denom <= f32::EPSILON {

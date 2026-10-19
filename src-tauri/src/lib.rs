@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 pub mod engine;
 pub mod mcp;
@@ -260,10 +260,12 @@ pub fn run() {
             let manager = Arc::new(VaultManager::new(embeddings).expect("Falha ao inicializar VaultManager"));
 
             let manager_for_sync = Arc::clone(&manager);
+            let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let engine = manager_for_sync.active_engine().await;
                 if let Ok(count) = engine.sync_vault().await {
                     println!("[GraphFinder Tauri] {} notas sincronizadas no cofre ativo.", count);
+                    let _ = app_handle.emit("vault-sync-complete", count);
                 }
             });
 
