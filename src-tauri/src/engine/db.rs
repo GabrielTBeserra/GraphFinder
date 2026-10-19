@@ -1,8 +1,8 @@
+use super::embeddings::cosine_similarity;
+use super::parser::ParsedChunk;
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use super::embeddings::cosine_similarity;
-use super::parser::ParsedChunk;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteRecord {
@@ -174,15 +174,19 @@ impl DbManager {
             CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_title);
             CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
             CREATE INDEX IF NOT EXISTS idx_chunks_note ON note_chunks(note_id);
-            "#
+            "#,
         )?;
 
         // Safe migration for summary column
-        let _ = self.conn.execute("ALTER TABLE notes ADD COLUMN summary TEXT NOT NULL DEFAULT ''", []);
+        let _ = self.conn.execute(
+            "ALTER TABLE notes ADD COLUMN summary TEXT NOT NULL DEFAULT ''",
+            [],
+        );
 
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn upsert_note(
         &mut self,
         id: &str,
@@ -323,9 +327,9 @@ impl DbManager {
     }
 
     pub fn get_note_by_title(&self, title: &str) -> Result<Option<NoteRecord>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM notes WHERE LOWER(title) = LOWER(?1) LIMIT 1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM notes WHERE LOWER(title) = LOWER(?1) LIMIT 1")?;
         let mut rows = stmt.query(params![title])?;
         if let Some(row) = rows.next()? {
             let id: String = row.get(0)?;
@@ -380,7 +384,9 @@ impl DbManager {
             id_to_title.insert(id, title);
         }
 
-        let mut stmt_links = self.conn.prepare("SELECT source_id, target_title, label FROM links")?;
+        let mut stmt_links = self
+            .conn
+            .prepare("SELECT source_id, target_title, label FROM links")?;
         let mut links = Vec::new();
         let mut degree_map: HashMap<String, usize> = HashMap::new();
 
@@ -394,7 +400,11 @@ impl DbManager {
 
         for r in link_rows {
             let (source_id, target_title, label) = r?;
-            let base_title = target_title.split('#').next().unwrap_or(&target_title).trim();
+            let base_title = target_title
+                .split('#')
+                .next()
+                .unwrap_or(&target_title)
+                .trim();
             let target_key = base_title.to_lowercase();
             let target_id = if let Some(id) = title_to_id.get(&target_key) {
                 id.clone()
@@ -499,11 +509,7 @@ impl DbManager {
     }
 
     /// Dense Section Search: returns exact chunks/sections matching the query with token counts
-    pub fn search_chunks(
-        &self,
-        query_vector: &[f32],
-        limit: usize,
-    ) -> Result<Vec<ChunkHit>> {
+    pub fn search_chunks(&self, query_vector: &[f32], limit: usize) -> Result<Vec<ChunkHit>> {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT c.id, c.note_id, n.title, c.heading, c.content, c.token_estimate, c.vector
@@ -520,7 +526,15 @@ impl DbManager {
             let content: String = row.get(4)?;
             let token_estimate: usize = row.get::<_, i64>(5)? as usize;
             let bytes: Vec<u8> = row.get(6)?;
-            Ok((chunk_id, note_id, note_title, heading, content, token_estimate, bytes))
+            Ok((
+                chunk_id,
+                note_id,
+                note_title,
+                heading,
+                content,
+                token_estimate,
+                bytes,
+            ))
         })?;
 
         let mut scored: Vec<ChunkHit> = Vec::new();
@@ -546,7 +560,11 @@ impl DbManager {
             });
         }
 
-        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         scored.truncate(limit);
         Ok(scored)
     }
@@ -591,7 +609,10 @@ impl DbManager {
     }
 
     /// Token-efficient compressed digest for AI agents (consumes ~50-100 tokens max)
-    pub fn get_compressed_context(&self, note_id_or_title: &str) -> Result<Option<CompressedContext>> {
+    pub fn get_compressed_context(
+        &self,
+        note_id_or_title: &str,
+    ) -> Result<Option<CompressedContext>> {
         let note = match self.get_note_by_id(note_id_or_title)? {
             Some(n) => n,
             None => match self.get_note_by_title(note_id_or_title)? {
@@ -639,11 +660,7 @@ impl DbManager {
         }))
     }
 
-    pub fn semantic_search(
-        &self,
-        query_vector: &[f32],
-        limit: usize,
-    ) -> Result<Vec<SearchHit>> {
+    pub fn semantic_search(&self, query_vector: &[f32], limit: usize) -> Result<Vec<SearchHit>> {
         let mut stmt = self
             .conn
             .prepare("SELECT note_id, vector FROM embeddings")?;
@@ -744,7 +761,11 @@ fn bytes_to_f32_vec(bytes: &[u8]) -> Vec<f32> {
 }
 
 fn make_snippet(content: &str, max_len: usize) -> String {
-    let plain = content.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join(" ");
+    let plain = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
     if plain.chars().count() <= max_len {
         plain
     } else {

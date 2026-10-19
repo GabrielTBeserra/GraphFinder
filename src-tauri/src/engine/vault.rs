@@ -76,7 +76,10 @@ impl Engine {
         let mut count = 0;
         let mut found_ids = Vec::new();
 
-        for entry in WalkDir::new(&self.vault_path).into_iter().filter_map(|e| e.ok()) {
+        for entry in WalkDir::new(&self.vault_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
                 let rel_path = path
@@ -108,7 +111,12 @@ impl Engine {
                 found_ids.push(id.clone());
 
                 // Embed the note overview
-                let note_embed_text = format!("{} {}\n{}", parsed.title, parsed.tags.join(" "), parsed.summary);
+                let note_embed_text = format!(
+                    "{} {}\n{}",
+                    parsed.title,
+                    parsed.tags.join(" "),
+                    parsed.summary
+                );
                 let note_embedding = self.embeddings.embed_text(&note_embed_text).await?;
 
                 // Embed each section chunk individually for granular deep-linking
@@ -172,7 +180,13 @@ impl Engine {
             _ => {
                 let safe_title: String = title
                     .chars()
-                    .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' { c } else { '_' })
+                    .map(|c| {
+                        if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
                     .collect();
                 format!("{}.md", safe_title.trim())
             }
@@ -190,7 +204,12 @@ impl Engine {
 
         // 1. Initial parse of the note to compute semantic embeddings
         let parsed_initial = parse_markdown(stem, content);
-        let note_embed_text = format!("{} {}\n{}", parsed_initial.title, parsed_initial.tags.join(" "), parsed_initial.summary);
+        let note_embed_text = format!(
+            "{} {}\n{}",
+            parsed_initial.title,
+            parsed_initial.tags.join(" "),
+            parsed_initial.summary
+        );
         let note_embedding = self.embeddings.embed_text(&note_embed_text).await?;
 
         // 2. Semantic Auto-Link (threshold: 0.65 = 65% affinity)
@@ -248,7 +267,11 @@ impl Engine {
             }
         }
 
-        links_to_add.sort_by(|a, b| b.similarity_score.partial_cmp(&a.similarity_score).unwrap_or(std::cmp::Ordering::Equal));
+        links_to_add.sort_by(|a, b| {
+            b.similarity_score
+                .partial_cmp(&a.similarity_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // 4. Format and append auto-links if any match >= 65%
         let mut final_content = content.to_string();
@@ -257,12 +280,17 @@ impl Engine {
                 final_content.push('\n');
             }
 
-            if !final_content.contains("### Conexões Semânticas") && !final_content.contains("## Conexões Semânticas") {
+            if !final_content.contains("### Conexões Semânticas")
+                && !final_content.contains("## Conexões Semânticas")
+            {
                 final_content.push_str("\n### Conexões Semânticas (Auto-Link 65%+)\n");
             }
             for s in &links_to_add {
                 let score_pct = (s.similarity_score * 100.0).round() as u32;
-                final_content.push_str(&format!("- Conexão: {} (Afinidade: {}%)\n", s.deep_link, score_pct));
+                final_content.push_str(&format!(
+                    "- Conexão: {} (Afinidade: {}%)\n",
+                    s.deep_link, score_pct
+                ));
             }
         }
 
@@ -305,11 +333,16 @@ impl Engine {
             &chunk_embeddings,
         )?;
 
-        let note = db.get_note_by_id(&id)?.ok_or("Failed to retrieve note after save")?;
+        let note = db
+            .get_note_by_id(&id)?
+            .ok_or("Failed to retrieve note after save")?;
         Ok(note)
     }
 
-    pub async fn get_note(&self, id_or_title: &str) -> Result<Option<NoteRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_note(
+        &self,
+        id_or_title: &str,
+    ) -> Result<Option<NoteRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let db = self.db.lock().await;
         if let Some(n) = db.get_note_by_id(id_or_title)? {
             return Ok(Some(n));
@@ -317,7 +350,9 @@ impl Engine {
         Ok(db.get_note_by_title(id_or_title)?)
     }
 
-    pub async fn list_notes(&self) -> Result<Vec<NoteSummary>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn list_notes(
+        &self,
+    ) -> Result<Vec<NoteSummary>, Box<dyn std::error::Error + Send + Sync>> {
         let db = self.db.lock().await;
         Ok(db.get_all_notes()?)
     }
@@ -327,33 +362,54 @@ impl Engine {
         Ok(db.get_graph_data()?)
     }
 
-    pub async fn get_neighborhood(&self, target: &str, depth: usize) -> Result<Neighborhood, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_neighborhood(
+        &self,
+        target: &str,
+        depth: usize,
+    ) -> Result<Neighborhood, Box<dyn std::error::Error + Send + Sync>> {
         let db = self.db.lock().await;
         Ok(db.get_neighborhood(target, depth)?)
     }
 
-    pub async fn search_semantic(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn search_semantic(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchHit>, Box<dyn std::error::Error + Send + Sync>> {
         let query_emb = self.embeddings.embed_text(query).await?;
         let db = self.db.lock().await;
         Ok(db.semantic_search(&query_emb, limit)?)
     }
 
     /// Cirurgical search returning exact token-efficient sections with deep links
-    pub async fn search_chunks(&self, query: &str, limit: usize) -> Result<Vec<ChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn search_chunks(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<ChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
         let query_emb = self.embeddings.embed_text(query).await?;
         let db = self.db.lock().await;
         Ok(db.search_chunks(&query_emb, limit)?)
     }
 
     /// Recommends existing notes/sections to link to while writing
-    pub async fn suggest_links(&self, text: &str, exclude_note_id: &str, threshold: f32, limit: usize) -> Result<Vec<LinkSuggestion>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn suggest_links(
+        &self,
+        text: &str,
+        exclude_note_id: &str,
+        threshold: f32,
+        limit: usize,
+    ) -> Result<Vec<LinkSuggestion>, Box<dyn std::error::Error + Send + Sync>> {
         let text_emb = self.embeddings.embed_text(text).await?;
         let db = self.db.lock().await;
         Ok(db.suggest_links(&text_emb, exclude_note_id, threshold, limit)?)
     }
 
     /// Compressed context digest for AI prompt token savings
-    pub async fn get_compressed_context(&self, target: &str) -> Result<Option<CompressedContext>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_compressed_context(
+        &self,
+        target: &str,
+    ) -> Result<Option<CompressedContext>, Box<dyn std::error::Error + Send + Sync>> {
         let db = self.db.lock().await;
         Ok(db.get_compressed_context(target)?)
     }
@@ -363,14 +419,18 @@ impl Engine {
         from_title_or_id: &str,
         to_title: &str,
     ) -> Result<NoteRecord, Box<dyn std::error::Error + Send + Sync>> {
-        let note = self.get_note(from_title_or_id).await?.ok_or("Source note not found")?;
-        
+        let note = self
+            .get_note(from_title_or_id)
+            .await?
+            .ok_or("Source note not found")?;
+
         let link_text = format!("\n- Relacionado: [[{}]]", to_title);
         let mut new_content = note.content.clone();
         if !new_content.contains(&format!("[[{}]]", to_title)) {
             new_content.push_str(&link_text);
         }
 
-        self.save_note(&note.title, &new_content, Some(&note.path)).await
+        self.save_note(&note.title, &new_content, Some(&note.path))
+            .await
     }
 }

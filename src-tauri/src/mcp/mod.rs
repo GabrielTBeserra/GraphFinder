@@ -31,8 +31,12 @@ struct JsonRpcError {
     data: Option<Value>,
 }
 
-pub async fn run_mcp_server(manager: Arc<VaultManager>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    eprintln!("[GraphFinder MCP] Servidor iniciado via stdio. Suporte a múltiplos projetos/vaults ativo.");
+pub async fn run_mcp_server(
+    manager: Arc<VaultManager>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    eprintln!(
+        "[GraphFinder MCP] Servidor iniciado via stdio. Suporte a múltiplos projetos/vaults ativo."
+    );
 
     let stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
@@ -77,7 +81,10 @@ pub async fn run_mcp_server(manager: Arc<VaultManager>) -> Result<(), Box<dyn st
     Ok(())
 }
 
-async fn handle_request(manager: &Arc<VaultManager>, req: JsonRpcRequest) -> Option<JsonRpcResponse> {
+async fn handle_request(
+    manager: &Arc<VaultManager>,
+    req: JsonRpcRequest,
+) -> Option<JsonRpcResponse> {
     let id = req.id;
     let method = req.method.as_str();
     eprintln!("[GraphFinder MCP Incoming] Method: {}", method);
@@ -387,7 +394,7 @@ async fn execute_tool(
                 .get("path")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let project = manager.create_project(name, custom_path).await.map_err(|e| e)?;
+            let project = manager.create_project(name, custom_path).await?;
             Ok(format!(
                 "Projeto '{}' (ID: '{}') criado com sucesso!\nCofre de notas: {}\nBanco SQLite de vetores: {}",
                 project.name, project.id, project.path, project.db_path
@@ -398,7 +405,7 @@ async fn execute_tool(
                 .get("project_id")
                 .and_then(|v| v.as_str())
                 .ok_or("Campo 'project_id' é obrigatório")?;
-            let project = manager.switch_project(project_id).await.map_err(|e| e)?;
+            let project = manager.switch_project(project_id).await?;
             Ok(format!(
                 "Projeto ativo alterado com sucesso para: {} (ID: '{}') com {} notas.",
                 project.name, project.id, project.note_count
@@ -442,7 +449,8 @@ async fn execute_tool(
                 return Ok("Nenhum trecho semântico relevante encontrado no cofre.".to_string());
             }
 
-            let mut out = String::from("Trechos Semânticos de Alta Densidade (Token-Efficient):\n\n");
+            let mut out =
+                String::from("Trechos Semânticos de Alta Densidade (Token-Efficient):\n\n");
             for (i, c) in chunks.into_iter().enumerate() {
                 out.push_str(&format!(
                     "{}. {} | Score: {:.0}% (~{} tokens)\n\"{}\"\n\n",
@@ -472,7 +480,10 @@ async fn execute_tool(
                         c.title, c.token_estimate, c.summary, c.tags, c.connected_notes
                     );
                     for s in c.sections {
-                        out.push_str(&format!("- #{} (~{} tokens): {}\n", s.heading, s.token_estimate, s.snippet));
+                        out.push_str(&format!(
+                            "- #{} (~{} tokens): {}\n",
+                            s.heading, s.token_estimate, s.snippet
+                        ));
                     }
                     Ok(out)
                 }
@@ -496,9 +507,13 @@ async fn execute_tool(
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.60) as f32;
 
-            let suggestions = engine.suggest_links(text, current_note, threshold, 4).await?;
+            let suggestions = engine
+                .suggest_links(text, current_note, threshold, 4)
+                .await?;
             if suggestions.is_empty() {
-                return Ok("Nenhuma sugestão forte de link encontrada para este trecho.".to_string());
+                return Ok(
+                    "Nenhuma sugestão forte de link encontrada para este trecho.".to_string(),
+                );
             }
 
             let mut out = String::from("Sugestões Semânticas de Wikilinks para o Grafo:\n\n");
@@ -555,7 +570,10 @@ async fn execute_tool(
 
             let note = engine.save_note(title, &content, None).await?;
             let autolinks_info = if !note.outgoing_links.is_empty() {
-                format!("\nAuto-links Criados (≥65% afinidade): {:?}", note.outgoing_links)
+                format!(
+                    "\nAuto-links Criados (≥65% afinidade): {:?}",
+                    note.outgoing_links
+                )
             } else {
                 "\nAuto-links: Nenhuma nota com afinidade ≥ 65% encontrada.".to_string()
             };
@@ -624,7 +642,10 @@ async fn execute_tool(
             let project = args.get("project").and_then(|v| v.as_str());
             let engine = manager.get_engine(project).await;
             let count = engine.sync_vault().await?;
-            Ok(format!("Sincronização concluída com sucesso! {} notas ativas e indexadas no vault.", count))
+            Ok(format!(
+                "Sincronização concluída com sucesso! {} notas ativas e indexadas no vault.",
+                count
+            ))
         }
         _ => Err(format!("Ferramenta '{}' não implementada", tool_name).into()),
     }
