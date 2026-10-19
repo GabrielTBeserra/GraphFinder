@@ -1,11 +1,20 @@
 export const MCP_CONFIG_SNIPPET = `{
   "mcpServers": {
     "graphfinder": {
-      "command": "Z:\\\\GraphFinder\\\\src-tauri\\\\target\\\\debug\\\\graphfinder.exe",
+      "type": "sse",
+      "url": "http://127.0.0.1:45123/sse"
+    }
+  }
+}`;
+
+export const MCP_STDIO_CONFIG_SNIPPET = `{
+  "mcpServers": {
+    "graphfinder": {
+      "command": "graphfinder.exe",
       "args": ["--mcp"],
       "env": {
-        "GRAPHFINDER_VAULT": "Z:\\\\GraphFinder\\\\vault",
-        "GRAPHFINDER_DB": "Z:\\\\GraphFinder\\\\index.db"
+        "GRAPHFINDER_VAULT": "./vault",
+        "GRAPHFINDER_DB": "./index.db"
       }
     }
   }

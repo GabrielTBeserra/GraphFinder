@@ -1,34 +1,37 @@
+pub mod server;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
+use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::engine::VaultManager;
 
-#[derive(Debug, Deserialize, Serialize)]
-struct JsonRpcRequest {
-    jsonrpc: String,
-    id: Option<Value>,
-    method: String,
-    params: Option<Value>,
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JsonRpcRequest {
+    pub jsonrpc: String,
+    pub id: Option<Value>,
+    pub method: String,
+    pub params: Option<Value>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct JsonRpcResponse {
-    jsonrpc: String,
-    id: Option<Value>,
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JsonRpcResponse {
+    pub jsonrpc: String,
+    pub id: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<Value>,
+    pub result: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<JsonRpcError>,
+    pub error: Option<JsonRpcError>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct JsonRpcError {
-    code: i32,
-    message: String,
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JsonRpcError {
+    pub code: i32,
+    pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<Value>,
+    pub data: Option<Value>,
 }
 
 pub async fn run_mcp_server(
@@ -70,7 +73,7 @@ pub async fn run_mcp_server(
             }
         };
 
-        let response = handle_request(&manager, request).await;
+        let response = handle_request(&manager, None, request).await;
         if let Some(resp) = response {
             let out = serde_json::to_string(&resp)? + "\n";
             stdout.write_all(out.as_bytes()).await?;
@@ -81,8 +84,9 @@ pub async fn run_mcp_server(
     Ok(())
 }
 
-async fn handle_request(
+pub async fn handle_request(
     manager: &Arc<VaultManager>,
+    app_handle: Option<&tauri::AppHandle>,
     req: JsonRpcRequest,
 ) -> Option<JsonRpcResponse> {
     let id = req.id;
@@ -292,7 +296,7 @@ async fn handle_request(
             let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
-            let call_res = execute_tool(manager, tool_name, arguments).await;
+            let call_res = execute_tool(manager, app_handle, tool_name, arguments).await;
             match call_res {
                 Ok(content) => Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
@@ -339,6 +343,7 @@ async fn handle_request(
 
 async fn execute_tool(
     manager: &Arc<VaultManager>,
+    app_handle: Option<&tauri::AppHandle>,
     tool_name: &str,
     args: Value,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -365,6 +370,9 @@ async fn execute_tool(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
             let project = manager.create_project(name, custom_path).await?;
+            if let Some(app) = app_handle {
+                let _ = app.emit("vault-sync-complete", 1);
+            }
             Ok(format!(
                 "Projeto '{}' (ID: '{}') criado com sucesso!\nCofre de notas: {}\nBanco SQLite de vetores: {}",
                 project.name, project.id, project.path, project.db_path
@@ -376,6 +384,9 @@ async fn execute_tool(
                 .and_then(|v| v.as_str())
                 .ok_or("Campo 'project_id' é obrigatório")?;
             let project = manager.switch_project(project_id).await?;
+            if let Some(app) = app_handle {
+                let _ = app.emit("vault-sync-complete", project.note_count);
+            }
             Ok(format!(
                 "Projeto ativo alterado com sucesso para: {} (ID: '{}') com {} notas.",
                 project.name, project.id, project.note_count
@@ -539,6 +550,9 @@ async fn execute_tool(
             }
 
             let note = engine.save_note(title, &content, None).await?;
+            if let Some(app) = app_handle {
+                let _ = app.emit("vault-sync-complete", 1);
+            }
             let autolinks_info = if !note.outgoing_links.is_empty() {
                 format!(
                     "\nAuto-links Criados (≥65% afinidade): {:?}",
@@ -586,6 +600,9 @@ async fn execute_tool(
                 .ok_or("Campo 'to_note' é obrigatório")?;
 
             let updated = engine.link_notes(from_note, to_note).await?;
+            if let Some(app) = app_handle {
+                let _ = app.emit("vault-sync-complete", 1);
+            }
             Ok(format!(
                 "Ligação criada com sucesso!\nOrigem: [[{}]] -> Destino: [[{}]]\nLinks atualizados: {:?}",
                 updated.title, to_note, updated.outgoing_links
@@ -612,6 +629,9 @@ async fn execute_tool(
             let project = args.get("project").and_then(|v| v.as_str());
             let engine = manager.get_engine(project).await;
             let count = engine.sync_vault().await?;
+            if let Some(app) = app_handle {
+                let _ = app.emit("vault-sync-complete", count);
+            }
             Ok(format!(
                 "Sincronização concluída com sucesso! {} notas ativas e indexadas no vault.",
                 count

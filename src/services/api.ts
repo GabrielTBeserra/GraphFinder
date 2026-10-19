@@ -268,12 +268,8 @@ export async function fetchMcpConfig(): Promise<McpConfigInfo> {
     config_json: `{
   "mcpServers": {
     "graphfinder": {
-      "command": "graphfinder",
-      "args": ["--mcp"],
-      "env": {
-        "GRAPHFINDER_VAULT": "./vault",
-        "GRAPHFINDER_DB": "./index.db"
-      }
+      "type": "sse",
+      "url": "http://127.0.0.1:45123/sse"
     }
   }
 }`,

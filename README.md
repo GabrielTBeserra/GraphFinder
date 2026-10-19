@@ -115,31 +115,30 @@ The Model Context Protocol (MCP) enables AI agents to query and curate your know
 
 ### Agent Configuration
 
-#### Claude Desktop (`claude_desktop_config.json`)
+#### Recommended: Local HTTP/SSE Server (GraphFinder Desktop App Open)
+When GraphFinder is running, an embedded MCP HTTP/SSE server is automatically active at `http://127.0.0.1:45123/sse`. This mode shares memory caches, prevents SQLite concurrency locks, and provides real-time graph UI updates!
+
+Add to your `mcp_config.json` (Cursor, Claude Desktop, Antigravity, Windsurf):
 ```json
 {
   "mcpServers": {
     "graphfinder": {
-      "command": "cargo",
-      "args": [
-        "run",
-        "--manifest-path",
-        "Z:/GraphFinder/src-tauri/Cargo.toml",
-        "--",
-        "--mcp"
-      ]
+      "type": "sse",
+      "url": "http://127.0.0.1:45123/sse"
     }
   }
 }
 ```
-*(Or point directly to the compiled executable `graphfinder.exe --mcp`)*
 
-#### Cursor / Gemini Antigravity / Windsurf (`mcp_config.json`)
+*Direct HTTP JSON-RPC endpoint is also available at `http://127.0.0.1:45123/mcp`.*
+
+#### Fallback: Headless Stdio CLI Mode (`--mcp`)
+If you want agents to query or index notes without opening the desktop application GUI:
 ```json
 {
   "mcpServers": {
     "graphfinder": {
-      "command": "Z:/GraphFinder/src-tauri/target/release/graphfinder.exe",
+      "command": "graphfinder.exe",
       "args": ["--mcp"]
     }
   }

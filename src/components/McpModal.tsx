@@ -13,7 +13,7 @@ import {
   CheckCircle,
   Folder,
 } from '@phosphor-icons/react';
-import { AGENT_RULE_CONTENT, SKILL_CONTENT, MCP_CONFIG_SNIPPET } from '../services/aiConfig';
+import { AGENT_RULE_CONTENT, SKILL_CONTENT, MCP_CONFIG_SNIPPET, MCP_STDIO_CONFIG_SNIPPET } from '../services/aiConfig';
 import { fetchMcpConfig, type McpConfigInfo } from '../services/api';
 
 interface McpModalProps {
@@ -24,6 +24,7 @@ interface McpModalProps {
 export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [mcpInfo, setMcpInfo] = useState<McpConfigInfo | null>(null);
+  const [mcpMode, setMcpMode] = useState<'sse' | 'stdio'>('sse');
 
   useEffect(() => {
     if (isOpen) {
@@ -33,7 +34,23 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
     }
   }, [isOpen]);
 
-  const currentConfigJson = mcpInfo?.config_json || MCP_CONFIG_SNIPPET;
+  const sseConfigJson = mcpInfo?.config_json || MCP_CONFIG_SNIPPET;
+  const stdioConfigJson = mcpInfo
+    ? `{
+  "mcpServers": {
+    "graphfinder": {
+      "command": "${mcpInfo.executable_path.replace(/\\/g, '\\\\')}",
+      "args": ["--mcp"],
+      "env": {
+        "GRAPHFINDER_VAULT": "${mcpInfo.vault_path.replace(/\\/g, '\\\\')}",
+        "GRAPHFINDER_DB": "${mcpInfo.db_path.replace(/\\/g, '\\\\')}"
+      }
+    }
+  }
+}`
+    : MCP_STDIO_CONFIG_SNIPPET;
+
+  const currentConfigJson = mcpMode === 'sse' ? sseConfigJson : stdioConfigJson;
 
   const copyToClipboard = (text: string, type: string) => {
     navigator.clipboard.writeText(text);
@@ -236,22 +253,67 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
 
             {/* Tab 3: MCP Config */}
             <Tabs.Content value="mcp" className="flex-1 overflow-y-auto space-y-3 pt-3 outline-none">
-              {mcpInfo && (
-                <div className="rounded-lg bg-[#161922] border border-[#262a36] p-3 text-xs text-[#cbd5e1]">
-                  <div className="flex items-center gap-1.5 font-semibold text-[#38bdf8] mb-1">
-                    <Folder size={14} className="text-[#38bdf8]" />
-                    <span>Detected System Paths:</span>
+              {/* Transport Mode Switcher */}
+              <div className="flex items-center gap-1.5 p-1 rounded-lg bg-[#0d0f14] border border-[#1f232d]">
+                <button
+                  type="button"
+                  onClick={() => setMcpMode('sse')}
+                  className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                    mcpMode === 'sse'
+                      ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 font-semibold'
+                      : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#161922]'
+                  }`}
+                >
+                  📡 SSE Local Server (Recomendado)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMcpMode('stdio')}
+                  className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                    mcpMode === 'stdio'
+                      ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 font-semibold'
+                      : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#161922]'
+                  }`}
+                >
+                  ⚙️ Stdio CLI (Fallback Headless)
+                </button>
+              </div>
+
+              {mcpMode === 'sse' ? (
+                <div className="rounded-lg bg-[#161922] border border-[#262a36] p-3 text-xs text-[#cbd5e1] space-y-1">
+                  <div className="flex items-center gap-1.5 font-semibold text-[#10b981]">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Servidor MCP Embutido Ativo (Porta 45123)</span>
                   </div>
-                  <div className="font-mono text-[11px] space-y-0.5 text-[#94a3b8] break-all">
-                    <div><strong>Executable:</strong> {mcpInfo.executable_path}</div>
-                    <div><strong>Vault Directory:</strong> {mcpInfo.vault_path}</div>
-                    <div><strong>Database:</strong> {mcpInfo.db_path}</div>
+                  <p className="text-[11px] text-[#94a3b8] leading-relaxed">
+                    O servidor sobe junto com o GraphFinder na sua máquina local. Ele compartilha o cache de embeddings, não causa bloqueios no SQLite e atualiza o grafo em tempo real na tela!
+                  </p>
+                  <div className="font-mono text-[11px] pt-1 text-[#38bdf8] flex items-center gap-2">
+                    <span>SSE: <code>http://127.0.0.1:45123/sse</code></span>
+                    <span>•</span>
+                    <span>HTTP: <code>http://127.0.0.1:45123/mcp</code></span>
                   </div>
                 </div>
+              ) : (
+                mcpInfo && (
+                  <div className="rounded-lg bg-[#161922] border border-[#262a36] p-3 text-xs text-[#cbd5e1]">
+                    <div className="flex items-center gap-1.5 font-semibold text-[#38bdf8] mb-1">
+                      <Folder size={14} className="text-[#38bdf8]" />
+                      <span>Detected System Paths:</span>
+                    </div>
+                    <div className="font-mono text-[11px] space-y-0.5 text-[#94a3b8] break-all">
+                      <div><strong>Executable:</strong> {mcpInfo.executable_path}</div>
+                      <div><strong>Vault Directory:</strong> {mcpInfo.vault_path}</div>
+                      <div><strong>Database:</strong> {mcpInfo.db_path}</div>
+                    </div>
+                  </div>
+                )
               )}
 
               <div className="flex items-center justify-between text-xs text-[#64748b]">
-                <span className="font-medium text-[#cbd5e1]">JSON configuration ready to copy:</span>
+                <span className="font-medium text-[#cbd5e1]">
+                  {mcpMode === 'sse' ? 'Configuração SSE para seu editor:' : 'Configuração Stdio para seu editor:'}
+                </span>
                 <button
                   type="button"
                   onClick={() => copyToClipboard(currentConfigJson, 'mcp-tab')}
