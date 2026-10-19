@@ -10,7 +10,7 @@ export const MCP_CONFIG_SNIPPET = `{
 export const MCP_STDIO_CONFIG_SNIPPET = `{
   "mcpServers": {
     "graphfinder": {
-      "command": "graphfinder.exe",
+      "command": "GraphFinder.exe",
       "args": ["--mcp"],
       "env": {
         "GRAPHFINDER_VAULT": "./vault",

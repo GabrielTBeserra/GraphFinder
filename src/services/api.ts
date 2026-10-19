@@ -262,7 +262,7 @@ export async function fetchMcpConfig(): Promise<McpConfigInfo> {
     return await invoke<McpConfigInfo>('get_mcp_config');
   }
   return {
-    executable_path: 'graphfinder.exe',
+    executable_path: 'GraphFinder.exe',
     vault_path: './vault',
     db_path: './index.db',
     config_json: `{
