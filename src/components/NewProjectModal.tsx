@@ -47,14 +47,14 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         }
       }
     } catch (err) {
-      console.error('Erro ao abrir seletor de pasta:', err);
+      console.error('Error opening folder picker:', err);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('Por favor, informe o nome do projeto.');
+      setError('Please provide a project name.');
       return;
     }
 
@@ -66,21 +66,21 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
       setCustomPath('');
       onClose();
     } catch (err: unknown) {
-      console.error('Erro ao criar projeto:', err);
-      const errMsg = err instanceof Error ? err.message : 'Falha ao criar novo cofre de projeto.';
+      console.error('Error creating project:', err);
+      const errMsg = err instanceof Error ? err.message : 'Failed to create new project vault.';
       setError(errMsg);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const effectiveVaultPath = customPath.trim() || `./vaults/${slug || 'nome-do-projeto'}/`;
+  const effectiveVaultPath = customPath.trim() || `./vaults/${slug || 'project-name'}/`;
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm animate-in fade-in-0 duration-200" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#111318] border border-[#262933] p-6 shadow-2xl animate-in fade-in-0 zoom-in-95 duration-200 focus:outline-none text-[#f1f5f9]">
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#111318] border border-[#262933] p-6 shadow-2xl focus:outline-none text-[#f1f5f9]">
           {/* Header */}
           <div className="flex items-start justify-between gap-4 mb-5 pb-3 border-b border-[#1f232d]">
             <div className="flex items-center gap-3">
@@ -89,10 +89,10 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               </div>
               <div>
                 <Dialog.Title className="text-sm font-semibold text-[#f8fafc]">
-                  Criar ou Importar Cofre de Notas
+                  Create or Open Knowledge Vault
                 </Dialog.Title>
                 <Dialog.Description className="text-xs text-[#64748b] mt-0.5">
-                  Armazenamento local-first em qualquer pasta do seu computador.
+                  Local-first storage in any directory on your computer.
                 </Dialog.Description>
               </div>
             </div>
@@ -101,7 +101,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               <button
                 type="button"
                 className="rounded-md p-1.5 text-[#64748b] hover:text-[#f8fafc] hover:bg-[#1a1e28] transition-colors cursor-pointer"
-                title="Fechar"
+                title="Close"
               >
                 <X size={15} />
               </button>
@@ -115,13 +115,13 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 htmlFor="project-name-input"
                 className="block text-xs font-medium text-[#cbd5e1] mb-1.5"
               >
-                Nome do Projeto / Vault
+                Project / Vault Name
               </label>
               <input
                 id="project-name-input"
                 type="text"
                 className="w-full px-3 py-2 text-xs rounded-md bg-[#0d0f14] border border-[#1f232d] text-[#f8fafc] placeholder-[#64748b] focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/40 transition-all"
-                placeholder="Ex: Minhas Notas, Pesquisas IA, Financas, Segundo Cerebro..."
+                placeholder="e.g., Research Notes, AI Engineering, Second Brain..."
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
@@ -139,7 +139,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   htmlFor="project-path-input"
                   className="text-xs font-medium text-[#cbd5e1]"
                 >
-                  Local de Armazenamento no Computador
+                  Storage Location on Disk
                 </label>
                 {customPath && (
                   <button
@@ -147,7 +147,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                     onClick={() => setCustomPath('')}
                     className="text-[10px] text-[#64748b] hover:text-[#cbd5e1] transition-colors cursor-pointer"
                   >
-                    Restaurar local padrao
+                    Restore default location
                   </button>
                 )}
               </div>
@@ -158,7 +158,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                     id="project-path-input"
                     type="text"
                     className="w-full px-3 py-2 text-xs rounded-md bg-[#0d0f14] border border-[#1f232d] text-[#f8fafc] placeholder-[#64748b] focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/40 transition-all font-mono"
-                    placeholder="Selecione uma pasta ou deixe em branco para usar o padrao..."
+                    placeholder="Select a folder or leave blank for default..."
                     value={customPath}
                     onChange={(e) => setCustomPath(e.target.value)}
                     disabled={isSubmitting}
@@ -169,10 +169,10 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   type="button"
                   onClick={handleBrowseFolder}
                   className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md bg-[#13161f] hover:bg-[#1a1e28] text-[#cbd5e1] border border-[#1e222d] hover:border-[#2d3342] transition-colors cursor-pointer shrink-0"
-                  title="Abrir janela para selecionar pasta no disco"
+                  title="Open folder picker dialog"
                 >
                   <FolderOpen size={14} className="text-[#38bdf8]" />
-                  <span>Escolher Pasta</span>
+                  <span>Choose Folder</span>
                 </button>
               </div>
             </div>
@@ -181,7 +181,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             <div className="rounded-lg bg-[#12151c] border border-[#1e222d] p-3 space-y-2">
               <div className="flex items-center gap-2 text-[#cbd5e1] text-xs font-medium">
                 <Database size={13} className="text-[#64748b]" />
-                <span>Diretorio Selecionado:</span>
+                <span>Selected Directory:</span>
               </div>
 
               <div className="font-mono text-[11px] space-y-1 text-[#94a3b8]">
@@ -191,19 +191,19 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   ) : (
                     <Folder size={12} className="text-[#64748b] shrink-0" />
                   )}
-                  <span>Pasta:</span>
+                  <span>Vault Folder:</span>
                   <span className="text-[#f8fafc] truncate">{effectiveVaultPath}</span>
                 </div>
                 <div className="flex items-center gap-1.5 truncate">
                   <Database size={12} className="text-[#64748b] shrink-0" />
-                  <span>Indice SQLite:</span>
+                  <span>SQLite Index:</span>
                   <span className="text-[#f8fafc] truncate">{effectiveVaultPath.replace(/[\\/]$/, '')}/index.db</span>
                 </div>
               </div>
 
               <div className="flex items-center gap-1.5 text-[11px] text-[#64748b] pt-1">
                 <CheckCircle size={12} className="text-[#10b981] shrink-0" />
-                <span>Notas Markdown existentes na pasta sao indexadas automaticamente.</span>
+                <span>Existing Markdown notes in the folder will be indexed automatically.</span>
               </div>
             </div>
 
@@ -221,7 +221,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 disabled={isSubmitting}
                 className="px-3 py-1.5 text-xs font-medium text-[#64748b] hover:text-[#f8fafc] hover:bg-[#1a1e28] rounded-md transition-colors cursor-pointer"
               >
-                Cancelar
+                Cancel
               </button>
               <button
                 type="submit"
@@ -229,7 +229,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
               >
                 <Check size={13} weight="bold" />
-                <span>{isSubmitting ? 'Salvando...' : 'Salvar Cofre'}</span>
+                <span>{isSubmitting ? 'Saving...' : 'Save Vault'}</span>
               </button>
             </div>
           </form>

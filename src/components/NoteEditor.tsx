@@ -28,16 +28,29 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   onClose,
   onNavigateNote,
 }) => {
-  const [title, setTitle] = useState(note?.title ?? (note ? '' : 'Nova Nota'));
+  const [title, setTitle] = useState(note?.title ?? (note ? '' : 'New Note'));
   const [content, setContent] = useState(
     note?.content ??
-      '# Nova Nota\n\nComece a escrever suas ideias aqui.\nConecte a outras notas com [[Nome da Nota]] e adicione #tags.'
+      '# New Note\n\nStart writing your thoughts here.\nConnect to other notes with [[Note Title]] and add #tags.'
   );
+  const [prevNoteId, setPrevNoteId] = useState<string | undefined>(note?.id);
   const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'split'>('split');
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(!note);
   const [suggestions, setSuggestions] = useState<LinkSuggestion[]>([]);
   const [isSuggesting, setIsSuggesting] = useState(false);
+
+  // Synchronize state when the active note changes during render
+  if (note?.id !== prevNoteId) {
+    setPrevNoteId(note?.id);
+    setTitle(note?.title ?? 'New Note');
+    setContent(
+      note?.content ??
+        '# New Note\n\nStart writing your thoughts here.\nConnect to other notes with [[Note Title]] and add #tags.'
+    );
+    setIsDirty(!note);
+    setSuggestions([]);
+  }
 
   const handleSave = useCallback(async () => {
     if (!title.trim() || isSaving) return;
@@ -73,7 +86,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   };
 
   const insertWikilink = () => {
-    const text = '[[Nova Conexao]]';
+    const text = '[[New Connection]]';
     setContent((prev) => prev + '\n' + text);
     setIsDirty(true);
   };
@@ -85,7 +98,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       const results = await suggestLinks(content, note?.id, 0.55);
       setSuggestions(results);
     } catch (err) {
-      console.error('Erro ao sugerir links:', err);
+      console.error('Error suggesting links:', err);
     } finally {
       setIsSuggesting(false);
     }
@@ -94,7 +107,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const handleApplySuggestion = (s: LinkSuggestion) => {
     const linkStr = s.deep_link;
     if (!content.includes(linkStr)) {
-      setContent((prev) => prev + `\n- Conexao Semantica: ${linkStr}`);
+      setContent((prev) => prev + `\n- Semantic Connection: ${linkStr}`);
       setIsDirty(true);
     }
     setSuggestions((prev) => prev.filter((item) => item.deep_link !== s.deep_link));
@@ -117,6 +130,19 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   }, [content]);
 
   const handlePreviewClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Intercept standard anchor tags to prevent webview navigation and white flashes
+    const anchor = (e.target as HTMLElement).closest('a');
+    if (anchor) {
+      e.preventDefault();
+      const href = anchor.getAttribute('href');
+      if (href) {
+        if (!href.startsWith('http://') && !href.startsWith('https://')) {
+          onNavigateNote(href.replace(/\.md$/, ''));
+        }
+      }
+      return;
+    }
+
     const target = (e.target as HTMLElement).closest('.wikilink-btn');
     if (target) {
       const linkTarget = target.getAttribute('data-target');
@@ -130,7 +156,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
   return (
     <div className="absolute right-0 top-0 bottom-0 z-30 flex flex-col bg-[#0d0f14] border-l border-[#1f232d] shadow-2xl backdrop-blur-md w-full md:w-[620px] lg:w-[720px] transition-all">
-      {/* Editor Header matching banner.svg lines 113-116 */}
+      {/* Editor Header */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#1f232d] bg-[#111318]">
         <div className="flex-1 min-w-0">
           <input
@@ -138,8 +164,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             className="w-full bg-transparent text-sm font-bold text-[#f8fafc] placeholder-[#64748b] focus:outline-none"
             value={title}
             onChange={handleTitleChange}
-            placeholder="Titulo da Nota..."
-            aria-label="Titulo da Nota"
+            placeholder="Note Title..."
+            aria-label="Note Title"
           />
           <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#64748b]">
             <span className="font-mono">{displayFilename}</span>
@@ -160,17 +186,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm'
                 : 'bg-[#13161f] hover:bg-[#1a1e28] text-[#cbd5e1] border border-[#1e222d]'
             }`}
-            title="Salvar alteracoes (Ctrl+S / Cmd+S)"
+            title="Save changes (Ctrl+S / Cmd+S)"
           >
             {isDirty ? (
               <>
                 <FloppyDisk size={12} weight="bold" />
-                <span>{isSaving ? 'Salvando...' : 'Salvar'}</span>
+                <span>{isSaving ? 'Saving...' : 'Save'}</span>
               </>
             ) : (
               <>
                 <Check size={12} weight="bold" className="text-[#10b981]" />
-                <span className="text-[#cbd5e1]">Salvo</span>
+                <span className="text-[#cbd5e1]">Saved</span>
               </>
             )}
           </button>
@@ -179,7 +205,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             type="button"
             onClick={onClose}
             className="flex items-center justify-center w-7 h-7 rounded-md text-[#64748b] hover:text-[#f8fafc] hover:bg-[#1a1e28] transition-colors cursor-pointer"
-            title="Fechar Painel (Esc)"
+            title="Close Panel (Esc)"
           >
             <X size={14} />
           </button>
@@ -201,22 +227,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             }`}
           >
             <PencilSimple size={12} />
-            <span>Editar</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={viewMode === 'preview'}
-            onClick={() => setViewMode('preview')}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-all cursor-pointer ${
-              viewMode === 'preview'
-                ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
-                : 'text-[#64748b] hover:text-[#cbd5e1]'
-            }`}
-          >
-            <Eye size={12} />
-            <span>Previa</span>
+            <span>Edit</span>
           </button>
 
           <button
@@ -231,7 +242,22 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             }`}
           >
             <Columns size={12} />
-            <span>Lado a Lado</span>
+            <span>Split</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === 'preview'}
+            onClick={() => setViewMode('preview')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-all cursor-pointer ${
+              viewMode === 'preview'
+                ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
+                : 'text-[#64748b] hover:text-[#cbd5e1]'
+            }`}
+          >
+            <Eye size={12} />
+            <span>Preview</span>
           </button>
         </div>
 
@@ -241,30 +267,30 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onClick={handleSuggestLinks}
             disabled={isSuggesting}
             className="inline-flex items-center gap-1.5 h-6 px-2 rounded bg-[#171b26] border border-[#2d3446] hover:bg-[#1e222d] text-[#cbd5e1] text-[11px] transition-colors cursor-pointer"
-            title="Auto-Linker Semantico: detecta automaticamente afinidades conceituais"
+            title="Semantic Auto-Linker: automatically discover conceptual connections"
           >
             <LinkSimple size={11} className="text-[#38bdf8]" />
-            <span>{isSuggesting ? 'Analisando...' : 'Auto-Linker'}</span>
+            <span>{isSuggesting ? 'Analyzing...' : 'Auto-Linker'}</span>
           </button>
 
           <button
             type="button"
             onClick={insertWikilink}
             className="flex items-center justify-center w-6 h-6 rounded bg-[#13161f] border border-[#1e222d] text-[#64748b] hover:text-[#f8fafc] transition-colors cursor-pointer"
-            title="Inserir Wikilink [[Link]]"
+            title="Insert Wikilink [[Link]]"
           >
             <LinkSimple size={12} />
           </button>
         </div>
       </div>
 
-      {/* Auto-Linker Drawer matching banner.svg lines 135-139 */}
+      {/* Auto-Linker Drawer */}
       {suggestions.length > 0 && (
         <div className="p-3 bg-[#111318] border-b border-[#1f232d] space-y-2">
           <div className="flex items-center justify-between text-xs text-[#cbd5e1]">
             <span className="flex items-center gap-1.5 font-medium">
               <LinkSimple size={12} className="text-[#38bdf8]" />
-              Sugestoes de Conexao Semantica ({suggestions.length})
+              Semantic Connection Suggestions ({suggestions.length})
             </span>
             <button
               type="button"
@@ -295,7 +321,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                   className="inline-flex items-center gap-1 h-6 px-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10.5px] font-medium transition-colors cursor-pointer shrink-0"
                 >
                   <Plus size={10} weight="bold" />
-                  <span>Conectar</span>
+                  <span>Connect</span>
                 </button>
               </div>
             ))}
@@ -312,7 +338,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             }`}
             value={content}
             onChange={handleContentChange}
-            placeholder="Escreva em Markdown puro... Conecte notas com [[Titulo]] e adicione #tags."
+            placeholder="Write in standard Markdown... Link notes using [[Note Title]] and add #tags."
             spellCheck={false}
           />
         )}
@@ -335,7 +361,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             <div>
               <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-[#64748b] uppercase tracking-[0.5px] mb-1">
                 <ArrowLeft size={10} />
-                <span>Notas que conectam aqui ({note.backlinks.length})</span>
+                <span>Notes linking here ({note.backlinks.length})</span>
               </div>
               <div className="flex items-center gap-1.5 flex-wrap">
                 {note.backlinks.map((b) => (
@@ -356,7 +382,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             <div>
               <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-[#64748b] uppercase tracking-[0.5px] mb-1">
                 <ArrowRight size={10} />
-                <span>Links presentes nesta nota ({note.outgoing_links.length})</span>
+                <span>Outbound links in this note ({note.outgoing_links.length})</span>
               </div>
               <div className="flex items-center gap-1.5 flex-wrap">
                 {note.outgoing_links.map((l) => (

@@ -16,7 +16,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
   onSwitchProject,
   onOpenNewProjectModal,
 }) => {
-  const displayName = activeProject ? activeProject.name : 'Principal';
+  const displayName = activeProject ? activeProject.name : 'Default';
 
   return (
     <DropdownMenu.Root>
@@ -24,7 +24,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
         <button
           type="button"
           className="flex items-center gap-2 h-7 px-3 rounded-md bg-[#161922] hover:bg-[#1a1e28] border border-[#262a36] hover:border-[#333947] transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
-          title="Alternar cofre de notas ativo"
+          title="Switch active knowledge vault"
         >
           {/* Emerald Status Dot from banner.svg */}
           <span className="w-2 h-2 rounded-full bg-[#10b981] shrink-0" />
@@ -51,10 +51,10 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
           <div className="px-2.5 py-2 border-b border-[#1f232d] mb-1">
             <div className="flex items-center gap-1.5 text-[#f1f5f9]">
               <Database size={13} weight="bold" className="text-[#64748b]" />
-              <span className="text-xs font-semibold">Cofres de Conhecimento</span>
+              <span className="text-xs font-semibold">Knowledge Vaults</span>
             </div>
             <p className="text-[11px] text-[#64748b] mt-0.5">
-              Bases Markdown locais com vetores FastEmbed independentes
+              Local Markdown vaults with independent FastEmbed vector indices
             </p>
           </div>
 
@@ -94,7 +94,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                         </span>
                         {proj.id === 'default' && (
                           <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-[#1e222d] text-[#94a3b8] border border-[#2d3342]">
-                            Padrao
+                            Default
                           </span>
                         )}
                       </div>
@@ -124,7 +124,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
               className="flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-xs font-medium text-[#10b981] hover:text-emerald-300 hover:bg-emerald-950/20 transition-colors cursor-pointer select-none outline-none"
             >
               <FolderPlus size={14} weight="bold" />
-              <span>Novo Cofre / Escolher Pasta</span>
+              <span>New Vault / Choose Folder</span>
             </DropdownMenu.Item>
           </div>
         </DropdownMenu.Content>

@@ -156,11 +156,11 @@ export const App: React.FC = () => {
       const saved = await saveNote(title, content, filename);
       setActiveNote(saved);
       setSelectedNoteId(saved.id);
-      showToast(`Nota "${title}" salva com sucesso!`);
+      showToast(`Note "${title}" saved successfully!`);
       await loadData();
       await loadProjects();
     } catch (err) {
-      console.error('Erro ao salvar nota:', err);
+      console.error('Error saving note:', err);
     }
   };
 
@@ -170,11 +170,11 @@ export const App: React.FC = () => {
       setActiveProject(project);
       setSelectedNoteId(null);
       setActiveNote(null);
-      showToast(`Cofre alternado para: ${project.name}`);
+      showToast(`Vault switched to: ${project.name}`);
       await loadData();
       await loadProjects();
     } catch (err) {
-      console.error('Erro ao alternar projeto:', err);
+      console.error('Error switching project:', err);
     }
   };
 
@@ -184,11 +184,11 @@ export const App: React.FC = () => {
       setActiveProject(project);
       setSelectedNoteId(null);
       setActiveNote(null);
-      showToast(`Novo vault "${project.name}" criado com sucesso!`);
+      showToast(`New vault "${project.name}" created successfully!`);
       await loadData();
       await loadProjects();
     } catch (err) {
-      console.error('Erro ao criar projeto:', err);
+      console.error('Error creating project:', err);
       throw err;
     }
   };
@@ -200,7 +200,7 @@ export const App: React.FC = () => {
       const chunks = await searchChunks(query, 8);
       setChunkResults(chunks);
     } catch (err) {
-      console.error('Erro na busca semantica por secoes:', err);
+      console.error('Error during semantic search:', err);
     } finally {
       setIsSearching(false);
     }
@@ -212,9 +212,9 @@ export const App: React.FC = () => {
       const count = await syncVault();
       await loadData();
       await loadProjects();
-      showToast(`Sincronizacao concluida (${count} notas reindexadas)`);
+      showToast(`Sync completed (${count} notes reindexed)`);
     } catch (err) {
-      console.error('Erro ao sincronizar:', err);
+      console.error('Error during sync:', err);
     } finally {
       setIsSyncing(false);
     }
@@ -237,7 +237,7 @@ export const App: React.FC = () => {
             type="button"
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             className="flex items-center justify-center w-7 h-7 rounded-md text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
-            title={isSidebarOpen ? 'Ocultar Painel Lateral' : 'Exibir Painel Lateral'}
+            title={isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
           >
             <SidebarSimple size={16} weight="regular" />
           </button>
@@ -273,24 +273,24 @@ export const App: React.FC = () => {
             onClick={handleSync}
             disabled={isSyncing}
             className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-medium bg-[#13161f] hover:bg-[#1a1e28] border border-[#1e222d] hover:border-[#2d3342] text-[#cbd5e1] transition-all cursor-pointer disabled:opacity-50"
-            title="Sincronizar arquivos .md do Vault com chunking semantico"
+            title="Sync Vault Markdown files with semantic chunking"
           >
             <ArrowClockwise
               size={12}
               weight="bold"
               className={isSyncing ? 'animate-spin text-indigo-400' : 'text-[#64748b]'}
             />
-            <span className="text-[11px]">{isSyncing ? 'Indexando...' : 'Sincronizar'}</span>
+            <span className="text-[11px]">{isSyncing ? 'Indexing...' : 'Sync Vault'}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsMcpModalOpen(true)}
             className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-medium bg-[#13161f] hover:bg-[#1a1e28] border border-[#1e222d] hover:border-[#2d3342] text-[#cbd5e1] transition-all cursor-pointer"
-            title="Copiar Regras do Agente, Skill de Curadoria e Configuracao MCP"
+            title="Copy Agent Rules, Curator Skill, and MCP Configuration"
           >
             <Robot size={13} weight="regular" className="text-[#64748b]" />
-            <span className="text-[11px]">Conectar IA & MCP</span>
+            <span className="text-[11px]">Connect AI & MCP</span>
           </button>
         </div>
       </header>
@@ -318,7 +318,6 @@ export const App: React.FC = () => {
 
           {isEditorOpen && (
             <NoteEditor
-              key={selectedNoteId || 'new'}
               note={activeNote}
               onSave={handleSaveNote}
               onClose={() => setIsEditorOpen(false)}
