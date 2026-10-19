@@ -1,642 +1,433 @@
 pub mod server;
 
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use schemars::JsonSchema;
+use serde::Deserialize;
 use std::sync::Arc;
 use tauri::Emitter;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+use rmcp::{
+    handler::server::router::tool::ToolRouter,
+    handler::server::wrapper::Parameters,
+    model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig},
+    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt,
+};
 
 use crate::engine::VaultManager;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct JsonRpcRequest {
-    pub jsonrpc: String,
-    pub id: Option<Value>,
-    pub method: String,
-    pub params: Option<Value>,
+#[derive(Clone)]
+pub struct GraphFinderMcpServer {
+    #[allow(dead_code)]
+    tool_router: ToolRouter<Self>,
+    pub manager: Arc<VaultManager>,
+    pub app_handle: Option<tauri::AppHandle>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct JsonRpcResponse {
-    pub jsonrpc: String,
-    pub id: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<JsonRpcError>,
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreateProjectArgs {
+    /// Nome do novo projeto (ex: 'HomeLab', 'Finanças', 'Estudos')
+    pub name: String,
+    /// Caminho absoluto opcional da pasta no computador
+    pub path: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct JsonRpcError {
-    pub code: i32,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SwitchProjectArgs {
+    /// ID ou slug do projeto para o qual deseja alternar
+    pub project_id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SearchSemanticArgs {
+    /// Texto ou pergunta para buscar no cofre
+    pub query: String,
+    /// Quantidade máxima de trechos a retornar (padrão: 5)
+    pub limit: Option<usize>,
+    /// ID do projeto/vault específico (opcional, usa o ativo por padrão)
+    pub project: Option<String>,
+    /// 'dense_chunks' (padrão, trecho exato de 60-80 tokens) ou 'summaries' (visão geral de 1 linha)
+    pub format: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetCompressedContextArgs {
+    /// Título ou ID da nota
+    pub target: String,
+    /// ID do projeto/vault específico (opcional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SuggestLinksArgs {
+    /// Texto ou parágrafo sendo redigido
+    pub text: String,
+    /// ID ou título da nota atual para ignorar auto-referência (opcional)
+    pub current_note: Option<String>,
+    /// Similaridade mínima de corte (0.0 a 1.0, padrão: 0.60)
+    pub threshold: Option<f32>,
+    /// ID do projeto/vault específico (opcional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct StoreContextArgs {
+    /// Título da nota ou conceito principal
+    pub title: String,
+    /// Conteúdo em Markdown da nota
+    pub content: String,
+    /// Lista de tags (opcional)
+    pub tags: Option<Vec<String>>,
+    /// Lista de notas a conectar com wikilinks (opcional)
+    pub links: Option<Vec<String>>,
+    /// ID do projeto/vault específico onde salvar (opcional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetGraphNeighborhoodArgs {
+    /// Título ou ID da nota
+    pub target: String,
+    /// Graus de separação no grafo (1 ou 2, padrão: 1)
+    pub depth: Option<usize>,
+    /// ID do projeto/vault específico (opcional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LinkNotesArgs {
+    /// Título ou ID da nota de origem
+    pub from_note: String,
+    /// Título da nota de destino
+    pub to_note: String,
+    /// ID do projeto/vault específico (opcional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ListRecentNotesArgs {
+    /// Quantidade máxima de notas a retornar (padrão: 10)
+    pub limit: Option<usize>,
+    /// ID do projeto/vault específico (opcional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SyncVaultArgs {
+    /// ID do projeto/vault específico (opcional)
+    pub project: Option<String>,
+}
+
+impl GraphFinderMcpServer {
+    pub fn new(manager: Arc<VaultManager>, app_handle: Option<tauri::AppHandle>) -> Self {
+        Self {
+            tool_router: Self::tool_router(),
+            manager,
+            app_handle,
+        }
+    }
+}
+
+#[tool_router]
+impl GraphFinderMcpServer {
+    /// Lista todos os projetos e seus respectivos cofres (vaults) isolados, incluindo quantidade de notas e projeto ativo.
+    #[tool(description = "Lista todos os projetos e seus respectivos cofres (vaults) isolados, incluindo quantidade de notas e projeto ativo.")]
+    async fn list_projects(&self) -> Result<CallToolResult, McpError> {
+        let projects = self.manager.list_projects().await;
+        let mut out = String::from("Projetos e Vaults no GraphFinder:\n\n");
+        for p in projects {
+            let status = if p.is_active { " (Ativo)" } else { "" };
+            out.push_str(&format!(
+                "- **{}** (ID: `{}`){} | {} notas\n  Caminho: {}\n\n",
+                p.name, p.id, status, p.note_count, p.path
+            ));
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Cria um novo projeto com cofre (vault) e banco SQLite de embeddings 100% isolado.
+    #[tool(description = "Cria um novo projeto com cofre (vault) e banco SQLite de embeddings 100% isolado.")]
+    async fn create_project(&self, Parameters(args): Parameters<CreateProjectArgs>) -> Result<CallToolResult, McpError> {
+        let project = match self.manager.create_project(&args.name, args.path).await {
+            Ok(p) => p,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao criar projeto: {}", e))])),
+        };
+        if let Some(app) = &self.app_handle {
+            let _ = app.emit("vault-sync-complete", 1);
+        }
+        let out = format!(
+            "Projeto '{}' (ID: '{}') criado com sucesso!\nCofre de notas: {}\nBanco SQLite de vetores: {}",
+            project.name, project.id, project.path, project.db_path
+        );
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Altera o projeto/vault ativo para as próximas operações no GraphFinder.
+    #[tool(description = "Altera o projeto/vault ativo para as próximas operações no GraphFinder.")]
+    async fn switch_project(&self, Parameters(args): Parameters<SwitchProjectArgs>) -> Result<CallToolResult, McpError> {
+        let project = match self.manager.switch_project(&args.project_id).await {
+            Ok(p) => p,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao alternar projeto: {}", e))])),
+        };
+        if let Some(app) = &self.app_handle {
+            let _ = app.emit("vault-sync-complete", project.note_count);
+        }
+        let out = format!(
+            "Projeto ativo alterado com sucesso para: {} (ID: '{}') com {} notas.",
+            project.name, project.id, project.note_count
+        );
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Busca semântica cirúrgica por seções para máxima economia de tokens. Retorna o trecho exato de 2-4 linhas com deep link [[Nota#Seção]] e pontuação de relevância.
+    #[tool(description = "Busca semântica cirúrgica por seções para máxima economia de tokens. Retorna o trecho exato de 2-4 linhas com deep link [[Nota#Seção]] e pontuação de relevância.")]
+    async fn search_semantic(&self, Parameters(args): Parameters<SearchSemanticArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let limit = args.limit.unwrap_or(5);
+        let format = args.format.as_deref().unwrap_or("dense_chunks");
+
+        if format == "summaries" {
+            let hits = match engine.search_semantic(&args.query, limit).await {
+                Ok(h) => h,
+                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro na busca semântica: {}", e))])),
+            };
+            if hits.is_empty() {
+                return Ok(CallToolResult::success(vec![ContentBlock::text("Nenhum resultado semântico encontrado no cofre.")]));
+            }
+            let mut out = String::from("Visão Geral Semântica:\n");
+            for (i, h) in hits.into_iter().enumerate() {
+                out.push_str(&format!(
+                    "{}. [[{}]] (Relevância: {:.0}%)\n   Síntese: {}\n",
+                    i + 1,
+                    h.title,
+                    h.score * 100.0,
+                    h.snippet
+                ));
+            }
+            return Ok(CallToolResult::success(vec![ContentBlock::text(out)]));
+        }
+
+        let chunks = match engine.search_chunks(&args.query, limit).await {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro na busca por trechos: {}", e))])),
+        };
+        if chunks.is_empty() {
+            return Ok(CallToolResult::success(vec![ContentBlock::text("Nenhum trecho semântico relevante encontrado no cofre.")]));
+        }
+
+        let mut out = String::from("Trechos Semânticos de Alta Densidade (Token-Efficient):\n\n");
+        for (i, c) in chunks.into_iter().enumerate() {
+            out.push_str(&format!(
+                "{}. {} | Score: {:.0}% (~{} tokens)\n\"{}\"\n\n",
+                i + 1,
+                c.deep_link,
+                c.score * 100.0,
+                c.token_estimate,
+                c.content.trim()
+            ));
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Retorna uma síntese ultracompacta (~50-80 tokens) de uma nota: resumo executivo, tópicos principais, tokens e nós vizinhos conectados.
+    #[tool(description = "Retorna uma síntese ultracompacta (~50-80 tokens) de uma nota: resumo executivo, tópicos principais, tokens e nós vizinhos conectados.")]
+    async fn get_compressed_context(&self, Parameters(args): Parameters<GetCompressedContextArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let ctx = match engine.get_compressed_context(&args.target).await {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao recuperar contexto: {}", e))])),
+        };
+        match ctx {
+            Some(c) => {
+                let mut out = format!(
+                    "Síntese da Nota: [[{}]] (~{} tokens totais)\nResumo: {}\nTags: {:?}\nConexões no Grafo: {:?}\n\nSeções Disponíveis:\n",
+                    c.title, c.token_estimate, c.summary, c.tags, c.connected_notes
+                );
+                for s in c.sections {
+                    out.push_str(&format!(
+                        "- #{} (~{} tokens): {}\n",
+                        s.heading, s.token_estimate, s.snippet
+                    ));
+                }
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            None => Ok(CallToolResult::success(vec![ContentBlock::text(format!("Nota '{}' não encontrada.", args.target))])),
+        }
+    }
+
+    /// Auto-Linker: analisa um parágrafo de rascunho e sugere notas ou seções existentes com alta similaridade semântica para conexão imediata.
+    #[tool(description = "Auto-Linker: analisa um parágrafo de rascunho e sugere notas ou seções existentes com alta similaridade semântica para conexão imediata.")]
+    async fn suggest_links(&self, Parameters(args): Parameters<SuggestLinksArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let current_note = args.current_note.as_deref().unwrap_or("");
+        let threshold = args.threshold.unwrap_or(0.60);
+
+        let suggestions = match engine.suggest_links(&args.text, current_note, threshold, 4).await {
+            Ok(s) => s,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao sugerir links: {}", e))])),
+        };
+        if suggestions.is_empty() {
+            return Ok(CallToolResult::success(vec![ContentBlock::text("Nenhuma sugestão forte de link encontrada para este trecho.")]));
+        }
+
+        let mut out = String::from("Sugestões Semânticas de Wikilinks para o Grafo:\n\n");
+        for (i, s) in suggestions.into_iter().enumerate() {
+            out.push_str(&format!(
+                "{}. {} (Afinidade: {:.0}%)\n   Contexto: \"{}\"\n",
+                i + 1,
+                s.deep_link,
+                s.similarity_score * 100.0,
+                s.preview
+            ));
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Salva ou atualiza uma nota no vault. Realiza chunking semântico por seções, gera resumo denso e calcula embeddings automaticamente.
+    #[tool(description = "Salva ou atualiza uma nota no vault. Realiza chunking semântico por seções, gera resumo denso e calcula embeddings automaticamente.")]
+    async fn store_context(&self, Parameters(args): Parameters<StoreContextArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let mut content = args.content;
+
+        if let Some(links) = args.links {
+            if !links.is_empty() {
+                content.push_str("\n\n## Conexões Relacionadas\n");
+                for l in links {
+                    content.push_str(&format!("- [[{}]]\n", l));
+                }
+            }
+        }
+
+        if let Some(tags) = args.tags {
+            if !tags.is_empty() {
+                content.push_str("\n\nTags: ");
+                for t in tags {
+                    let tag_clean = t.trim_start_matches('#');
+                    content.push_str(&format!("#{} ", tag_clean));
+                }
+                content.push('\n');
+            }
+        }
+
+        let note = match engine.save_note(&args.title, &content, None).await {
+            Ok(n) => n,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao salvar nota: {}", e))])),
+        };
+        if let Some(app) = &self.app_handle {
+            let _ = app.emit("vault-sync-complete", 1);
+        }
+        let autolinks_info = if !note.outgoing_links.is_empty() {
+            format!(
+                "\nAuto-links Criados (≥65% afinidade): {:?}",
+                note.outgoing_links
+            )
+        } else {
+            "\nAuto-links: Nenhuma nota com afinidade ≥ 65% encontrada.".to_string()
+        };
+        let out = format!(
+            "Nota salva, vetorizada e autovinculada com sucesso!\nTítulo: [[{}]]\nArquivo: {}\nTags: {:?}{}",
+            note.title, note.path, note.tags, autolinks_info
+        );
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Retorna o subgrafo associativo ao redor de uma nota (1 ou 2 graus de separação) com resumo conciso de cada nó vizinho.
+    #[tool(description = "Retorna o subgrafo associativo ao redor de uma nota (1 ou 2 graus de separação) com resumo conciso de cada nó vizinho.")]
+    async fn get_graph_neighborhood(&self, Parameters(args): Parameters<GetGraphNeighborhoodArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let depth = args.depth.unwrap_or(1);
+        let n = match engine.get_neighborhood(&args.target, depth).await {
+            Ok(res) => res,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao buscar subgrafo: {}", e))])),
+        };
+        let mut out = format!("Subgrafo ao redor de [[{}]]:\n\nNós Conectados:\n", args.target);
+        for node in n.nodes {
+            out.push_str(&format!(
+                "- [[{}]] ({} links, tags: {:?})\n",
+                node.title, node.degree, node.tags
+            ));
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Cria explicitamente uma ligação bidirecional entre duas notas ou conceitos.
+    #[tool(description = "Cria explicitamente uma ligação bidirecional entre duas notas ou conceitos.")]
+    async fn link_notes(&self, Parameters(args): Parameters<LinkNotesArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let updated = match engine.link_notes(&args.from_note, &args.to_note).await {
+            Ok(u) => u,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao vincular notas: {}", e))])),
+        };
+        if let Some(app) = &self.app_handle {
+            let _ = app.emit("vault-sync-complete", 1);
+        }
+        let out = format!(
+            "Ligação criada com sucesso!\nOrigem: [[{}]] -> Destino: [[{}]]\nLinks atualizados: {:?}",
+            updated.title, args.to_note, updated.outgoing_links
+        );
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Lista as notas do cofre com seus resumos de 1 linha e estimativas de tokens.
+    #[tool(description = "Lista as notas do cofre com seus resumos de 1 linha e estimativas de tokens.")]
+    async fn list_recent_notes(&self, Parameters(args): Parameters<ListRecentNotesArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let limit = args.limit.unwrap_or(10);
+        let notes = match engine.list_notes().await {
+            Ok(n) => n,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao listar notas: {}", e))])),
+        };
+        let display_notes = notes.into_iter().take(limit);
+
+        let mut out = String::from("Notas no cofre de conhecimento:\n");
+        for n in display_notes {
+            out.push_str(&format!(
+                "- [[{}]] (Tags: {:?}) - \"{}\"\n",
+                n.title, n.tags, n.summary
+            ));
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Sincroniza o cofre de arquivos .md com o banco vetorial SQLite local, recalculando embeddings e expurgando notas deletadas.
+    #[tool(description = "Sincroniza o cofre de arquivos .md com o banco vetorial SQLite local, recalculando embeddings e expurgando notas deletadas.")]
+    async fn sync_vault(&self, Parameters(args): Parameters<SyncVaultArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let count = match engine.sync_vault().await {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao sincronizar cofre: {}", e))])),
+        };
+        if let Some(app) = &self.app_handle {
+            let _ = app.emit("vault-sync-complete", count);
+        }
+        let out = format!(
+            "Sincronização concluída com sucesso! {} notas ativas e indexadas no vault.",
+            count
+        );
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+}
+
+#[tool_handler]
+impl ServerHandler for GraphFinderMcpServer {
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(
+            ServerCapabilities::builder().enable_tools().build(),
+        )
+        .with_server_info(Implementation::new("graphfinder", env!("CARGO_PKG_VERSION")))
+        .with_instructions("GraphFinder Neural Knowledge Graph & Local Semantic Vault MCP Server. Permite busca semântica atômica, compressão estrutural de contexto, sugestão de wikilinks e persistência de notas no cofre.".to_string())
+    }
 }
 
 pub async fn run_mcp_server(
     manager: Arc<VaultManager>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     eprintln!(
-        "[GraphFinder MCP] Servidor iniciado via stdio. Suporte a múltiplos projetos/vaults ativo."
+        "[GraphFinder MCP] Servidor oficial rmcp iniciado via stdio. Suporte a múltiplos projetos/vaults ativo."
     );
 
-    let stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
-    let reader = BufReader::new(stdin);
-    let mut lines = reader.lines();
-
-    while let Ok(Some(line)) = lines.next_line().await {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let request: JsonRpcRequest = match serde_json::from_str(line) {
-            Ok(req) => req,
-            Err(e) => {
-                eprintln!("[GraphFinder MCP] JSON inválido recebido: {}", e);
-                let err_resp = JsonRpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id: None,
-                    result: None,
-                    error: Some(JsonRpcError {
-                        code: -32700,
-                        message: format!("Parse error: {}", e),
-                        data: None,
-                    }),
-                };
-                let out = serde_json::to_string(&err_resp)? + "\n";
-                stdout.write_all(out.as_bytes()).await?;
-                stdout.flush().await?;
-                continue;
-            }
-        };
-
-        let response = handle_request(&manager, None, request).await;
-        if let Some(resp) = response {
-            let out = serde_json::to_string(&resp)? + "\n";
-            stdout.write_all(out.as_bytes()).await?;
-            stdout.flush().await?;
-        }
-    }
+    let server = GraphFinderMcpServer::new(manager, None);
+    let transport = rmcp::transport::io::stdio();
+    let service = server.serve(transport).await?;
+    service.waiting().await?;
 
     Ok(())
-}
-
-pub async fn handle_request(
-    manager: &Arc<VaultManager>,
-    app_handle: Option<&tauri::AppHandle>,
-    req: JsonRpcRequest,
-) -> Option<JsonRpcResponse> {
-    let id = req.id;
-    let method = req.method.as_str();
-    eprintln!("[GraphFinder MCP Incoming] Method: {}", method);
-
-    match method {
-        "initialize" => {
-            let client_protocol = req
-                .params
-                .as_ref()
-                .and_then(|p| p.get("protocolVersion"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("2024-11-05");
-
-            let result = json!({
-                "protocolVersion": client_protocol,
-                "capabilities": {
-                    "tools": {
-                        "listChanged": false
-                    },
-                    "resources": {},
-                    "prompts": {}
-                },
-                "serverInfo": {
-                    "name": "graphfinder",
-                    "version": env!("CARGO_PKG_VERSION")
-                }
-            });
-            Some(JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(result),
-                error: None,
-            })
-        }
-        "initialized" | "notifications/initialized" | "notifications/cancelled" => None,
-        "ping" => Some(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id,
-            result: Some(json!({})),
-            error: None,
-        }),
-        "resources/list" => Some(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id,
-            result: Some(json!({ "resources": [] })),
-            error: None,
-        }),
-        "prompts/list" => Some(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id,
-            result: Some(json!({ "prompts": [] })),
-            error: None,
-        }),
-        "tools/list" => {
-            let tools = json!({
-                "tools": [
-                    {
-                        "name": "list_projects",
-                        "description": "Lista todos os projetos e seus respectivos cofres (vaults) isolados, incluindo quantidade de notas e projeto ativo.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {}
-                        }
-                    },
-                    {
-                        "name": "create_project",
-                        "description": "Cria um novo projeto com cofre (vault) e banco SQLite de embeddings 100% isolado.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "name": { "type": "string", "description": "Nome do novo projeto (ex: 'HomeLab', 'Finanças', 'Estudos')" },
-                                "path": { "type": "string", "description": "Caminho absoluto opcional da pasta no computador" }
-                            },
-                            "required": ["name"]
-                        }
-                    },
-                    {
-                        "name": "switch_project",
-                        "description": "Altera o projeto/vault ativo para as próximas operações no GraphFinder.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "project_id": { "type": "string", "description": "ID ou slug do projeto para o qual deseja alternar" }
-                            },
-                            "required": ["project_id"]
-                        }
-                    },
-                    {
-                        "name": "search_semantic",
-                        "description": "Busca semântica cirúrgica por seções para máxima economia de tokens. Retorna o trecho exato de 2-4 linhas com deep link [[Nota#Seção]] e pontuação de relevância.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "query": { "type": "string", "description": "Texto ou pergunta para buscar no cofre" },
-                                "limit": { "type": "integer", "description": "Quantidade máxima de trechos a retornar (padrão: 5)" },
-                                "project": { "type": "string", "description": "ID do projeto/vault específico (opcional, usa o ativo por padrão)" },
-                                "format": {
-                                    "type": "string",
-                                    "enum": ["dense_chunks", "summaries"],
-                                    "description": "'dense_chunks' (padrão, trecho exato de 60-80 tokens) ou 'summaries' (visão geral de 1 linha)"
-                                }
-                            },
-                            "required": ["query"]
-                        }
-                    },
-                    {
-                        "name": "get_compressed_context",
-                        "description": "Retorna uma síntese ultracompacta (~50-80 tokens) de uma nota: resumo executivo, tópicos principais, tokens e nós vizinhos conectados.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "target": { "type": "string", "description": "Título ou ID da nota" },
-                                "project": { "type": "string", "description": "ID do projeto/vault específico (opcional)" }
-                            },
-                            "required": ["target"]
-                        }
-                    },
-                    {
-                        "name": "suggest_links",
-                        "description": "Auto-Linker: analisa um parágrafo de rascunho e sugere notas ou seções existentes com alta similaridade semântica para conexão imediata.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "text": { "type": "string", "description": "Texto ou parágrafo sendo redigido" },
-                                "current_note": { "type": "string", "description": "ID ou título da nota atual para ignorar auto-referência (opcional)" },
-                                "threshold": { "type": "number", "description": "Similaridade mínima de corte (0.0 a 1.0, padrão: 0.60)" },
-                                "project": { "type": "string", "description": "ID do projeto/vault específico (opcional)" }
-                            },
-                            "required": ["text"]
-                        }
-                    },
-                    {
-                        "name": "store_context",
-                        "description": "Salva ou atualiza uma nota no vault. Realiza chunking semântico por seções, gera resumo denso e calcula embeddings automaticamente.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "title": { "type": "string", "description": "Título da nota ou conceito principal" },
-                                "content": { "type": "string", "description": "Conteúdo em Markdown da nota" },
-                                "tags": { "type": "array", "items": { "type": "string" }, "description": "Lista de tags (opcional)" },
-                                "links": { "type": "array", "items": { "type": "string" }, "description": "Lista de notas a conectar com wikilinks (opcional)" },
-                                "project": { "type": "string", "description": "ID do projeto/vault específico onde salvar (opcional)" }
-                            },
-                            "required": ["title", "content"]
-                        }
-                    },
-                    {
-                        "name": "get_graph_neighborhood",
-                        "description": "Retorna o subgrafo associativo ao redor de uma nota (1 ou 2 graus de separação) com resumo conciso de cada nó vizinho.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "target": { "type": "string", "description": "Título ou ID da nota" },
-                                "depth": { "type": "integer", "description": "Graus de separação no grafo (1 ou 2)" },
-                                "project": { "type": "string", "description": "ID do projeto/vault específico (opcional)" }
-                            },
-                            "required": ["target"]
-                        }
-                    },
-                    {
-                        "name": "link_notes",
-                        "description": "Cria explicitamente uma ligação bidirecional entre duas notas ou conceitos.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "from_note": { "type": "string", "description": "Título ou ID da nota de origem" },
-                                "to_note": { "type": "string", "description": "Título da nota de destino" },
-                                "project": { "type": "string", "description": "ID do projeto/vault específico (opcional)" }
-                            },
-                            "required": ["from_note", "to_note"]
-                        }
-                    },
-                    {
-                        "name": "list_recent_notes",
-                        "description": "Lista as notas do cofre com seus resumos de 1 linha e estimativas de tokens.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "limit": { "type": "integer", "description": "Quantidade máxima de notas a retornar" },
-                                "project": { "type": "string", "description": "ID do projeto/vault específico (opcional)" }
-                            }
-                        }
-                    },
-                    {
-                        "name": "sync_vault",
-                        "description": "Sincroniza o cofre de arquivos .md com o banco vetorial SQLite local, recalculando embeddings e expurgando notas deletadas.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "project": { "type": "string", "description": "ID do projeto/vault específico (opcional)" }
-                            }
-                        }
-                    }
-                ]
-            });
-            Some(JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(tools),
-                error: None,
-            })
-        }
-        "tools/call" => {
-            let params = req.params.unwrap_or(json!({}));
-            let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-
-            let call_res = execute_tool(manager, app_handle, tool_name, arguments).await;
-            match call_res {
-                Ok(content) => Some(JsonRpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: Some(json!({
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": content
-                            }
-                        ],
-                        "isError": false
-                    })),
-                    error: None,
-                }),
-                Err(err) => Some(JsonRpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: Some(json!({
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": format!("Erro ao executar ferramenta: {}", err)
-                            }
-                        ],
-                        "isError": true
-                    })),
-                    error: None,
-                }),
-            }
-        }
-        _ => Some(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id,
-            result: None,
-            error: Some(JsonRpcError {
-                code: -32601,
-                message: format!("Método '{}' não encontrado", method),
-                data: None,
-            }),
-        }),
-    }
-}
-
-async fn execute_tool(
-    manager: &Arc<VaultManager>,
-    app_handle: Option<&tauri::AppHandle>,
-    tool_name: &str,
-    args: Value,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    match tool_name {
-        "list_projects" => {
-            let projects = manager.list_projects().await;
-            let mut out = String::from("Projetos e Vaults no GraphFinder:\n\n");
-            for p in projects {
-                let status = if p.is_active { " (Ativo)" } else { "" };
-                out.push_str(&format!(
-                    "- **{}** (ID: `{}`){} | {} notas\n  Caminho: {}\n\n",
-                    p.name, p.id, status, p.note_count, p.path
-                ));
-            }
-            Ok(out)
-        }
-        "create_project" => {
-            let name = args
-                .get("name")
-                .and_then(|v| v.as_str())
-                .ok_or("Campo 'name' é obrigatório")?;
-            let custom_path = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let project = manager.create_project(name, custom_path).await?;
-            if let Some(app) = app_handle {
-                let _ = app.emit("vault-sync-complete", 1);
-            }
-            Ok(format!(
-                "Projeto '{}' (ID: '{}') criado com sucesso!\nCofre de notas: {}\nBanco SQLite de vetores: {}",
-                project.name, project.id, project.path, project.db_path
-            ))
-        }
-        "switch_project" => {
-            let project_id = args
-                .get("project_id")
-                .and_then(|v| v.as_str())
-                .ok_or("Campo 'project_id' é obrigatório")?;
-            let project = manager.switch_project(project_id).await?;
-            if let Some(app) = app_handle {
-                let _ = app.emit("vault-sync-complete", project.note_count);
-            }
-            Ok(format!(
-                "Projeto ativo alterado com sucesso para: {} (ID: '{}') com {} notas.",
-                project.name, project.id, project.note_count
-            ))
-        }
-        "search_semantic" => {
-            let project = args.get("project").and_then(|v| v.as_str());
-            let engine = manager.get_engine(project).await;
-
-            let query = args
-                .get("query")
-                .and_then(|v| v.as_str())
-                .ok_or("Campo 'query' é obrigatório")?;
-            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
-            let format = args
-                .get("format")
-                .and_then(|v| v.as_str())
-                .unwrap_or("dense_chunks");
-
-            if format == "summaries" {
-                let hits = engine.search_semantic(query, limit).await?;
-                if hits.is_empty() {
-                    return Ok("Nenhum resultado semântico encontrado no cofre.".to_string());
-                }
-                let mut out = String::from("Visão Geral Semântica:\n");
-                for (i, h) in hits.into_iter().enumerate() {
-                    out.push_str(&format!(
-                        "{}. [[{}]] (Relevância: {:.0}%)\n   Síntese: {}\n",
-                        i + 1,
-                        h.title,
-                        h.score * 100.0,
-                        h.snippet
-                    ));
-                }
-                return Ok(out);
-            }
-
-            // Default: Dense Chunks (granular section-level search)
-            let chunks = engine.search_chunks(query, limit).await?;
-            if chunks.is_empty() {
-                return Ok("Nenhum trecho semântico relevante encontrado no cofre.".to_string());
-            }
-
-            let mut out =
-                String::from("Trechos Semânticos de Alta Densidade (Token-Efficient):\n\n");
-            for (i, c) in chunks.into_iter().enumerate() {
-                out.push_str(&format!(
-                    "{}. {} | Score: {:.0}% (~{} tokens)\n\"{}\"\n\n",
-                    i + 1,
-                    c.deep_link,
-                    c.score * 100.0,
-                    c.token_estimate,
-                    c.content.trim()
-                ));
-            }
-            Ok(out)
-        }
-        "get_compressed_context" => {
-            let project = args.get("project").and_then(|v| v.as_str());
-            let engine = manager.get_engine(project).await;
-
-            let target = args
-                .get("target")
-                .and_then(|v| v.as_str())
-                .ok_or("Campo 'target' é obrigatório")?;
-
-            let ctx = engine.get_compressed_context(target).await?;
-            match ctx {
-                Some(c) => {
-                    let mut out = format!(
-                        "Síntese da Nota: [[{}]] (~{} tokens totais)\nResumo: {}\nTags: {:?}\nConexões no Grafo: {:?}\n\nSeções Disponíveis:\n",
-                        c.title, c.token_estimate, c.summary, c.tags, c.connected_notes
-                    );
-                    for s in c.sections {
-                        out.push_str(&format!(
-                            "- #{} (~{} tokens): {}\n",
-                            s.heading, s.token_estimate, s.snippet
-                        ));
-                    }
-                    Ok(out)
-                }
-                None => Ok(format!("Nota '{}' não encontrada.", target)),
-            }
-        }
-        "suggest_links" => {
-            let project = args.get("project").and_then(|v| v.as_str());
-            let engine = manager.get_engine(project).await;
-
-            let text = args
-                .get("text")
-                .and_then(|v| v.as_str())
-                .ok_or("Campo 'text' é obrigatório")?;
-            let current_note = args
-                .get("current_note")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let threshold = args
-                .get("threshold")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.60) as f32;
-
-            let suggestions = engine
-                .suggest_links(text, current_note, threshold, 4)
-                .await?;
-            if suggestions.is_empty() {
-                return Ok(
-                    "Nenhuma sugestão forte de link encontrada para este trecho.".to_string(),
-                );
-            }
-
-            let mut out = String::from("Sugestões Semânticas de Wikilinks para o Grafo:\n\n");
-            for (i, s) in suggestions.into_iter().enumerate() {
-                out.push_str(&format!(
-                    "{}. {} (Afinidade: {:.0}%)\n   Contexto: \"{}\"\n",
-                    i + 1,
-                    s.deep_link,
-                    s.similarity_score * 100.0,
-                    s.preview
-                ));
-            }
-            Ok(out)
-        }
-        "store_context" => {
-            let project = args.get("project").and_then(|v| v.as_str());
-            let engine = manager.get_engine(project).await;
-
-            let title = args
-                .get("title")
-                .and_then(|v| v.as_str())
-                .ok_or("Campo 'title' é obrigatório")?;
-            let mut content = args
-                .get("content")
-                .and_then(|v| v.as_str())
-                .ok_or("Campo 'content' é obrigatório")?
-                .to_string();
-
-            // Append optional links
-            if let Some(links) = args.get("links").and_then(|v| v.as_array()) {
-                if !links.is_empty() {
-                    content.push_str("\n\n## Conexões Relacionadas\n");
-                    for l in links {
-                        if let Some(s) = l.as_str() {
-                            content.push_str(&format!("- [[{}]]\n", s));
-                        }
-                    }
-                }
-            }
-
-            // Append optional tags
-            if let Some(tags) = args.get("tags").and_then(|v| v.as_array()) {
-                if !tags.is_empty() {
-                    content.push_str("\n\nTags: ");
-                    for t in tags {
-                        if let Some(s) = t.as_str() {
-                            let tag_clean = s.trim_start_matches('#');
-                            content.push_str(&format!("#{} ", tag_clean));
-                        }
-                    }
-                    content.push('\n');
-                }
-            }
-
-            let note = engine.save_note(title, &content, None).await?;
-            if let Some(app) = app_handle {
-                let _ = app.emit("vault-sync-complete", 1);
-            }
-            let autolinks_info = if !note.outgoing_links.is_empty() {
-                format!(
-                    "\nAuto-links Criados (≥65% afinidade): {:?}",
-                    note.outgoing_links
-                )
-            } else {
-                "\nAuto-links: Nenhuma nota com afinidade ≥ 65% encontrada.".to_string()
-            };
-            Ok(format!(
-                "Nota salva, vetorizada e autovinculada com sucesso!\nTítulo: [[{}]]\nArquivo: {}\nTags: {:?}{}",
-                note.title, note.path, note.tags, autolinks_info
-            ))
-        }
-        "get_graph_neighborhood" => {
-            let project = args.get("project").and_then(|v| v.as_str());
-            let engine = manager.get_engine(project).await;
-
-            let target = args
-                .get("target")
-                .and_then(|v| v.as_str())
-                .ok_or("Campo 'target' é obrigatório")?;
-            let depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
-
-            let n = engine.get_neighborhood(target, depth).await?;
-            let mut out = format!("Subgrafo ao redor de [[{}]]:\n\nNós Conectados:\n", target);
-            for node in n.nodes {
-                out.push_str(&format!(
-                    "- [[{}]] ({} links, tags: {:?})\n",
-                    node.title, node.degree, node.tags
-                ));
-            }
-            Ok(out)
-        }
-        "link_notes" => {
-            let project = args.get("project").and_then(|v| v.as_str());
-            let engine = manager.get_engine(project).await;
-
-            let from_note = args
-                .get("from_note")
-                .and_then(|v| v.as_str())
-                .ok_or("Campo 'from_note' é obrigatório")?;
-            let to_note = args
-                .get("to_note")
-                .and_then(|v| v.as_str())
-                .ok_or("Campo 'to_note' é obrigatório")?;
-
-            let updated = engine.link_notes(from_note, to_note).await?;
-            if let Some(app) = app_handle {
-                let _ = app.emit("vault-sync-complete", 1);
-            }
-            Ok(format!(
-                "Ligação criada com sucesso!\nOrigem: [[{}]] -> Destino: [[{}]]\nLinks atualizados: {:?}",
-                updated.title, to_note, updated.outgoing_links
-            ))
-        }
-        "list_recent_notes" => {
-            let project = args.get("project").and_then(|v| v.as_str());
-            let engine = manager.get_engine(project).await;
-
-            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
-            let notes = engine.list_notes().await?;
-            let display_notes = notes.into_iter().take(limit);
-
-            let mut out = String::from("Notas no cofre de conhecimento:\n");
-            for n in display_notes {
-                out.push_str(&format!(
-                    "- [[{}]] (Tags: {:?}) - \"{}\"\n",
-                    n.title, n.tags, n.summary
-                ));
-            }
-            Ok(out)
-        }
-        "sync_vault" => {
-            let project = args.get("project").and_then(|v| v.as_str());
-            let engine = manager.get_engine(project).await;
-            let count = engine.sync_vault().await?;
-            if let Some(app) = app_handle {
-                let _ = app.emit("vault-sync-complete", count);
-            }
-            Ok(format!(
-                "Sincronização concluída com sucesso! {} notas ativas e indexadas no vault.",
-                count
-            ))
-        }
-        _ => Err(format!("Ferramenta '{}' não implementada", tool_name).into()),
-    }
 }
