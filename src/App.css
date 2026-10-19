@@ -1,0 +1,7 @@
+/* App.css - Clean utility layer for GraphFinder */
+.glass-panel {
+  background: var(--bg-surface-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-subtle);
+}
