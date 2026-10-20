@@ -97,29 +97,13 @@ export const GraphView: React.FC<GraphViewProps> = ({
     // Slight delay to ensure simulation step has positioned node
     setTimeout(attemptCenter, 80);
 
-    // Continuous render loop for smooth shockwave animation
-    let animId: number;
-    const tick = () => {
-      if (glowingStateRef.current) {
-        const elapsed = Date.now() - glowingStateRef.current.startTime;
-        if (elapsed < glowingStateRef.current.duration) {
-          if (graphInstanceRef.current) {
-            graphInstanceRef.current.d3ReheatSimulation();
-          }
-          animId = requestAnimationFrame(tick);
-          return;
-        } else {
-          glowingStateRef.current = null;
-          if (graphInstanceRef.current) {
-            graphInstanceRef.current.d3ReheatSimulation();
-          }
-        }
-      }
-    };
-    animId = requestAnimationFrame(tick);
+    // Timer to reset glowing state after duration
+    const timer = setTimeout(() => {
+      glowingStateRef.current = null;
+    }, glowingStateRef.current.duration);
 
     return () => {
-      cancelAnimationFrame(animId);
+      clearTimeout(timer);
     };
   }, [glowingNode]);
 
@@ -135,6 +119,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
       .width(width)
       .height(height)
       .backgroundColor('#090a0f')
+      .autoPauseRedraw(false)
       .nodeRelSize(4)
       .nodeVal((node: any) => Math.max(4, Math.min(12, 4 + (node.degree || 0) * 1.2)))
       .linkColor((link: any) => {
@@ -295,6 +280,21 @@ export const GraphView: React.FC<GraphViewProps> = ({
           ctx.fillText(tagText, node.x, textY);
         }
       })
+      .nodePointerAreaPaint((node: any, color: string, ctx: CanvasRenderingContext2D) => {
+        ctx.fillStyle = color;
+        // Hit-test area covering the node circle
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, 14, 0, 2 * Math.PI, false);
+        ctx.fill();
+
+        // Hit-test area covering the text label capsule below the node
+        const rawLabel = node.title || node.id;
+        const label = rawLabel.endsWith('.md') ? rawLabel.replace(/\.md$/, '') : rawLabel;
+        const tagText = node.tags && node.tags.length > 0 ? `#${node.tags[0]}` : label;
+        ctx.font = '500 10px sans-serif';
+        const textWidth = ctx.measureText(tagText).width;
+        ctx.fillRect(node.x - textWidth / 2 - 8, node.y + 10, textWidth + 16, 18);
+      })
       .onNodeClick((node: any) => {
         if (node && node.id) {
           onSelectNodeRef.current(node.id);
@@ -305,7 +305,6 @@ export const GraphView: React.FC<GraphViewProps> = ({
         if (hoverNodeIdRef.current === nextId) return;
         hoverNodeIdRef.current = nextId;
         recomputeConnected(nextId || selectedNodeIdRef.current);
-        graph.d3ReheatSimulation();
       })
       .showPointerCursor((node: any) => !!node);
 
@@ -343,9 +342,6 @@ export const GraphView: React.FC<GraphViewProps> = ({
   useEffect(() => {
     selectedNodeIdRef.current = selectedNodeId;
     recomputeConnected(hoverNodeIdRef.current || selectedNodeId);
-    if (graphInstanceRef.current) {
-      graphInstanceRef.current.d3ReheatSimulation();
-    }
   }, [selectedNodeId, recomputeConnected]);
 
   // Update data ONLY when nodes/links change or focus mode is toggled

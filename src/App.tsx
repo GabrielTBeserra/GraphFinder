@@ -10,6 +10,7 @@ import {
   fetchProjects,
   switchProject,
   createProject,
+  fetchEngineStatus,
 } from './services/api';
 import type { ChunkHit, GraphData, NoteRecord, NoteSummary, ProjectInfo } from './types';
 import { GraphView } from './components/GraphView';
@@ -18,6 +19,7 @@ import { Sidebar } from './components/Sidebar';
 import { McpModal } from './components/McpModal';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { NewProjectModal } from './components/NewProjectModal';
+import { LoadingScreen } from './components/LoadingScreen';
 import { ArrowClockwise, Robot, SidebarSimple, CheckCircle } from '@phosphor-icons/react';
 
 interface Toast {
@@ -42,6 +44,11 @@ export const App: React.FC = () => {
   const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [glowingNode, setGlowingNode] = useState<{ id: string; timestamp: number } | null>(null);
+  const [engineReady, setEngineReady] = useState<boolean>(false);
+  const [engineStatusMessage, setEngineStatusMessage] = useState<string>(
+    'Inicializando motor neural de embeddings...'
+  );
+  const [engineError, setEngineError] = useState<boolean>(false);
 
   const showToast = useCallback((message: string, type: 'success' | 'info' = 'success') => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -125,6 +132,11 @@ export const App: React.FC = () => {
 
     async function initApp() {
       try {
+        const engineInfo = await fetchEngineStatus();
+        if (engineInfo.is_ready) {
+          setEngineReady(true);
+        }
+
         const [gData, nData, pList] = await Promise.all([
           fetchGraph(),
           fetchNotes(),
@@ -155,6 +167,7 @@ export const App: React.FC = () => {
 
     let unlistenSync: (() => void) | undefined;
     let unlistenMcp: (() => void) | undefined;
+    let unlistenEngine: (() => void) | undefined;
 
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       listen<number>('vault-sync-complete', (event) => {
@@ -174,12 +187,29 @@ export const App: React.FC = () => {
       }).then((unlisten) => {
         unlistenMcp = unlisten;
       });
+
+      listen<{ status: string; message: string }>('engine-status', (event) => {
+        const p = event.payload;
+        if (p.status === 'ready') {
+          setEngineReady(true);
+          setEngineError(false);
+          loadData();
+        } else if (p.status === 'loading') {
+          setEngineStatusMessage(p.message || 'Carregando modelo de embeddings...');
+        } else if (p.status === 'error') {
+          setEngineError(true);
+          setEngineStatusMessage(p.message || 'Erro ao inicializar modelo neural.');
+        }
+      }).then((unlisten) => {
+        unlistenEngine = unlisten;
+      });
     }
 
     return () => {
       isCancelled = true;
       if (unlistenSync) unlistenSync();
       if (unlistenMcp) unlistenMcp();
+      if (unlistenEngine) unlistenEngine();
     };
   }, []); // Run only once on mount
 
@@ -258,6 +288,15 @@ export const App: React.FC = () => {
       setIsSyncing(false);
     }
   };
+
+  if (!engineReady) {
+    return (
+      <LoadingScreen
+        statusMessage={engineStatusMessage}
+        isError={engineError}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col w-screen h-screen overflow-hidden bg-[#090a0f] text-[#f1f5f9] select-none">
