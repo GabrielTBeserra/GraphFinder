@@ -1,4 +1,3 @@
-use super::embeddings::cosine_similarity;
 use super::parser::ParsedChunk;
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
@@ -564,7 +563,13 @@ impl DbManager {
 
     /// Dense Section Search: returns exact chunks/sections matching the query with token counts
     pub fn search_chunks(&self, query_vector: &[f32], limit: usize) -> Result<Vec<ChunkHit>> {
-        // Phase 1: Lightweight scan without loading large markdown content texts into RAM
+        let mut q_norm_sq = 0.0f32;
+        for &q in query_vector {
+            q_norm_sq += q * q;
+        }
+        let query_is_unit = (q_norm_sq - 1.0).abs() < 1e-3;
+
+        // Phase 1: Zero-allocation SIMD-friendly vector scan directly on SQLite blob memory
         let mut stmt = self.conn.prepare(
             r#"
             SELECT c.id, c.note_id, n.title, c.heading, c.token_estimate, c.vector
@@ -588,31 +593,23 @@ impl DbManager {
             let note_title: String = row.get(2)?;
             let heading: Option<String> = row.get(3)?;
             let token_estimate: usize = row.get::<_, i64>(4)? as usize;
-            let bytes: Vec<u8> = row.get(5)?;
-            Ok((
-                chunk_id,
-                note_id,
-                note_title,
-                heading,
-                token_estimate,
-                bytes,
-            ))
-        })?;
+            let blob_ref = row.get_ref(5)?;
+            let blob = blob_ref.as_blob()?;
+            let score = dot_product_bytes(query_vector, blob, query_is_unit);
 
-        let mut scored: Vec<ChunkMeta> = Vec::new();
-        for r in rows {
-            let (chunk_id, note_id, note_title, heading, token_estimate, bytes) = r?;
-            let chunk_vec = bytes_to_f32_vec(&bytes);
-            let score = cosine_similarity(query_vector, &chunk_vec);
-
-            scored.push(ChunkMeta {
+            Ok(ChunkMeta {
                 chunk_id,
                 note_id,
                 note_title,
                 heading,
                 token_estimate,
                 score,
-            });
+            })
+        })?;
+
+        let mut scored: Vec<ChunkMeta> = Vec::new();
+        for r in rows {
+            scored.push(r?);
         }
 
         scored.sort_by(|a, b| {
@@ -745,21 +742,26 @@ impl DbManager {
     }
 
     pub fn semantic_search(&self, query_vector: &[f32], limit: usize) -> Result<Vec<SearchHit>> {
+        let mut q_norm_sq = 0.0f32;
+        for &q in query_vector {
+            q_norm_sq += q * q;
+        }
+        let query_is_unit = (q_norm_sq - 1.0).abs() < 1e-3;
+
         let mut stmt = self
             .conn
             .prepare("SELECT note_id, vector FROM embeddings")?;
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
-            let bytes: Vec<u8> = row.get(1)?;
-            Ok((id, bytes))
+            let blob_ref = row.get_ref(1)?;
+            let blob = blob_ref.as_blob()?;
+            let sim = dot_product_bytes(query_vector, blob, query_is_unit);
+            Ok((id, sim))
         })?;
 
         let mut scored: Vec<(String, f32)> = Vec::new();
         for r in rows {
-            let (id, bytes) = r?;
-            let note_vec = bytes_to_f32_vec(&bytes);
-            let sim = cosine_similarity(query_vector, &note_vec);
-            scored.push((id, sim));
+            scored.push(r?);
         }
 
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -837,6 +839,36 @@ fn f32_slice_to_bytes(slice: &[f32]) -> Vec<u8> {
     bytes
 }
 
+#[inline]
+pub fn dot_product_bytes(query: &[f32], bytes: &[u8], query_is_unit: bool) -> f32 {
+    let chunks = bytes.chunks_exact(4);
+    if chunks.len() != query.len() {
+        return 0.0;
+    }
+
+    let mut dot = 0.0f32;
+    let mut norm_b = 0.0f32;
+
+    for (i, chunk) in chunks.enumerate() {
+        let val = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        dot += query[i] * val;
+        norm_b += val * val;
+    }
+
+    // Fast-path for L2 unit-normalized vectors (standard in all-MiniLM-L6-v2)
+    if query_is_unit && (norm_b - 1.0).abs() < 1e-3 {
+        return dot;
+    }
+
+    let denom = norm_b.sqrt();
+    if denom <= f32::EPSILON {
+        0.0
+    } else {
+        dot / denom
+    }
+}
+
+#[allow(dead_code)]
 fn bytes_to_f32_vec(bytes: &[u8]) -> Vec<f32> {
     bytes
         .chunks_exact(4)

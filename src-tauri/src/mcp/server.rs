@@ -204,16 +204,16 @@ async fn info_handler(
         <span class="stat-val">Streamable HTTP (JSON-RPC 2.0)</span>
       </div>
       <div class="stat-row">
+        <span class="stat-label"><span class="endpoint-tag tag-get">GET</span> /mcp</span>
+        <span class="stat-val">Painel Web de Diagnóstico</span>
+      </div>
+      <div class="stat-row">
         <span class="stat-label"><span class="endpoint-tag tag-get">GET</span> /health</span>
         <span class="stat-val">JSON Health Check</span>
       </div>
-      <div class="stat-row">
-        <span class="stat-label"><span class="endpoint-tag tag-get">STDIO</span> CLI</span>
-        <span class="stat-val">GraphFinder.exe --mcp</span>
-      </div>
     </div>
 
-    <h3 style="color: var(--muted); font-size: 0.95rem; text-transform: uppercase; margin-top: 1.5rem; margin-bottom: 0.5rem;">Configuração MCP</h3>
+    <h3 style="color: var(--muted); font-size: 0.95rem; text-transform: uppercase; margin-top: 1.5rem; margin-bottom: 0.5rem;">Configuração MCP (Cursor, Claude, Antigravity)</h3>
     <pre>{{{{
   "mcpServers": {{{{
     "graphfinder": {{{{
@@ -237,7 +237,7 @@ async fn info_handler(
         "status": "online",
         "service": "GraphFinder MCP Server (Official rmcp SDK)",
         "version": env!("CARGO_PKG_VERSION"),
-        "transport": ["stdio", "streamable-http"],
+        "transport": ["streamable-http"],
         "endpoints": {
             "mcp": format!("http://127.0.0.1:{}/mcp", state.port),
             "health": format!("http://127.0.0.1:{}/health", state.port)

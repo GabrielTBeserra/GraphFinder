@@ -15,6 +15,7 @@ interface GraphViewProps {
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string) => void;
   onRefresh: () => void;
+  glowingNode?: { id: string; timestamp: number } | null;
 }
 
 export const GraphView: React.FC<GraphViewProps> = ({
@@ -22,6 +23,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   selectedNodeId,
   onSelectNode,
   onRefresh,
+  glowingNode,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphInstanceRef = useRef<any>(null);
@@ -32,6 +34,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const hoverNodeIdRef = useRef<string | null>(null);
   const connectedNodeIdsRef = useRef<Set<string>>(new Set());
   const onSelectNodeRef = useRef(onSelectNode);
+
+  // Glowing animation ref
+  const glowingStateRef = useRef<{ id: string; startTime: number; duration: number } | null>(null);
 
   useEffect(() => {
     onSelectNodeRef.current = onSelectNode;
@@ -55,6 +60,68 @@ export const GraphView: React.FC<GraphViewProps> = ({
     },
     [graphData.links]
   );
+
+  // Handle Glowing Node and Camera Auto-Centering
+  useEffect(() => {
+    if (!glowingNode || !glowingNode.id) return;
+    const targetId = glowingNode.id;
+
+    glowingStateRef.current = {
+      id: targetId,
+      startTime: Date.now(),
+      duration: 3500, // 3.5 seconds neon animation
+    };
+
+    // Auto-center camera onto the newly updated node
+    const attemptCenter = () => {
+      if (graphInstanceRef.current) {
+        const currentData = graphInstanceRef.current.graphData();
+        const nodes = currentData?.nodes || [];
+        const cleanTarget = targetId.replace(/\.md$/, '').toLowerCase();
+
+        const match = nodes.find(
+          (n: any) =>
+            n.id === targetId ||
+            n.id?.toLowerCase() === cleanTarget ||
+            n.title?.toLowerCase() === cleanTarget ||
+            n.id?.replace(/\.md$/, '')?.toLowerCase() === cleanTarget
+        );
+
+        if (match && match.x !== undefined && match.y !== undefined) {
+          graphInstanceRef.current.centerAt(match.x, match.y, 800);
+          graphInstanceRef.current.zoom(2.4, 800);
+        }
+      }
+    };
+
+    // Slight delay to ensure simulation step has positioned node
+    setTimeout(attemptCenter, 80);
+
+    // Continuous render loop for smooth shockwave animation
+    let animId: number;
+    const tick = () => {
+      if (glowingStateRef.current) {
+        const elapsed = Date.now() - glowingStateRef.current.startTime;
+        if (elapsed < glowingStateRef.current.duration) {
+          if (graphInstanceRef.current) {
+            graphInstanceRef.current.d3ReheatSimulation();
+          }
+          animId = requestAnimationFrame(tick);
+          return;
+        } else {
+          glowingStateRef.current = null;
+          if (graphInstanceRef.current) {
+            graphInstanceRef.current.d3ReheatSimulation();
+          }
+        }
+      }
+    };
+    animId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, [glowingNode]);
 
   // Initialize ForceGraph once
   useEffect(() => {
@@ -96,6 +163,64 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const isConnected = connected.has(node.id);
         const isDimmed = connected.size > 0 && !isConnected;
 
+        // Check Glowing MCP State
+        const glowing = glowingStateRef.current;
+        const isGlowing =
+          glowing &&
+          (node.id === glowing.id ||
+            node.id?.toLowerCase() === glowing.id.toLowerCase() ||
+            node.title?.toLowerCase() === glowing.id.toLowerCase() ||
+            node.id?.replace(/\.md$/, '')?.toLowerCase() === glowing.id.replace(/\.md$/, '').toLowerCase());
+
+        if (isGlowing && glowing) {
+          const elapsed = Date.now() - glowing.startTime;
+          const progress = Math.min(1, elapsed / glowing.duration);
+          const alpha = Math.max(0, 1 - progress);
+
+          ctx.save();
+
+          // Shockwave 1: Emerald Neon Wave
+          const shockRadius1 = 12 + progress * 40;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, shockRadius1, 0, 2 * Math.PI, false);
+          ctx.strokeStyle = `rgba(16, 185, 129, ${alpha * 0.9})`;
+          ctx.lineWidth = Math.max(1, 3.5 * (1 - progress));
+          ctx.shadowColor = '#10b981';
+          ctx.shadowBlur = 18;
+          ctx.stroke();
+
+          // Shockwave 2: Secondary Cyan Pulse
+          if (progress > 0.1) {
+            const p2 = (progress - 0.1) / 0.9;
+            const shockRadius2 = 10 + p2 * 28;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, shockRadius2, 0, 2 * Math.PI, false);
+            ctx.strokeStyle = `rgba(56, 189, 248, ${Math.max(0, 1 - p2) * 0.75})`;
+            ctx.lineWidth = Math.max(0.8, 2.5 * (1 - p2));
+            ctx.shadowColor = '#38bdf8';
+            ctx.shadowBlur = 14;
+            ctx.stroke();
+          }
+
+          // Radiant Core Aura
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, 16, 0, 2 * Math.PI, false);
+          ctx.fillStyle = `rgba(16, 185, 129, ${alpha * 0.35})`;
+          ctx.fill();
+
+          // "⚡ MCP LIVE" Capsule Badge
+          const badgeFontSize = Math.max(8.5 / globalScale, 8.5);
+          ctx.font = `700 ${badgeFontSize}px 'Plus Jakarta Sans', monospace, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillStyle = `rgba(52, 211, 153, ${alpha})`;
+          ctx.shadowColor = '#10b981';
+          ctx.shadowBlur = 8;
+          ctx.fillText('⚡ MCP LIVE', node.x, node.y - 18);
+
+          ctx.restore();
+        }
+
         if (isSelected || isHovered) {
           // Focal node highlight
           ctx.beginPath();
@@ -127,13 +252,13 @@ export const GraphView: React.FC<GraphViewProps> = ({
         }
 
         // Title and tag capsule pill
-        if (globalScale > 0.75 || isSelected || isHovered) {
+        if (globalScale > 0.75 || isSelected || isHovered || isGlowing) {
           const rawLabel = node.title || node.id;
           const label = rawLabel.endsWith('.md') ? rawLabel.replace(/\.md$/, '') : rawLabel;
           const tagText = node.tags && node.tags.length > 0 ? `#${node.tags[0]}` : label;
 
           const fontSize = Math.max(9 / globalScale, 9);
-          ctx.font = `${isSelected ? '600 ' : '500 '}${fontSize}px 'Plus Jakarta Sans', system-ui, sans-serif`;
+          ctx.font = `${isSelected || isGlowing ? '600 ' : '500 '}${fontSize}px 'Plus Jakarta Sans', system-ui, sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
 
@@ -153,10 +278,20 @@ export const GraphView: React.FC<GraphViewProps> = ({
           ctx.fillStyle = isDimmed ? 'rgba(24, 27, 36, 0.4)' : '#181b24';
           ctx.fill();
           ctx.lineWidth = 1;
-          ctx.strokeStyle = isDimmed ? 'rgba(43, 49, 64, 0.3)' : '#2b3140';
+          ctx.strokeStyle = isGlowing
+            ? '#10b981'
+            : isDimmed
+            ? 'rgba(43, 49, 64, 0.3)'
+            : '#2b3140';
           ctx.stroke();
 
-          ctx.fillStyle = isDimmed ? 'rgba(100, 116, 139, 0.4)' : isSelected ? '#ffffff' : '#e2e8f0';
+          ctx.fillStyle = isGlowing
+            ? '#34d399'
+            : isDimmed
+            ? 'rgba(100, 116, 139, 0.4)'
+            : isSelected
+            ? '#ffffff'
+            : '#e2e8f0';
           ctx.fillText(tagText, node.x, textY);
         }
       })
@@ -170,7 +305,6 @@ export const GraphView: React.FC<GraphViewProps> = ({
         if (hoverNodeIdRef.current === nextId) return;
         hoverNodeIdRef.current = nextId;
         recomputeConnected(nextId || selectedNodeIdRef.current);
-        // Reheat slightly to redraw without resetting the simulation or positions
         graph.d3ReheatSimulation();
       })
       .showPointerCursor((node: any) => !!node);
@@ -259,13 +393,13 @@ export const GraphView: React.FC<GraphViewProps> = ({
     <div className="relative w-full h-full overflow-hidden bg-[#090a0f]" ref={containerRef}>
       {/* Floating Toolbar Deck */}
       <div
-        className="absolute top-4 right-4 z-20 flex items-center gap-1 p-1 rounded-md bg-[#12151c] border border-[#1e222d] shadow-2xl backdrop-blur-md"
+        className="absolute top-4 right-4 z-20 flex items-center gap-1 p-1 rounded-xl bg-[#12151c]/90 border border-[#1e222d] shadow-2xl backdrop-blur-md"
         role="toolbar"
         aria-label="Graph Controls"
       >
         <button
           type="button"
-          className={`flex items-center justify-center w-7 h-7 rounded transition-colors cursor-pointer ${
+          className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
             localOnly
               ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
               : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28]'
@@ -280,7 +414,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         <button
           type="button"
-          className="flex items-center justify-center w-7 h-7 rounded text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
+          className="flex items-center justify-center w-7 h-7 rounded-lg text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
           title="Zoom In (+)"
           onClick={handleZoomIn}
         >
@@ -289,7 +423,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         <button
           type="button"
-          className="flex items-center justify-center w-7 h-7 rounded text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
+          className="flex items-center justify-center w-7 h-7 rounded-lg text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
           title="Zoom Out (-)"
           onClick={handleZoomOut}
         >
@@ -298,7 +432,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         <button
           type="button"
-          className="flex items-center justify-center w-7 h-7 rounded text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
+          className="flex items-center justify-center w-7 h-7 rounded-lg text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
           title="Fit All Nodes"
           onClick={handleFit}
         >
@@ -309,7 +443,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         <button
           type="button"
-          className="flex items-center justify-center w-7 h-7 rounded text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
+          className="flex items-center justify-center w-7 h-7 rounded-lg text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#1a1e28] transition-colors cursor-pointer"
           title="Reheat Force Simulation"
           onClick={onRefresh}
         >
@@ -318,8 +452,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
       </div>
 
       {/* Floating HUD Telemetry Capsule */}
-      <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2 px-3 py-1 rounded-md bg-[#12151c] border border-[#1e222d] shadow-xl backdrop-blur-md text-[11px] font-mono text-[#64748b]">
-        <span className="w-2 h-2 rounded-full bg-[#10b981] shrink-0" />
+      <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2 px-3 py-1 rounded-xl bg-[#12151c]/90 border border-[#1e222d] shadow-xl backdrop-blur-md text-[11px] font-mono text-[#64748b]">
+        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
         <span>
           Nodes: <strong className="font-semibold text-[#f8fafc]">{graphData.nodes.length}</strong>
         </span>

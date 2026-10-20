@@ -9,7 +9,7 @@ use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig},
-    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt,
+    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
 };
 
 use crate::engine::VaultManager;
@@ -313,6 +313,7 @@ impl GraphFinderMcpServer {
         };
         if let Some(app) = &self.app_handle {
             let _ = app.emit("vault-sync-complete", 1);
+            let _ = app.emit("mcp-node-updated", &note.id);
         }
         let autolinks_info = if !note.outgoing_links.is_empty() {
             format!(
@@ -358,6 +359,7 @@ impl GraphFinderMcpServer {
         };
         if let Some(app) = &self.app_handle {
             let _ = app.emit("vault-sync-complete", 1);
+            let _ = app.emit("mcp-node-updated", &updated.id);
         }
         let out = format!(
             "Ligação criada com sucesso!\nOrigem: [[{}]] -> Destino: [[{}]]\nLinks atualizados: {:?}",
@@ -418,16 +420,10 @@ impl ServerHandler for GraphFinderMcpServer {
 }
 
 pub async fn run_mcp_server(
-    manager: Arc<VaultManager>,
+    _manager: Arc<VaultManager>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     eprintln!(
-        "[GraphFinder MCP] Servidor oficial rmcp iniciado via stdio. Suporte a múltiplos projetos/vaults ativo."
+        "[GraphFinder MCP] ERRO: Transporte stdio descontinuado/proibido. Use exclusivamente o endpoint Streamable HTTP: http://127.0.0.1:45123/mcp"
     );
-
-    let server = GraphFinderMcpServer::new(manager, None);
-    let transport = rmcp::transport::io::stdio();
-    let service = server.serve(transport).await?;
-    service.waiting().await?;
-
-    Ok(())
+    Err("O transporte stdio foi proibido e descontinuado. O servidor MCP opera exclusivamente via Streamable HTTP em http://127.0.0.1:45123/mcp".into())
 }
