@@ -1,8 +1,8 @@
 export const MCP_CONFIG_SNIPPET = `{
   "mcpServers": {
     "graphfinder": {
-      "type": "sse",
-      "url": "http://127.0.0.1:45123/sse"
+      "type": "http",
+      "url": "http://127.0.0.1:45123/mcp"
     }
   }
 }`;

@@ -268,8 +268,8 @@ export async function fetchMcpConfig(): Promise<McpConfigInfo> {
     config_json: `{
   "mcpServers": {
     "graphfinder": {
-      "type": "sse",
-      "url": "http://127.0.0.1:45123/sse"
+      "type": "http",
+      "url": "http://127.0.0.1:45123/mcp"
     }
   }
 }`,
