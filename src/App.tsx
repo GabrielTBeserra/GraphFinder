@@ -50,16 +50,53 @@ export const App: React.FC = () => {
     }, 3200);
   }, []);
 
-  const handleSelectNote = useCallback(async (id: string) => {
-    setSelectedNoteId(id);
+  const handleSelectNote = useCallback(async (idOrTitle: string) => {
+    const clean = idOrTitle.replace(/^unresolved:/, '').split('#')[0].trim();
+    setSelectedNoteId(clean);
     setIsEditorOpen(true);
     try {
-      const note = await fetchNote(id);
-      setActiveNote(note);
+      const note = await fetchNote(clean);
+      if (note) {
+        setActiveNote(note);
+        setSelectedNoteId(note.id);
+        return;
+      }
+      // If not found directly by id, search in notes list
+      const found = notes.find(
+        (n) =>
+          n.id === clean ||
+          n.id.replace(/\.md$/, '') === clean ||
+          n.title.toLowerCase() === clean.toLowerCase()
+      );
+      if (found) {
+        const foundNote = await fetchNote(found.id);
+        if (foundNote) {
+          setActiveNote(foundNote);
+          setSelectedNoteId(foundNote.id);
+          return;
+        }
+      }
+      // Unresolved note from graph: create draft
+      setSelectedNoteId(null);
+      setActiveNote({
+        id: '',
+        path: clean.endsWith('.md') ? clean : `${clean}.md`,
+        title: clean,
+        summary: '',
+        content: `# ${clean}\n\nConexao criada a partir do grafo.`,
+        updated_at: Math.floor(Date.now() / 1000),
+        tags: [],
+        outgoing_links: [],
+        backlinks: [],
+      });
     } catch (err) {
       console.error('Erro ao buscar nota:', err);
     }
-  }, []);
+  }, [notes]);
+
+  const handleNavigateNote = useCallback((titleOrId: string) => {
+    handleSelectNote(titleOrId);
+  }, [handleSelectNote]);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -77,14 +114,10 @@ export const App: React.FC = () => {
       const [gData, nData] = await Promise.all([fetchGraph(), fetchNotes()]);
       setGraphData(gData);
       setNotes(nData);
-
-      if (!selectedNoteId && nData.length > 0) {
-        handleSelectNote(nData[0].id);
-      }
     } catch (err) {
       console.error('Erro ao carregar dados do GraphFinder:', err);
     }
-  }, [selectedNoteId, handleSelectNote]);
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -135,30 +168,7 @@ export const App: React.FC = () => {
       isCancelled = true;
       if (unlistenSync) unlistenSync();
     };
-  }, [loadData, showToast]);
-
-  const handleNavigateNote = async (titleOrId: string) => {
-    const found = notes.find(
-      (n) => n.id === titleOrId || n.title.toLowerCase() === titleOrId.toLowerCase()
-    );
-    if (found) {
-      handleSelectNote(found.id);
-    } else {
-      setSelectedNoteId(null);
-      setActiveNote({
-        id: '',
-        path: `${titleOrId}.md`,
-        title: titleOrId,
-        summary: '',
-        content: `# ${titleOrId}\n\nConexao criada a partir do grafo.`,
-        updated_at: Math.floor(Date.now() / 1000),
-        tags: [],
-        outgoing_links: [],
-        backlinks: [],
-      });
-      setIsEditorOpen(true);
-    }
-  };
+  }, []); // Run only once on mount
 
   const handleNewNote = () => {
     setSelectedNoteId(null);
@@ -339,6 +349,7 @@ export const App: React.FC = () => {
 
           {isEditorOpen && (
             <NoteEditor
+              key={activeNote ? activeNote.id || activeNote.title : 'new-note'}
               note={activeNote}
               onSave={handleSaveNote}
               onClose={() => setIsEditorOpen(false)}
