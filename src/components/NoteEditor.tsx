@@ -33,24 +33,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     note?.content ??
       '# New Note\n\nStart writing your thoughts here.\nConnect to other notes with [[Note Title]] and add #tags.'
   );
-  const [prevNoteId, setPrevNoteId] = useState<string | undefined>(note?.id);
   const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'split'>('split');
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(!note);
   const [suggestions, setSuggestions] = useState<LinkSuggestion[]>([]);
   const [isSuggesting, setIsSuggesting] = useState(false);
 
-  // Synchronize state when the active note changes during render
-  if (note?.id !== prevNoteId) {
-    setPrevNoteId(note?.id);
-    setTitle(note?.title ?? 'New Note');
+  useEffect(() => {
+    setTitle(note?.title ?? (note ? '' : 'New Note'));
     setContent(
       note?.content ??
         '# New Note\n\nStart writing your thoughts here.\nConnect to other notes with [[Note Title]] and add #tags.'
     );
     setIsDirty(!note);
     setSuggestions([]);
-  }
+  }, [note?.id, note?.path, note?.content, note?.title]);
 
   const handleSave = useCallback(async () => {
     if (!title.trim() || isSaving) return;
