@@ -41,6 +41,7 @@ export const App: React.FC = () => {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [glowingNode, setGlowingNode] = useState<{ id: string; timestamp: number } | null>(null);
 
   const showToast = useCallback((message: string, type: 'success' | 'info' = 'success') => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -153,6 +154,8 @@ export const App: React.FC = () => {
     initApp();
 
     let unlistenSync: (() => void) | undefined;
+    let unlistenMcp: (() => void) | undefined;
+
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       listen<number>('vault-sync-complete', (event) => {
         loadData();
@@ -162,11 +165,21 @@ export const App: React.FC = () => {
       }).then((unlisten) => {
         unlistenSync = unlisten;
       });
+
+      listen<string>('mcp-node-updated', (event) => {
+        const nodeId = event.payload;
+        setGlowingNode({ id: nodeId, timestamp: Date.now() });
+        loadData();
+        showToast(`Cofre atualizado via MCP: [[${nodeId}]]`, 'info');
+      }).then((unlisten) => {
+        unlistenMcp = unlisten;
+      });
     }
 
     return () => {
       isCancelled = true;
       if (unlistenSync) unlistenSync();
+      if (unlistenMcp) unlistenMcp();
     };
   }, []); // Run only once on mount
 
@@ -181,6 +194,7 @@ export const App: React.FC = () => {
       const saved = await saveNote(title, content, filename);
       setActiveNote(saved);
       setSelectedNoteId(saved.id);
+      setGlowingNode({ id: saved.id, timestamp: Date.now() });
       showToast(`Note "${title}" saved successfully!`);
       await loadData();
       await loadProjects();
@@ -345,6 +359,7 @@ export const App: React.FC = () => {
             selectedNodeId={selectedNoteId}
             onSelectNode={handleSelectNote}
             onRefresh={loadData}
+            glowingNode={glowingNode}
           />
 
           {isEditorOpen && (
@@ -354,6 +369,7 @@ export const App: React.FC = () => {
               onSave={handleSaveNote}
               onClose={() => setIsEditorOpen(false)}
               onNavigateNote={handleNavigateNote}
+              availableNotes={notes}
             />
           )}
         </main>

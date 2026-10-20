@@ -7,15 +7,20 @@ export const MCP_CONFIG_SNIPPET = `{
   }
 }`;
 
-export const MCP_STDIO_CONFIG_SNIPPET = `{
+export const MCP_CURSOR_CONFIG_SNIPPET = `{
   "mcpServers": {
     "graphfinder": {
-      "command": "GraphFinder.exe",
-      "args": ["--mcp"],
-      "env": {
-        "GRAPHFINDER_VAULT": "./vault",
-        "GRAPHFINDER_DB": "./index.db"
-      }
+      "type": "http",
+      "url": "http://127.0.0.1:45123/mcp"
+    }
+  }
+}`;
+
+export const MCP_CLAUDE_CONFIG_SNIPPET = `{
+  "mcpServers": {
+    "graphfinder": {
+      "type": "http",
+      "url": "http://127.0.0.1:45123/mcp"
     }
   }
 }`;
@@ -114,7 +119,7 @@ This skill guides AI agents and human editors in managing the **GraphFinder** kn
 ## When to Use This Skill
 - When drafting or structuring new notes in \`./vault\` or isolated project vaults (\`./vaults/<project>\`).
 - When toggling between workspaces with \`list_projects\`, \`switch_project\`, or creating new ones with \`create_project\`.
-- When communicating with GraphFinder via the embedded MCP server (stdio).
+- When communicating with GraphFinder via the embedded HTTP MCP server (/mcp).
 - When executing semantic searches while preserving LLM context budget.
 - When generating or applying bidirectional graph links.
 
