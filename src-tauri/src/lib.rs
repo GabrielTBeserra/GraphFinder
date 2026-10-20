@@ -240,6 +240,14 @@ async fn get_mcp_config(manager: State<'_, Arc<VaultManager>>) -> Result<McpConf
     })
 }
 
+#[tauri::command]
+async fn get_engine_status(manager: State<'_, Arc<VaultManager>>) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "status": manager.embeddings().get_status(),
+        "is_ready": manager.embeddings().is_ready()
+    }))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -252,11 +260,11 @@ pub fn run() {
                 )?;
             }
 
-            println!("[GraphFinder Tauri] Carregando motor semântico com suporte a múltiplos projetos/vaults...");
-            let embeddings = Arc::new(EmbeddingEngine::new().expect("Falha ao inicializar embeddings locais"));
-            let manager = Arc::new(VaultManager::new(embeddings).expect("Falha ao inicializar VaultManager"));
+            println!("[GraphFinder Tauri] Carregando motor semântico com inicialização assíncrona...");
+            let embeddings = Arc::new(EmbeddingEngine::new_lazy());
+            let manager = Arc::new(VaultManager::new(embeddings.clone()).expect("Falha ao inicializar VaultManager"));
 
-            // Inicia o Servidor MCP HTTP/SSE Nativo (Localhost)
+            // Inicia o Servidor MCP HTTP Nativo (Localhost)
             let mcp_port = std::env::var("GRAPHFINDER_MCP_PORT")
                 .ok()
                 .and_then(|p| p.parse::<u16>().ok())
@@ -266,17 +274,27 @@ pub fn run() {
             let app_handle_for_mcp = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = mcp::server::start_http_mcp_server(manager_for_mcp, Some(app_handle_for_mcp), mcp_port).await {
-                    eprintln!("[GraphFinder MCP Error] Falha ao rodar servidor HTTP/SSE na porta {}: {}", mcp_port, e);
+                    eprintln!("[GraphFinder MCP Error] Falha ao rodar servidor HTTP na porta {}: {}", mcp_port, e);
                 }
             });
 
+            // Inicializa modelo neural em background de forma assíncrona com notificações de progresso
+            let embeddings_for_init = Arc::clone(&embeddings);
             let manager_for_sync = Arc::clone(&manager);
-            let app_handle = app.handle().clone();
+            let app_handle_for_init = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let engine = manager_for_sync.active_engine().await;
-                if let Ok(count) = engine.sync_vault().await {
-                    println!("[GraphFinder Tauri] {} notas sincronizadas no cofre ativo.", count);
-                    let _ = app_handle.emit("vault-sync-complete", count);
+                if let Err(e) = embeddings_for_init.init_model(Some(app_handle_for_init.clone())).await {
+                    eprintln!("[GraphFinder Error] Falha ao carregar modelo neural: {}", e);
+                    let _ = app_handle_for_init.emit("engine-status", serde_json::json!({
+                        "status": "error",
+                        "message": format!("Erro ao carregar modelo neural: {}", e)
+                    }));
+                } else {
+                    let engine = manager_for_sync.active_engine().await;
+                    if let Ok(count) = engine.sync_vault().await {
+                        println!("[GraphFinder Tauri] {} notas sincronizadas no cofre ativo.", count);
+                        let _ = app_handle_for_init.emit("vault-sync-complete", count);
+                    }
                 }
             });
 
@@ -305,7 +323,8 @@ pub fn run() {
             list_projects,
             switch_project,
             create_project,
-            pick_directory
+            pick_directory,
+            get_engine_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

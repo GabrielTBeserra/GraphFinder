@@ -4,14 +4,42 @@ use fastembed::{
 };
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use tauri::Emitter;
 
 #[derive(Clone)]
 pub struct EmbeddingEngine {
-    model: Arc<Mutex<TextEmbedding>>,
+    model: Arc<Mutex<Option<TextEmbedding>>>,
+    status: Arc<Mutex<String>>,
 }
 
 impl EmbeddingEngine {
+    pub fn new_lazy() -> Self {
+        Self {
+            model: Arc::new(Mutex::new(None)),
+            status: Arc::new(Mutex::new("initializing".to_string())),
+        }
+    }
+
     pub fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let model = Self::load_model_internal()?;
+        Ok(Self {
+            model: Arc::new(Mutex::new(Some(model))),
+            status: Arc::new(Mutex::new("ready".to_string())),
+        })
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.model.lock().map(|m| m.is_some()).unwrap_or(false)
+    }
+
+    pub fn get_status(&self) -> String {
+        self.status
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_else(|_| "unknown".to_string())
+    }
+
+    pub fn load_model_internal() -> Result<TextEmbedding, Box<dyn std::error::Error + Send + Sync>> {
         let mut local_dir = None;
 
         // 1. Explicit env var
@@ -93,9 +121,64 @@ impl EmbeddingEngine {
             TextEmbedding::try_new(options)?
         };
 
-        Ok(Self {
-            model: Arc::new(Mutex::new(model)),
-        })
+        Ok(model)
+    }
+
+    pub async fn init_model(
+        &self,
+        app_handle: Option<tauri::AppHandle>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.is_ready() {
+            if let Some(app) = &app_handle {
+                let _ = app.emit(
+                    "engine-status",
+                    serde_json::json!({
+                        "status": "ready",
+                        "message": "Motor neural pronto!"
+                    }),
+                );
+            }
+            return Ok(());
+        }
+
+        if let Some(app) = &app_handle {
+            let _ = app.emit(
+                "engine-status",
+                serde_json::json!({
+                    "status": "loading",
+                    "message": "Carregando modelo de embeddings (all-MiniLM-L6-v2)..."
+                }),
+            );
+        }
+
+        let model_res = tokio::task::spawn_blocking(move || Self::load_model_internal()).await?;
+        let model = model_res?;
+
+        if let Ok(mut guard) = self.model.lock() {
+            *guard = Some(model);
+        }
+        if let Ok(mut st) = self.status.lock() {
+            *st = "ready".to_string();
+        }
+
+        if let Some(app) = &app_handle {
+            let _ = app.emit(
+                "engine-status",
+                serde_json::json!({
+                    "status": "ready",
+                    "message": "Motor neural pronto!"
+                }),
+            );
+        }
+
+        Ok(())
+    }
+
+    pub async fn ensure_initialized(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.is_ready() {
+            self.init_model(None).await?;
+        }
+        Ok(())
     }
 
     pub async fn embed_text(
@@ -113,10 +196,12 @@ impl EmbeddingEngine {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
+        self.ensure_initialized().await?;
         let model = Arc::clone(&self.model);
         tokio::task::spawn_blocking(move || {
             let guard = model.lock().map_err(|e| e.to_string())?;
-            let embeddings = guard.embed(texts, None)?;
+            let m = guard.as_ref().ok_or("Modelo neural não carregado")?;
+            let embeddings = m.embed(texts, None)?;
             Ok(embeddings)
         })
         .await?

@@ -328,3 +328,19 @@ export async function createProject(name: string, path?: string): Promise<Projec
   };
 }
 
+export interface EngineStatusInfo {
+  status: string;
+  is_ready: boolean;
+}
+
+export async function fetchEngineStatus(): Promise<EngineStatusInfo> {
+  if (isTauri) {
+    return await invoke<EngineStatusInfo>('get_engine_status');
+  }
+  return {
+    status: 'ready',
+    is_ready: true,
+  };
+}
+
+
