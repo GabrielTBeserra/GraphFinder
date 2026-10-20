@@ -224,8 +224,8 @@ async fn get_mcp_config(manager: State<'_, Arc<VaultManager>>) -> Result<McpConf
         r#"{{
   "mcpServers": {{
     "graphfinder": {{
-      "type": "sse",
-      "url": "http://127.0.0.1:{}/sse"
+      "type": "http",
+      "url": "http://127.0.0.1:{}/mcp"
     }}
   }}
 }}"#,
