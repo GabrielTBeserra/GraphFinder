@@ -54,28 +54,28 @@ Traditional RAG systems slice documents arbitrarily into fixed-length windows or
 
 ## Key Features
 
-### 1. Atomic Semantic Chunking
-* The Rust vector engine splits Markdown documents strictly by semantic headers (`##` and `###`).
-* Each section generates an independent embedding vector via **FastEmbed** (local ONNX runtime, zero cloud dependency, zero API keys required).
-* SQLite in WAL mode stores and retrieves chunks and relational metadata concurrently with sub-millisecond response times.
+### 1. Hybrid Search (Dense Vectors + BM25 FTS5 via RRF)
+* Slices Markdown notes strictly by CommonMark AST headers (`##` and `###`), windowing oversized sections at 320 tokens.
+* Combines FastEmbed ONNX dense vectors (offline, 384 dimensions) and SQLite FTS5 full-text keyword indexing using Reciprocal Rank Fusion ($k=60$).
+* Zero cloud dependencies, zero API keys, zero data leaves your local machine.
 
 ### 2. Interactive 2D Knowledge Graph
 * Clean canvas rendering powered by force-directed physics (`force-graph`).
 * Real-time topological highlighting of 1-hop and 2-hop neighborhoods.
 * Automatic color clustering driven by document hashtag taxonomies (`#architecture`, `#sqlite`, `#mcp`).
 
-### 3. Native MCP Server (`--mcp`)
-* The desktop executable doubles as a native Model Context Protocol server over `stdio`.
-* Provides 8 ready-to-use tools for clients such as Claude Desktop, Cursor, Gemini Antigravity, Windsurf, and Zed.
+### 3. Native Dual-Mode MCP Server
+* Embedded HTTP/SSE server on `http://127.0.0.1:45123/mcp` and `http://127.0.0.1:45123/sse` protected by DNS rebinding defense, Origin validation, and strict CSP.
+* Standalone Headless Stdio CLI mode via `GraphFinder.exe --mcp` for CLI and terminal agents (Claude Desktop, Cursor, Antigravity).
+* Comprehensive 15-tool MCP suite for autonomous note lifecycle, deep linking, and vault integrity inspection.
 
-### 4. Custom Vaults & Project Isolation
-* Save vaults anywhere on your computer (custom directory picker) or in isolated project folders (`./vaults/<project_id>`).
-* Zero cross-contamination between clients, research topics, or knowledge bases.
+### 4. Background File Watcher & Instant Sync
+* Automatic directory monitoring with debounce (500ms) via `notify-debouncer-mini`.
+* Notes edited or created externally in Obsidian, VS Code, or Neovim are indexed and reflected on the graph in real time.
 
-### 5. Local-First & Zero Vendor Lock-in
-* Your files stay in standard `.md` format directly on your filesystem.
-* 100% open plain Markdown — compatible with any text editor or viewer in the ecosystem.
-* Zero data transmitted to third-party cloud servers.
+### 5. Multi-Vault Project Isolation & Refactoring
+* Switch or create isolated vaults (`./vaults/<project_id>`) with dedicated vector indices.
+* Vault-wide wikilink refactoring: renaming a note automatically updates all incoming `[[Old Title]]` wikilinks across every document in the vault.
 
 ---
 
@@ -88,26 +88,33 @@ The Model Context Protocol (MCP) enables AI agents to query and curate your know
              |
              v
    1. search_semantic(query)
-      +--> Returns top atomic sub-sections (~50 tokens each).
+      +--> Returns top atomic sub-sections (~50 tokens each) with [[Note#Section]].
              |
-             +--> Sufficient detail? ---> Responds citing [[Note#Section]].
+             +--> Need specific section? ---> read_section(target, section)
              |
              +--> Needs note overview? ---> get_compressed_context(note_id)
                                             (Executive summary + section token map).
 ```
 
-### Integrated Tools
+### Integrated Tools (15 Tools)
 
 | Tool | Description | Key Parameters | Token Economy |
 | :--- | :--- | :--- | :--- |
-| `search_semantic` | Vector similarity search across chunked headers | `query`, `limit`, `format` | **~90%** savings vs reading full notes |
-| `get_compressed_context` | Executive summary, backlinks, and section token map | `target` (ID or title) | Full note mapped in **< 100 tokens** |
+| `search_semantic` | Hybrid Dense Vector + BM25 FTS5 search with RRF | `query`, `limit`, `format` | **~90%** savings vs reading full notes |
+| `read_section` | Reads a single atomic subsection by heading or deep link | `target`, `section` | Maximum surgical token conservation |
+| `get_compressed_context` | Executive summary, backlinks, and section token map | `target` (ID or title) | Full note mapped in **< 80 tokens** |
 | `suggest_links` | Analyzes draft text and recommends conceptual wikilinks | `text`, `threshold` | Prevents orphan notes in the graph |
-| `store_context` | Writes or updates Markdown note with immediate vectorization | `title`, `content`, `tags`, `links` | Persistent local memory |
+| `store_context` | Writes or updates Markdown note with AST vectorization | `title`, `content`, `tags`, `links` | Persistent local memory |
+| `rename_note` | Renames note and refactors all wikilinks across vault | `old_title`, `new_title` | Prevents broken graph edges |
+| `delete_note` | Excludes note file and cleans SQLite vectors | `target` | Safe note removal |
+| `get_vault_stats` | Inspects note count, chunks, links, tags, and tokens | `project` | Graph health monitoring |
 | `get_graph_neighborhood` | Returns connected nodes within 1 or 2 hops | `target`, `depth` | Fast topological graph navigation |
 | `link_notes` | Creates an explicit bidirectional wikilink between notes | `from_note`, `to_note` | Direct graph relationship creation |
 | `list_recent_notes` | Lists notes with single-line summaries and token counts | `limit` | Initial vault mapping |
-| `create_project` | Creates a new vault at any path on disk | `name`, `path` | Dynamic multi-vault provisioning |
+| `sync_vault` | Hash-based incremental sync between disk and SQLite | `project` | Fast $O(1)$ re-indexing |
+| `list_projects` | Lists all configured isolated knowledge vaults | - | Multi-project discovery |
+| `create_project` | Creates a new isolated vault at any path on disk | `name`, `path` | Dynamic multi-vault provisioning |
+| `switch_project` | Switches the active default vault | `project_id` | Multi-vault switching |
 
 > All tools accept the optional `project: "<id>"` parameter to target specific vaults without context contamination.
 
@@ -115,10 +122,10 @@ The Model Context Protocol (MCP) enables AI agents to query and curate your know
 
 ### Agent Configuration
 
-#### Recommended: Local HTTP/SSE Server (GraphFinder Desktop App Open)
-When GraphFinder is running, an embedded MCP HTTP/SSE server is automatically active at `http://127.0.0.1:45123/sse`. This mode shares memory caches, prevents SQLite concurrency locks, and provides real-time graph UI updates!
+#### Recommended: Local HTTP/SSE Server (Desktop App Running)
+When GraphFinder is running, an embedded MCP server is active at `http://127.0.0.1:45123/sse` and `http://127.0.0.1:45123/mcp`.
 
-Add to your `mcp_config.json` (Cursor, Claude Desktop, Antigravity, Windsurf):
+Add to your `mcp_config.json`:
 ```json
 {
   "mcpServers": {
@@ -130,10 +137,8 @@ Add to your `mcp_config.json` (Cursor, Claude Desktop, Antigravity, Windsurf):
 }
 ```
 
-*Direct HTTP JSON-RPC endpoint is also available at `http://127.0.0.1:45123/mcp`.*
-
-#### Fallback: Headless Stdio CLI Mode (`--mcp`)
-If you want agents to query or index notes without opening the desktop application GUI:
+#### Headless Stdio CLI Mode (`--mcp`)
+If you want agents to query and curate notes without opening the desktop application GUI:
 ```json
 {
   "mcpServers": {

@@ -10,6 +10,8 @@ pub struct NoteRecord {
     pub title: String,
     pub summary: String,
     pub content: String,
+    #[serde(default)]
+    pub content_hash: String,
     pub updated_at: i64,
     pub tags: Vec<String>,
     pub outgoing_links: Vec<String>,
@@ -103,6 +105,15 @@ pub struct Neighborhood {
     pub links: Vec<GraphLink>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultStats {
+    pub total_notes: usize,
+    pub total_chunks: usize,
+    pub total_links: usize,
+    pub total_tags: usize,
+    pub total_tokens: usize,
+}
+
 pub struct DbManager {
     conn: Connection,
 }
@@ -128,6 +139,11 @@ impl DbManager {
     #[cfg(test)]
     pub fn memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            r#"
+            PRAGMA foreign_keys = ON;
+            "#,
+        )?;
         let manager = Self { conn };
         manager.init_schema()?;
         Ok(manager)
@@ -140,6 +156,25 @@ impl DbManager {
         for item in rows {
             let (id, mtime) = item?;
             map.insert(id, mtime);
+        }
+        Ok(map)
+    }
+
+    pub fn get_all_notes_meta(&self) -> Result<HashMap<String, (i64, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, updated_at, content_hash FROM notes")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2).unwrap_or_default(),
+            ))
+        })?;
+        let mut map = HashMap::new();
+        for item in rows {
+            let (id, mtime, hash) = item?;
+            map.insert(id, (mtime, hash));
         }
         Ok(map)
     }
@@ -157,12 +192,18 @@ impl DbManager {
     fn init_schema(&self) -> Result<()> {
         self.conn.execute_batch(
             r#"
+            CREATE TABLE IF NOT EXISTS meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS notes (
                 id TEXT PRIMARY KEY,
                 path TEXT UNIQUE NOT NULL,
                 title TEXT NOT NULL,
                 summary TEXT NOT NULL DEFAULT '',
                 content TEXT NOT NULL,
+                content_hash TEXT NOT NULL DEFAULT '',
                 updated_at INTEGER NOT NULL
             );
 
@@ -197,7 +238,17 @@ impl DbManager {
             CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
                 id UNINDEXED,
                 title,
-                content
+                content,
+                tokenize='unicode61 remove_diacritics 2'
+            );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                chunk_id UNINDEXED,
+                note_id UNINDEXED,
+                note_title,
+                heading,
+                content,
+                tokenize='unicode61 remove_diacritics 2'
             );
 
             CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title);
@@ -207,9 +258,13 @@ impl DbManager {
             "#,
         )?;
 
-        // Safe migration for summary column
+        // Safe migrations for legacy databases
         let _ = self.conn.execute(
             "ALTER TABLE notes ADD COLUMN summary TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE notes ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
             [],
         );
 
@@ -224,6 +279,7 @@ impl DbManager {
         title: &str,
         summary: &str,
         content: &str,
+        content_hash: &str,
         updated_at: i64,
         links: &[String],
         tags: &[String],
@@ -232,19 +288,20 @@ impl DbManager {
     ) -> Result<()> {
         let tx = self.conn.transaction()?;
 
-        // 1. Upsert note with summary
+        // 1. Upsert note
         tx.execute(
             r#"
-            INSERT INTO notes (id, path, title, summary, content, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            INSERT INTO notes (id, path, title, summary, content, content_hash, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             ON CONFLICT(id) DO UPDATE SET
                 path = excluded.path,
                 title = excluded.title,
                 summary = excluded.summary,
                 content = excluded.content,
+                content_hash = excluded.content_hash,
                 updated_at = excluded.updated_at
             "#,
-            params![id, path, title, summary, content, updated_at],
+            params![id, path, title, summary, content, content_hash, updated_at],
         )?;
 
         // 2. Refresh links
@@ -280,6 +337,8 @@ impl DbManager {
 
         // 5. Replace semantic chunks
         tx.execute("DELETE FROM note_chunks WHERE note_id = ?1", params![id])?;
+        tx.execute("DELETE FROM chunks_fts WHERE note_id = ?1", params![id])?;
+
         for (chunk, vec) in chunks {
             let chunk_id = format!("{}#chunk-{}", id, chunk.chunk_index);
             let bytes = f32_slice_to_bytes(vec);
@@ -298,9 +357,24 @@ impl DbManager {
                     bytes
                 ],
             )?;
+
+            // Index in FTS5 for fast hybrid search
+            tx.execute(
+                r#"
+                INSERT INTO chunks_fts (chunk_id, note_id, note_title, heading, content)
+                VALUES (?1, ?2, ?3, ?4, ?5)
+                "#,
+                params![
+                    chunk_id,
+                    id,
+                    title,
+                    chunk.heading.as_deref().unwrap_or(""),
+                    chunk.content
+                ],
+            )?;
         }
 
-        // 6. Update FTS
+        // 6. Update document-level FTS
         tx.execute("DELETE FROM notes_fts WHERE id = ?1", params![id])?;
         tx.execute(
             "INSERT INTO notes_fts (id, title, content) VALUES (?1, ?2, ?3)",
@@ -315,6 +389,7 @@ impl DbManager {
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM notes WHERE id = ?1", params![id])?;
         tx.execute("DELETE FROM note_chunks WHERE note_id = ?1", params![id])?;
+        tx.execute("DELETE FROM chunks_fts WHERE note_id = ?1", params![id])?;
         tx.execute("DELETE FROM links WHERE source_id = ?1", params![id])?;
         tx.execute("DELETE FROM tags WHERE note_id = ?1", params![id])?;
         tx.execute("DELETE FROM embeddings WHERE note_id = ?1", params![id])?;
@@ -323,9 +398,56 @@ impl DbManager {
         Ok(())
     }
 
+    pub fn rename_note(
+        &mut self,
+        old_id: &str,
+        new_id: &str,
+        new_path: &str,
+        new_title: &str,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+
+        tx.execute(
+            r#"
+            UPDATE notes 
+            SET id = ?1, path = ?2, title = ?3
+            WHERE id = ?4
+            "#,
+            params![new_id, new_path, new_title, old_id],
+        )?;
+
+        tx.execute(
+            "UPDATE note_chunks SET note_id = ?1 WHERE note_id = ?2",
+            params![new_id, old_id],
+        )?;
+        tx.execute(
+            "UPDATE chunks_fts SET note_id = ?1, note_title = ?2 WHERE note_id = ?3",
+            params![new_id, new_title, old_id],
+        )?;
+        tx.execute(
+            "UPDATE links SET source_id = ?1 WHERE source_id = ?2",
+            params![new_id, old_id],
+        )?;
+        tx.execute(
+            "UPDATE tags SET note_id = ?1 WHERE note_id = ?2",
+            params![new_id, old_id],
+        )?;
+        tx.execute(
+            "UPDATE embeddings SET note_id = ?1 WHERE note_id = ?2",
+            params![new_id, old_id],
+        )?;
+        tx.execute(
+            "UPDATE notes_fts SET id = ?1, title = ?2 WHERE id = ?3",
+            params![new_id, new_title, old_id],
+        )?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn get_note_by_id(&self, id: &str) -> Result<Option<NoteRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, path, title, summary, content, updated_at FROM notes WHERE id = ?1",
+            "SELECT id, path, title, summary, content, content_hash, updated_at FROM notes WHERE id = ?1",
         )?;
         let mut rows = stmt.query(params![id])?;
         if let Some(row) = rows.next()? {
@@ -334,7 +456,8 @@ impl DbManager {
             let title: String = row.get(2)?;
             let summary: String = row.get(3)?;
             let content: String = row.get(4)?;
-            let updated_at: i64 = row.get(5)?;
+            let content_hash: String = row.get(5).unwrap_or_default();
+            let updated_at: i64 = row.get(6)?;
 
             let tags = self.get_tags_for_note(&id)?;
             let outgoing_links = self.get_outgoing_links_for_note(&id)?;
@@ -346,6 +469,7 @@ impl DbManager {
                 title,
                 summary,
                 content,
+                content_hash,
                 updated_at,
                 tags,
                 outgoing_links,
@@ -370,7 +494,6 @@ impl DbManager {
     }
 
     pub fn get_all_notes(&self) -> Result<Vec<NoteSummary>> {
-        // 1. Fetch all tags in a single query to eliminate N+1 roundtrips
         let mut tag_stmt = self.conn.prepare("SELECT note_id, tag FROM tags ORDER BY tag ASC")?;
         let tag_rows = tag_stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -381,7 +504,6 @@ impl DbManager {
             tags_by_note.entry(note_id).or_default().push(tag);
         }
 
-        // 2. Fetch all notes in a single query
         let mut stmt = self.conn.prepare(
             "SELECT id, path, title, summary, updated_at FROM notes ORDER BY updated_at DESC",
         )?;
@@ -409,6 +531,36 @@ impl DbManager {
             });
         }
         Ok(results)
+    }
+
+    pub fn get_vault_stats(&self) -> Result<VaultStats> {
+        let total_notes: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))?;
+        let total_chunks: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM note_chunks", [], |r| r.get(0))?;
+        let total_links: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM links", [], |r| r.get(0))?;
+        let total_tags: usize = self
+            .conn
+            .query_row("SELECT COUNT(DISTINCT tag) FROM tags", [], |r| r.get(0))?;
+        let total_tokens: usize = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(SUM(token_estimate), 0) FROM note_chunks",
+                [],
+                |r| r.get(0),
+            )?;
+
+        Ok(VaultStats {
+            total_notes,
+            total_chunks,
+            total_links,
+            total_tags,
+            total_tokens,
+        })
     }
 
     pub fn get_graph_data(&self) -> Result<GraphData> {
@@ -464,7 +616,6 @@ impl DbManager {
             });
         }
 
-        // Pre-fetch all tags in a single query for graph nodes
         let mut tag_stmt = self.conn.prepare("SELECT note_id, tag FROM tags ORDER BY tag ASC")?;
         let tag_rows = tag_stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -496,7 +647,7 @@ impl DbManager {
                 nodes.push(GraphNode {
                     id: link.target.clone(),
                     title: raw_title.to_string(),
-                    tags: vec!["inexistente".to_string()],
+                    tags: vec!["unresolved".to_string()],
                     degree,
                 });
             }
@@ -561,96 +712,152 @@ impl DbManager {
         })
     }
 
-    /// Dense Section Search: returns exact chunks/sections matching the query with token counts
-    pub fn search_chunks(&self, query_vector: &[f32], limit: usize) -> Result<Vec<ChunkHit>> {
-        let mut q_norm_sq = 0.0f32;
-        for &q in query_vector {
-            q_norm_sq += q * q;
-        }
-        let query_is_unit = (q_norm_sq - 1.0).abs() < 1e-3;
+    /// Hybrid Search: combines dense vector cosine similarity with BM25 FTS5 using Reciprocal Rank Fusion (RRF)
+    pub fn search_chunks_hybrid(
+        &self,
+        query_text: &str,
+        query_vector: &[f32],
+        limit: usize,
+    ) -> Result<Vec<ChunkHit>> {
+        let fts_query = sanitize_fts5_query(query_text);
+        let has_fts = !fts_query.is_empty();
+        let has_vec = !query_vector.is_empty() && query_vector.iter().any(|&v| v.abs() > 1e-6);
 
-        // Phase 1: Zero-allocation SIMD-friendly vector scan directly on SQLite blob memory
-        let mut stmt = self.conn.prepare(
+        // 1. Vector Candidate Collection
+        let mut vec_ranks: HashMap<String, usize> = HashMap::new();
+        let mut vec_scores: HashMap<String, f32> = HashMap::new();
+        if has_vec {
+            let mut q_norm_sq = 0.0f32;
+            for &q in query_vector {
+                q_norm_sq += q * q;
+            }
+            let query_is_unit = (q_norm_sq - 1.0).abs() < 1e-3;
+
+            let mut stmt = self.conn.prepare("SELECT c.id, c.vector FROM note_chunks c")?;
+            let rows = stmt.query_map([], |row| {
+                let id: String = row.get(0)?;
+                let blob_ref = row.get_ref(1)?;
+                let blob = blob_ref.as_blob()?;
+                let score = dot_product_bytes(query_vector, blob, query_is_unit);
+                Ok((id, score))
+            })?;
+
+            let mut scored: Vec<(String, f32)> = Vec::new();
+            for r in rows {
+                scored.push(r?);
+            }
+            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            scored.truncate(50);
+
+            for (rank, (id, score)) in scored.into_iter().enumerate() {
+                vec_scores.insert(id.clone(), score);
+                vec_ranks.insert(id, rank + 1);
+            }
+        }
+
+        // 2. FTS5 Candidate Collection
+        let mut fts_ranks: HashMap<String, usize> = HashMap::new();
+        if has_fts {
+            let fts_stmt = self.conn.prepare(
+                "SELECT chunk_id, rank FROM chunks_fts WHERE chunks_fts MATCH ?1 ORDER BY rank LIMIT 50",
+            );
+            if let Ok(mut stmt) = fts_stmt {
+                if let Ok(rows) = stmt.query_map(params![fts_query], |row| {
+                    Ok(row.get::<_, String>(0)?)
+                }) {
+                    for (rank, r) in rows.flatten().enumerate() {
+                        fts_ranks.insert(r, rank + 1);
+                    }
+                }
+            }
+        }
+
+        // 3. Reciprocal Rank Fusion (RRF)
+        let mut all_chunk_ids: HashSet<String> = HashSet::new();
+        all_chunk_ids.extend(vec_ranks.keys().cloned());
+        all_chunk_ids.extend(fts_ranks.keys().cloned());
+
+        if all_chunk_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let k = 60.0f32;
+        let mut rrf_scored: Vec<(String, f32)> = all_chunk_ids
+            .into_iter()
+            .map(|id| {
+                let mut rrf = 0.0f32;
+                if let Some(&vr) = vec_ranks.get(&id) {
+                    rrf += 1.0 / (k + vr as f32);
+                }
+                if let Some(&fr) = fts_ranks.get(&id) {
+                    rrf += 1.0 / (k + fr as f32);
+                }
+                (id, rrf)
+            })
+            .collect();
+
+        rrf_scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        rrf_scored.truncate(limit);
+
+        let max_rrf = (1.0 / 61.0) + (1.0 / 61.0);
+
+        // 4. Fetch full content and metadata for winning chunks
+        let mut chunk_stmt = self.conn.prepare(
             r#"
-            SELECT c.id, c.note_id, n.title, c.heading, c.token_estimate, c.vector
+            SELECT c.id, c.note_id, n.title, c.heading, c.content, c.token_estimate
             FROM note_chunks c
             JOIN notes n ON n.id = c.note_id
+            WHERE c.id = ?1
             "#,
         )?;
 
-        struct ChunkMeta {
-            chunk_id: String,
-            note_id: String,
-            note_title: String,
-            heading: Option<String>,
-            token_estimate: usize,
-            score: f32,
-        }
+        let mut hits = Vec::with_capacity(rrf_scored.len());
+        for (chunk_id, rrf_score) in rrf_scored {
+            if let Ok(hit) = chunk_stmt.query_row(params![chunk_id], |row| {
+                let id: String = row.get(0)?;
+                let note_id: String = row.get(1)?;
+                let note_title: String = row.get(2)?;
+                let heading: Option<String> = row.get(3)?;
+                let content: String = row.get(4)?;
+                let token_estimate = row.get::<_, i64>(5)? as usize;
 
-        let rows = stmt.query_map([], |row| {
-            let chunk_id: String = row.get(0)?;
-            let note_id: String = row.get(1)?;
-            let note_title: String = row.get(2)?;
-            let heading: Option<String> = row.get(3)?;
-            let token_estimate: usize = row.get::<_, i64>(4)? as usize;
-            let blob_ref = row.get_ref(5)?;
-            let blob = blob_ref.as_blob()?;
-            let score = dot_product_bytes(query_vector, blob, query_is_unit);
+                let deep_link = match &heading {
+                    Some(h) if !h.trim().is_empty() => format!("[[{}#{}]]", note_title, h),
+                    _ => format!("[[{}]]", note_title),
+                };
 
-            Ok(ChunkMeta {
-                chunk_id,
-                note_id,
-                note_title,
-                heading,
-                token_estimate,
-                score,
-            })
-        })?;
+                let raw_vec_score = vec_scores.get(&id).copied().unwrap_or(0.0);
+                let normalized_rrf = (rrf_score / max_rrf).clamp(0.0, 1.0);
+                let display_score = if raw_vec_score > 0.0 {
+                    (raw_vec_score * 0.6 + normalized_rrf * 0.4).clamp(0.0, 1.0)
+                } else {
+                    normalized_rrf
+                };
 
-        let mut scored: Vec<ChunkMeta> = Vec::new();
-        for r in rows {
-            scored.push(r?);
-        }
-
-        scored.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        scored.truncate(limit);
-
-        // Phase 2: Fetch markdown content ONLY for the top 'limit' matches
-        let mut content_stmt = self
-            .conn
-            .prepare("SELECT content FROM note_chunks WHERE id = ?1")?;
-
-        let mut hits = Vec::with_capacity(scored.len());
-        for meta in scored {
-            let content: String = content_stmt
-                .query_row(params![meta.chunk_id], |row| row.get(0))
-                .unwrap_or_default();
-
-            let deep_link = match &meta.heading {
-                Some(h) if !h.trim().is_empty() => format!("[[{}#{}]]", meta.note_title, h),
-                _ => format!("[[{}]]", meta.note_title),
-            };
-
-            hits.push(ChunkHit {
-                chunk_id: meta.chunk_id,
-                note_id: meta.note_id,
-                note_title: meta.note_title,
-                heading: meta.heading,
-                deep_link,
-                content,
-                token_estimate: meta.token_estimate,
-                score: meta.score,
-            });
+                Ok(ChunkHit {
+                    chunk_id: id,
+                    note_id,
+                    note_title,
+                    heading,
+                    deep_link,
+                    content,
+                    token_estimate,
+                    score: display_score,
+                })
+            }) {
+                hits.push(hit);
+            }
         }
 
         Ok(hits)
     }
 
-    /// Auto-Linker: Suggests notes and sections that are semantically relevant to a given draft text
+    /// Dense Section Search
+    pub fn search_chunks(&self, query_vector: &[f32], limit: usize) -> Result<Vec<ChunkHit>> {
+        self.search_chunks_hybrid("", query_vector, limit)
+    }
+
+    /// Auto-Linker: Suggests notes and sections that are semantically relevant to a draft text
     pub fn suggest_links(
         &self,
         text_vector: &[f32],
@@ -658,7 +865,7 @@ impl DbManager {
         threshold: f32,
         limit: usize,
     ) -> Result<Vec<LinkSuggestion>> {
-        let hits = self.search_chunks(text_vector, limit * 2)?;
+        let hits = self.search_chunks(text_vector, limit * 3)?;
         let mut suggestions = Vec::new();
         let mut seen_notes = HashSet::new();
 
@@ -740,6 +947,67 @@ impl DbManager {
             sections,
         }))
     }
+
+    /// Retrieves an exact atomic section chunk from a note by heading or deep link fragment
+    pub fn get_section(
+        &self,
+        note_id_or_title: &str,
+        section_heading: &str,
+    ) -> Result<Option<ChunkHit>> {
+        let note = match self.get_note_by_id(note_id_or_title)? {
+            Some(n) => n,
+            None => match self.get_note_by_title(note_id_or_title)? {
+                Some(n) => n,
+                None => return Ok(None),
+            },
+        };
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, heading, content, token_estimate FROM note_chunks WHERE note_id = ?1 ORDER BY chunk_index ASC",
+        )?;
+        let rows = stmt.query_map(params![note.id], |row| {
+            let id: String = row.get(0)?;
+            let heading: Option<String> = row.get(1)?;
+            let content: String = row.get(2)?;
+            let token_estimate: usize = row.get::<_, i64>(3)? as usize;
+            Ok((id, heading, content, token_estimate))
+        })?;
+
+        let clean_section = section_heading.trim().trim_start_matches('#').trim();
+        let target_heading_lower = clean_section.to_lowercase();
+
+        for r in rows {
+            let (chunk_id, heading_opt, content, token_estimate) = r?;
+            let matches = if let Some(ref h) = heading_opt {
+                let h_lower = h.to_lowercase();
+                h_lower == target_heading_lower
+                    || h_lower.contains(&target_heading_lower)
+                    || target_heading_lower.contains(&h_lower)
+            } else {
+                clean_section.eq_ignore_ascii_case("geral") || clean_section.is_empty()
+            };
+
+            if matches {
+                let deep_link = if let Some(ref h) = heading_opt {
+                    format!("[[{}#{}]]", note.title, h)
+                } else {
+                    format!("[[{}]]", note.title)
+                };
+                return Ok(Some(ChunkHit {
+                    chunk_id,
+                    note_id: note.id,
+                    note_title: note.title,
+                    heading: heading_opt,
+                    deep_link,
+                    content,
+                    token_estimate,
+                    score: 1.0,
+                }));
+            }
+        }
+        Ok(None)
+    }
+
 
     pub fn semantic_search(&self, query_vector: &[f32], limit: usize) -> Result<Vec<SearchHit>> {
         let mut q_norm_sq = 0.0f32;
@@ -831,6 +1099,18 @@ impl DbManager {
     }
 }
 
+pub fn sanitize_fts5_query(raw: &str) -> String {
+    let tokens: Vec<String> = raw
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|t| !t.trim().is_empty())
+        .map(|t| format!("\"{}\"*", t.trim()))
+        .collect();
+    if tokens.is_empty() {
+        return String::new();
+    }
+    tokens.join(" ")
+}
+
 fn f32_slice_to_bytes(slice: &[f32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(slice.len() * 4);
     for &f in slice {
@@ -855,7 +1135,6 @@ pub fn dot_product_bytes(query: &[f32], bytes: &[u8], query_is_unit: bool) -> f3
         norm_b += val * val;
     }
 
-    // Fast-path for L2 unit-normalized vectors (standard in all-MiniLM-L6-v2)
     if query_is_unit && (norm_b - 1.0).abs() < 1e-3 {
         return dot;
     }
@@ -866,14 +1145,6 @@ pub fn dot_product_bytes(query: &[f32], bytes: &[u8], query_is_unit: bool) -> f3
     } else {
         dot / denom
     }
-}
-
-#[allow(dead_code)]
-fn bytes_to_f32_vec(bytes: &[u8]) -> Vec<f32> {
-    bytes
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
-        .collect()
 }
 
 fn make_snippet(content: &str, max_len: usize) -> String {
@@ -888,5 +1159,78 @@ fn make_snippet(content: &str, max_len: usize) -> String {
         let mut s: String = plain.chars().take(max_len).collect();
         s.push_str("...");
         s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_db_memory_crud_and_fts() {
+        let mut db = DbManager::memory().expect("in-memory db");
+
+        let chunk1 = ParsedChunk {
+            chunk_index: 0,
+            heading: Some("Arquitetura SQLite".to_string()),
+            content: "O SQLite em modo WAL garante concorrência sem bloqueio.".to_string(),
+            token_estimate: 15,
+            links: vec!["Armazenamento".to_string()],
+            tags: vec!["sqlite".to_string()],
+        };
+
+        let vec1 = vec![1.0f32, 0.0, 0.0];
+        let chunks = vec![(chunk1, vec1.clone())];
+
+        db.upsert_note(
+            "arq",
+            "arq.md",
+            "Arquitetura",
+            "Resumo de arquitetura",
+            "Conteúdo completo sobre SQLite WAL.",
+            "hash123",
+            1000,
+            &["Armazenamento".to_string()],
+            &["sqlite".to_string()],
+            Some(&vec1),
+            &chunks,
+        )
+        .expect("upsert ok");
+
+        let note = db.get_note_by_id("arq").expect("get note").expect("found");
+        assert_eq!(note.title, "Arquitetura");
+        assert_eq!(note.content_hash, "hash123");
+        assert_eq!(note.tags, vec!["sqlite"]);
+
+        // Test Hybrid FTS Search
+        let hits = db
+            .search_chunks_hybrid("SQLite WAL", &vec1, 5)
+            .expect("search hybrid");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].heading.as_deref(), Some("Arquitetura SQLite"));
+
+        // Test Stats
+        let stats = db.get_vault_stats().expect("stats");
+        assert_eq!(stats.total_notes, 1);
+        assert_eq!(stats.total_chunks, 1);
+
+        // Test Rename
+        db.rename_note("arq", "arq-nova", "arq-nova.md", "Arquitetura Nova")
+            .expect("rename ok");
+        assert!(db.get_note_by_id("arq").expect("query").is_none());
+        assert!(db.get_note_by_id("arq-nova").expect("query").is_some());
+
+        // Test Delete
+        db.delete_note("arq-nova").expect("delete ok");
+        assert!(db.get_note_by_id("arq-nova").expect("query").is_none());
+    }
+
+    #[test]
+    fn test_sanitize_fts5_query() {
+        assert_eq!(
+            sanitize_fts5_query("sqlite, wal! test-term"),
+            "\"sqlite\"* \"wal\"* \"test\"* \"term\"*"
+        );
+        assert_eq!(sanitize_fts5_query("   "), "");
     }
 }

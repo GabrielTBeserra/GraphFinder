@@ -33,8 +33,10 @@ walkdir = "2"
 log = "0.4"
 rfd = "0.15"
 axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "json", "query"] }
-tower-http = { version = "0.5", features = ["cors"] }
 uuid = { version = "1", features = ["v4"] }
+pulldown-cmark = { version = "0.13", default-features = false }
+notify-debouncer-mini = "0.6"
+dirs = "6"
 tokio-stream = { version = "0.1", features = ["sync"] }
 rmcp = { version = "3.5.1", features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"] }
 schemars = "1"

@@ -6,7 +6,7 @@ pub mod vault;
 
 pub use db::{
     ChunkHit, CompressedContext, GraphData, GraphLink, GraphNode, LinkSuggestion, Neighborhood,
-    NoteRecord, NoteSummary, SearchHit, SectionSummary,
+    NoteRecord, NoteSummary, SearchHit, SectionSummary, VaultStats,
 };
 pub use embeddings::EmbeddingEngine;
 pub use project::{ProjectInfo, VaultManager};

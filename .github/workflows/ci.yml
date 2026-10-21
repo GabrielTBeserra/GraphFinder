@@ -48,3 +48,7 @@ jobs:
 
       - name: Cargo Check
         run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Cargo Test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --verbose
+

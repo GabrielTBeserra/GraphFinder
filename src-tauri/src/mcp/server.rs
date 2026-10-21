@@ -1,6 +1,7 @@
 use axum::{
-    extract::State,
-    http::{header, HeaderMap},
+    extract::{Request, State},
+    http::{header, HeaderMap, Method, StatusCode},
+    middleware::{self, Next},
     response::{Html, IntoResponse, Json, Response},
     routing::get,
     Router,
@@ -12,7 +13,6 @@ use rmcp::transport::streamable_http_server::{
 use serde_json::json;
 use std::{net::SocketAddr, sync::Arc};
 use tauri::AppHandle;
-use tower_http::cors::CorsLayer;
 
 use super::GraphFinderMcpServer;
 use crate::engine::VaultManager;
@@ -22,6 +22,65 @@ pub struct ServerState {
     pub manager: Arc<VaultManager>,
     pub app_handle: Option<AppHandle>,
     pub port: u16,
+}
+
+async fn security_middleware(req: Request, next: Next) -> Result<Response, StatusCode> {
+    // 1. Host validation against DNS rebinding
+    if let Some(host) = req.headers().get(header::HOST).and_then(|h| h.to_str().ok()) {
+        let clean_host = host.split(':').next().unwrap_or(host).trim();
+        if clean_host != "localhost" && clean_host != "127.0.0.1" && clean_host != "[::1]" {
+            eprintln!("[GraphFinder Security] Rejeitando requisição com Host não-local: {}", host);
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    // 2. Origin validation to block malicious third-party websites in the browser
+    let origin_header = req.headers().get(header::ORIGIN).and_then(|o| o.to_str().ok());
+    let mut allowed_origin = None;
+    if let Some(origin) = origin_header {
+        let is_allowed = origin.starts_with("http://localhost")
+            || origin.starts_with("http://127.0.0.1")
+            || origin.starts_with("https://localhost")
+            || origin.starts_with("https://127.0.0.1")
+            || origin.starts_with("tauri://")
+            || origin.starts_with("vscode-webview://");
+        if !is_allowed {
+            eprintln!("[GraphFinder Security] Rejeitando requisição cross-origin não autorizada de Origin: {}", origin);
+            return Err(StatusCode::FORBIDDEN);
+        }
+        allowed_origin = Some(origin.to_string());
+    }
+
+    // Handle OPTIONS preflight for allowed local origins
+    if req.method() == Method::OPTIONS {
+        let mut res = StatusCode::NO_CONTENT.into_response();
+        let headers = res.headers_mut();
+        if let Some(ref origin) = allowed_origin {
+            if let Ok(val) = origin.parse() {
+                headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, val);
+            }
+        }
+        headers.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            "GET, POST, OPTIONS".parse().unwrap(),
+        );
+        headers.insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            "Content-Type, Authorization, Accept".parse().unwrap(),
+        );
+        return Ok(res);
+    }
+
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
+    headers.insert(header::X_FRAME_OPTIONS, "DENY".parse().unwrap());
+    if let Some(ref origin) = allowed_origin {
+        if let Ok(val) = origin.parse() {
+            headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, val);
+        }
+    }
+    Ok(response)
 }
 
 async fn info_handler(
@@ -287,7 +346,7 @@ pub async fn start_http_mcp_server(
         .route("/health", get(info_handler))
         .route("/mcp", get(info_handler).post_service(mcp_service))
         .route("/sse", get(info_handler).post_service(sse_service))
-        .layer(CorsLayer::permissive())
+        .layer(middleware::from_fn(security_middleware))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));

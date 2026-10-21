@@ -38,28 +38,33 @@ export const GraphView: React.FC<GraphViewProps> = ({
   // Glowing animation ref
   const glowingStateRef = useRef<{ id: string; startTime: number; duration: number } | null>(null);
 
+  // Graph data ref to avoid re-triggering effects when links change
+  const graphDataRef = useRef<GraphData>(graphData);
+  useEffect(() => {
+    graphDataRef.current = graphData;
+  }, [graphData]);
+
+  const lastRenderedKeyRef = useRef<string>('');
+
   useEffect(() => {
     onSelectNodeRef.current = onSelectNode;
   }, [onSelectNode]);
 
-  // Recompute connected node IDs based on active target (hover or selected)
-  const recomputeConnected = useCallback(
-    (targetId: string | null) => {
-      if (!targetId) {
-        connectedNodeIdsRef.current = new Set();
-        return;
-      }
-      const set = new Set<string>([targetId]);
-      for (const link of graphData.links) {
-        const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source;
-        const targetLink = typeof link.target === 'object' ? (link.target as any).id : link.target;
-        if (sourceId === targetId) set.add(targetLink);
-        if (targetLink === targetId) set.add(sourceId);
-      }
-      connectedNodeIdsRef.current = set;
-    },
-    [graphData.links]
-  );
+  // Recompute connected node IDs based on active target (hover or selected) - stable callback
+  const recomputeConnected = useCallback((targetId: string | null) => {
+    if (!targetId) {
+      connectedNodeIdsRef.current = new Set();
+      return;
+    }
+    const set = new Set<string>([targetId]);
+    for (const link of graphDataRef.current.links) {
+      const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source;
+      const targetLink = typeof link.target === 'object' ? (link.target as any).id : link.target;
+      if (sourceId === targetId) set.add(targetLink);
+      if (targetLink === targetId) set.add(sourceId);
+    }
+    connectedNodeIdsRef.current = set;
+  }, []);
 
   // Handle Glowing Node and Camera Auto-Centering
   useEffect(() => {
@@ -336,7 +341,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
         graphInstanceRef.current = null;
       }
     };
-  }, [recomputeConnected]);
+  }, []); // Initialized strictly once on mount - never torn down during app lifecycle
 
   // Update selected node highlight without reloading graph data
   useEffect(() => {
@@ -361,11 +366,46 @@ export const GraphView: React.FC<GraphViewProps> = ({
       displayData = { nodes: subNodes, links: subLinks };
     }
 
-    graphInstanceRef.current.graphData({
-      nodes: displayData.nodes.map((n) => ({ ...n })),
-      links: displayData.links.map((l) => ({ ...l })),
+    const currentKey = `${localOnly ? selectedNodeId : 'all'}|` +
+      displayData.nodes.map((n) => `${n.id}:${n.title}:${n.degree || 0}`).sort().join(';') + '|' +
+      displayData.links.map((l) => {
+        const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+        const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+        return `${s}->${t}`;
+      }).sort().join(';');
+
+    // Skip if graph topology and content are structurally identical (prevents canvas blinks and simulation resets)
+    if (lastRenderedKeyRef.current === currentKey) {
+      return;
+    }
+    lastRenderedKeyRef.current = currentKey;
+
+    const currentData = graphInstanceRef.current.graphData();
+    const existingNodesMap = new Map<string, any>((currentData.nodes || []).map((n: any) => [n.id, n]));
+
+    // Preserve existing node physics positions (x, y, vx, vy) so nodes never jump or vanish
+    const mergedNodes = displayData.nodes.map((n) => {
+      const existing = existingNodesMap.get(n.id);
+      if (existing && existing.x !== undefined && existing.y !== undefined) {
+        existing.title = n.title;
+        existing.tags = n.tags;
+        existing.degree = n.degree;
+        return existing;
+      }
+      return { ...n };
     });
-  }, [graphData, localOnly, selectedNodeId, recomputeConnected]);
+
+    const mergedLinks = displayData.links.map((l) => {
+      const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+      const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+      return { ...l, source: s, target: t };
+    });
+
+    graphInstanceRef.current.graphData({
+      nodes: mergedNodes,
+      links: mergedLinks,
+    });
+  }, [graphData, localOnly, localOnly ? selectedNodeId : null, recomputeConnected]);
 
   const handleZoomIn = () => {
     if (graphInstanceRef.current) {
