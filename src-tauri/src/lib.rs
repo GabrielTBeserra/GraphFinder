@@ -6,8 +6,10 @@ pub mod mcp;
 
 use engine::{
     ChunkHit, CompressedContext, EmbeddingEngine, GraphData, LinkSuggestion, Neighborhood,
-    NoteRecord, NoteSummary, ProjectInfo, SearchHit, VaultManager,
+    NoteRecord, NoteSummary, ProjectInfo, SearchHit, VaultManager, VaultStats,
 };
+use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
+use std::time::Duration;
 
 #[tauri::command]
 async fn list_projects(manager: State<'_, Arc<VaultManager>>) -> Result<Vec<ProjectInfo>, String> {
@@ -84,6 +86,59 @@ async fn save_note(
         .active_engine()
         .await
         .save_note(&title, &content, filename.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn rename_note(
+    old_title: String,
+    new_title: String,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<NoteRecord, String> {
+    manager
+        .active_engine()
+        .await
+        .rename_note(&old_title, &new_title)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_note(
+    target: String,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<(), String> {
+    manager
+        .active_engine()
+        .await
+        .delete_note(&target)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_vault_stats(
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<VaultStats, String> {
+    manager
+        .active_engine()
+        .await
+        .get_vault_stats()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn read_section(
+    target: String,
+    section: String,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<Option<ChunkHit>, String> {
+    manager
+        .active_engine()
+        .await
+        .read_section(&target, &section)
         .await
         .map_err(|e| e.to_string())
 }
@@ -298,6 +353,56 @@ pub fn run() {
                 }
             });
 
+            // File Watcher com Debounce (500ms) para sincronização automática quando arquivos são alterados externamente (Obsidian, VS Code, etc)
+            let app_handle_for_watch = app.handle().clone();
+            let manager_for_watch = Arc::clone(&manager);
+            tauri::async_runtime::spawn_blocking(move || {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let mut debouncer = match new_debouncer(Duration::from_millis(500), tx) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!("[GraphFinder Watcher Error] Falha ao criar debouncer: {}", e);
+                        return;
+                    }
+                };
+
+                let base_dir = crate::engine::project::resolve_base_dir();
+                let vaults_dir = base_dir.join("vaults");
+                let default_vault = base_dir.join("vault");
+
+                if default_vault.exists() {
+                    let _ = debouncer.watcher().watch(&default_vault, RecursiveMode::Recursive);
+                }
+                if vaults_dir.exists() {
+                    let _ = debouncer.watcher().watch(&vaults_dir, RecursiveMode::Recursive);
+                }
+
+                while let Ok(res) = rx.recv() {
+                    match res {
+                        Ok(events) => {
+                            let has_md = events.iter().any(|e| {
+                                e.path.extension().map(|ext| ext == "md").unwrap_or(false)
+                            });
+                            if has_md {
+                                let manager = Arc::clone(&manager_for_watch);
+                                let handle = app_handle_for_watch.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    let engine = manager.active_engine().await;
+                                    if let Ok(count) = engine.sync_vault().await {
+                                        if count > 0 {
+                                            let _ = handle.emit("vault-sync-complete", count);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("[GraphFinder Watcher] Erro: {:?}", err);
+                        }
+                    }
+                }
+            });
+
             if let Some(window) = app.get_webview_window("main") {
                 if let Some(icon) = app.default_window_icon() {
                     let _ = window.set_icon(icon.clone());
@@ -312,6 +417,10 @@ pub fn run() {
             list_notes,
             get_note,
             save_note,
+            rename_note,
+            delete_note,
+            get_vault_stats,
+            read_section,
             search_semantic,
             search_chunks,
             suggest_links,

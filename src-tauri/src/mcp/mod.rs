@@ -9,7 +9,7 @@ use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig},
-    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
+    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt,
 };
 
 use crate::engine::VaultManager;
@@ -112,6 +112,40 @@ pub struct ListRecentNotesArgs {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SyncVaultArgs {
+    /// ID do projeto/vault específico (opcional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReadSectionArgs {
+    /// Título ou ID da nota
+    pub target: String,
+    /// Título da seção (H2/H3) ou fragmento do deep link (ex: '2. SQLite WAL Configuration')
+    pub section: String,
+    /// ID do projeto/vault específico (opcional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RenameNoteArgs {
+    /// Título ou ID atual da nota
+    pub old_title: String,
+    /// Novo título desejado para a nota
+    pub new_title: String,
+    /// ID do projeto/vault específico (opcional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DeleteNoteArgs {
+    /// Título ou ID da nota a ser excluída
+    pub target: String,
+    /// ID do projeto/vault específico (opcional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetVaultStatsArgs {
     /// ID do projeto/vault específico (opcional)
     pub project: Option<String>,
 }
@@ -406,6 +440,84 @@ impl GraphFinderMcpServer {
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
+
+    /// Lê cirurgicamente uma única seção (heading H2/H3) de uma nota, garantindo economia máxima de tokens para LLMs.
+    #[tool(description = "Lê cirurgicamente uma única seção (heading H2/H3) de uma nota, garantindo economia máxima de tokens para LLMs.")]
+    async fn read_section(&self, Parameters(args): Parameters<ReadSectionArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.read_section(&args.target, &args.section).await {
+            Ok(Some(chunk)) => {
+                let out = format!(
+                    "Seção: {} (~{} tokens)\nDeep Link: {}\n\n{}",
+                    chunk.heading.as_deref().unwrap_or("Geral"),
+                    chunk.token_estimate,
+                    chunk.deep_link,
+                    chunk.content.trim()
+                );
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Ok(None) => Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+                "Seção '{}' não encontrada na nota '{}'. Use get_compressed_context para ver as seções disponíveis.",
+                args.section, args.target
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao ler seção: {}", e))])),
+        }
+    }
+
+    /// Renomeia uma nota e seu arquivo no disco, atualizando todos os wikilinks [[Nota Antiga]] no cofre inteiro para evitar links quebrados.
+    #[tool(description = "Renomeia uma nota e seu arquivo no disco, atualizando todos os wikilinks [[Nota Antiga]] no cofre inteiro para evitar links quebrados.")]
+    async fn rename_note(&self, Parameters(args): Parameters<RenameNoteArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.rename_note(&args.old_title, &args.new_title).await {
+            Ok(note) => {
+                if let Some(app) = &self.app_handle {
+                    let _ = app.emit("vault-sync-complete", 1);
+                }
+                let out = format!(
+                    "Nota renomeada com sucesso!\nTítulo anterior: {}\nNovo título: [[{}]]\nArquivo: {}\nTodos os wikilinks no cofre foram refatorados automaticamente.",
+                    args.old_title, note.title, note.path
+                );
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao renomear nota: {}", e))])),
+        }
+    }
+
+    /// Exclui uma nota do cofre (remove arquivo .md e expurga vetores do banco SQLite).
+    #[tool(description = "Exclui uma nota do cofre (remove arquivo .md e expurga vetores do banco SQLite).")]
+    async fn delete_note(&self, Parameters(args): Parameters<DeleteNoteArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.delete_note(&args.target).await {
+            Ok(_) => {
+                if let Some(app) = &self.app_handle {
+                    let _ = app.emit("vault-sync-complete", 1);
+                }
+                let out = format!("Nota '{}' excluída com sucesso do cofre e do banco vetorial.", args.target);
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao excluir nota: {}", e))])),
+        }
+    }
+
+    /// Retorna estatísticas de integridade do cofre: total de notas, seções vetorizadas, total de conexões, tags e tokens estimados.
+    #[tool(description = "Retorna estatísticas de integridade do cofre: total de notas, seções vetorizadas, total de conexões, tags e tokens estimados.")]
+    async fn get_vault_stats(&self, Parameters(args): Parameters<GetVaultStatsArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.get_vault_stats().await {
+            Ok(stats) => {
+                let out = format!(
+                    "Estatísticas do Cofre:\n\n- Notas Ativas: {}\n- Seções Vetorizadas: {}\n- Conexões (Wikilinks): {}\n- Tags Únicas: {}\n- Estimativa Total de Tokens: {}",
+                    stats.total_notes,
+                    stats.total_chunks,
+                    stats.total_links,
+                    stats.total_tags,
+                    stats.total_tokens
+                );
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao obter estatísticas: {}", e))])),
+        }
+    }
 }
 
 #[tool_handler]
@@ -420,10 +532,11 @@ impl ServerHandler for GraphFinderMcpServer {
 }
 
 pub async fn run_mcp_server(
-    _manager: Arc<VaultManager>,
+    manager: Arc<VaultManager>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    eprintln!(
-        "[GraphFinder MCP] ERRO: Transporte stdio descontinuado/proibido. Use exclusivamente o endpoint Streamable HTTP: http://127.0.0.1:45123/mcp"
-    );
-    Err("O transporte stdio foi proibido e descontinuado. O servidor MCP opera exclusivamente via Streamable HTTP em http://127.0.0.1:45123/mcp".into())
+    let server = GraphFinderMcpServer::new(manager, None);
+    let (read, write) = rmcp::transport::io::stdio();
+    server.serve((read, write)).await?;
+    Ok(())
 }
+

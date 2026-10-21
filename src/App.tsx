@@ -5,6 +5,7 @@ import {
   fetchNotes,
   fetchNote,
   saveNote,
+  deleteNote,
   searchChunks,
   syncVault,
   fetchProjects,
@@ -233,6 +234,24 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleDeleteNote = async (idOrTitle: string, title?: string) => {
+    try {
+      await deleteNote(idOrTitle);
+      showToast(`Nota "${title || idOrTitle}" excluída com sucesso`);
+      if (selectedNoteId === idOrTitle || activeNote?.id === idOrTitle) {
+        setIsEditorOpen(false);
+        setActiveNote(null);
+        setSelectedNoteId(null);
+      }
+      await loadData();
+      await loadProjects();
+    } catch (err) {
+      console.error('Erro ao excluir nota:', err);
+      showToast(`Erro ao excluir nota: ${err}`, 'info');
+    }
+  };
+
+
   const handleSwitchProject = async (projectId: string) => {
     try {
       const project = await switchProject(projectId);
@@ -386,6 +405,7 @@ export const App: React.FC = () => {
           selectedNoteId={selectedNoteId}
           onSelectNote={handleSelectNote}
           onNewNote={handleNewNote}
+          onDeleteNote={handleDeleteNote}
           onSearchSemantic={handleSearchSemantic}
           chunkResults={chunkResults}
           isSearching={isSearching}
@@ -403,9 +423,9 @@ export const App: React.FC = () => {
 
           {isEditorOpen && (
             <NoteEditor
-              key={activeNote ? activeNote.id || activeNote.title : 'new-note'}
               note={activeNote}
               onSave={handleSaveNote}
+              onDelete={handleDeleteNote}
               onClose={() => setIsEditorOpen(false)}
               onNavigateNote={handleNavigateNote}
               availableNotes={notes}

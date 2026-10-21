@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import {
   FloppyDisk,
   Eye,
@@ -13,6 +14,7 @@ import {
   Check,
   Hash,
   FileText,
+  Trash,
 } from '@phosphor-icons/react';
 import type { LinkSuggestion, NoteRecord, NoteSummary } from '../types';
 import { suggestLinks } from '../services/api';
@@ -20,6 +22,7 @@ import { suggestLinks } from '../services/api';
 interface NoteEditorProps {
   note: NoteRecord | null;
   onSave: (title: string, content: string, filename?: string) => Promise<void>;
+  onDelete?: (id: string, title: string) => Promise<void>;
   onClose: () => void;
   onNavigateNote: (titleOrId: string) => void;
   availableNotes?: NoteSummary[];
@@ -47,6 +50,7 @@ interface AutocompleteItem {
 export const NoteEditor: React.FC<NoteEditorProps> = ({
   note,
   onSave,
+  onDelete,
   onClose,
   onNavigateNote,
   availableNotes = [],
@@ -75,16 +79,23 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     selectedIndex: 0,
   });
 
+  const lastLoadedIdRef = useRef<string | undefined>(undefined);
+
   useEffect(() => {
-    setTitle(note?.title ?? (note ? '' : 'New Note'));
-    setContent(
-      note?.content ??
-        '# New Note\n\nStart writing your thoughts here.\nConnect to other notes with [[Note Title]] and add #tags.'
-    );
-    setIsDirty(!note);
-    setSuggestions([]);
-    setAutocomplete((prev) => ({ ...prev, isOpen: false }));
-  }, [note?.id, note?.path, note?.content, note?.title]);
+    const targetKey = note?.id || note?.title || 'new';
+    const isNewTarget = lastLoadedIdRef.current !== targetKey;
+    if (isNewTarget) {
+      lastLoadedIdRef.current = targetKey;
+      setTitle(note?.title ?? (note ? '' : 'New Note'));
+      setContent(
+        note?.content ??
+          '# New Note\n\nStart writing your thoughts here.\nConnect to other notes with [[Note Title]] and add #tags.'
+      );
+      setIsDirty(!note);
+      setSuggestions([]);
+      setAutocomplete((prev) => ({ ...prev, isOpen: false }));
+    }
+  }, [note?.id, note?.title, note?.path, note?.content]);
 
   const handleSave = useCallback(async () => {
     if (!title.trim() || isSaving) return;
@@ -92,10 +103,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     try {
       await onSave(title, content, note?.path);
       setIsDirty(false);
+      lastLoadedIdRef.current = note?.id || title;
     } finally {
       setIsSaving(false);
     }
-  }, [title, content, note?.path, isSaving, onSave]);
+  }, [title, content, note?.path, note?.id, isSaving, onSave]);
 
   // Keyboard shortcut Ctrl+S / Cmd+S
   useEffect(() => {
@@ -352,14 +364,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const renderedHtml = useMemo(() => {
     try {
       const rawHtml = marked.parse(content) as string;
-      return rawHtml.replace(/\[\[(.*?)\]\]/g, (_match, p1) => {
+      const withWikilinks = rawHtml.replace(/\[\[(.*?)\]\]/g, (_match, p1) => {
         const parts = p1.split('|');
         const target = parts[0].trim();
         const label = parts[1] ? parts[1].trim() : target;
         return `<span class="wikilink-btn" data-target="${target}">[[${label}]]</span>`;
       });
+      return DOMPurify.sanitize(withWikilinks, {
+        ADD_TAGS: ['span'],
+        ADD_ATTR: ['data-target', 'class'],
+      });
     } catch {
-      return content;
+      return DOMPurify.sanitize(content);
     }
   }, [content]);
 
@@ -433,6 +449,22 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               </>
             )}
           </button>
+
+          {note?.id && onDelete && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (window.confirm(`Tem certeza que deseja excluir a nota "${note.title}"?`)) {
+                  await onDelete(note.id, note.title);
+                  onClose();
+                }
+              }}
+              className="flex items-center justify-center w-7 h-7 rounded-lg text-[#64748b] hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/40 transition-colors cursor-pointer"
+              title="Excluir nota permanentemente"
+            >
+              <Trash size={13} />
+            </button>
+          )}
 
           <button
             type="button"

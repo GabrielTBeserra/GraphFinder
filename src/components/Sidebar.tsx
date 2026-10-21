@@ -9,6 +9,7 @@ import {
   Lightning,
   X,
   ArrowElbowDownLeft,
+  Trash,
 } from '@phosphor-icons/react';
 import type { ChunkHit, NoteSummary } from '../types';
 
@@ -17,6 +18,7 @@ interface SidebarProps {
   selectedNoteId: string | null;
   onSelectNote: (id: string) => void;
   onNewNote: () => void;
+  onDeleteNote?: (id: string, title: string) => Promise<void>;
   onSearchSemantic: (query: string) => Promise<void>;
   chunkResults: ChunkHit[];
   isSearching: boolean;
@@ -28,6 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedNoteId,
   onSelectNote,
   onNewNote,
+  onDeleteNote,
   onSearchSemantic,
   chunkResults,
   isSearching,
@@ -274,18 +277,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div
                 key={note.id}
                 onClick={() => onSelectNote(note.id)}
-                className={`px-3 py-2 rounded-md border transition-all cursor-pointer ${
+                className={`group px-3 py-2 rounded-md border transition-all cursor-pointer relative ${
                   isSelected
                     ? 'bg-[#1a1e28] border-[#2c3242] shadow-xs'
                     : 'bg-transparent border-transparent hover:bg-[#13161f] hover:border-[#1e222d]'
                 }`}
               >
-                <div
-                  className={`text-xs font-semibold truncate ${
-                    isSelected ? 'text-[#f8fafc]' : 'text-[#94a3b8] hover:text-[#f1f5f9]'
-                  }`}
-                >
-                  {note.title.endsWith('.md') ? note.title : `${note.title}.md`}
+                <div className="flex items-center justify-between gap-1">
+                  <div
+                    className={`text-xs font-semibold truncate flex-1 ${
+                      isSelected ? 'text-[#f8fafc]' : 'text-[#94a3b8] group-hover:text-[#f1f5f9]'
+                    }`}
+                  >
+                    {note.title.endsWith('.md') ? note.title : `${note.title}.md`}
+                  </div>
+                  {onDeleteNote && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Tem certeza que deseja excluir a nota "${note.title}"?`)) {
+                          onDeleteNote(note.id, note.title);
+                        }
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-[#64748b] hover:text-rose-400 hover:bg-rose-950/40 rounded transition-all shrink-0 cursor-pointer"
+                      title="Excluir nota"
+                    >
+                      <Trash size={12} />
+                    </button>
+                  )}
                 </div>
                 {note.summary && (
                   <p className="text-[11px] text-[#64748b] line-clamp-1 mt-0.5 leading-tight">

@@ -9,6 +9,7 @@ import type {
   NoteSummary,
   ProjectInfo,
   SearchHit,
+  VaultStats,
 } from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -342,5 +343,49 @@ export async function fetchEngineStatus(): Promise<EngineStatusInfo> {
     is_ready: true,
   };
 }
+
+export async function renameNote(oldTitle: string, newTitle: string): Promise<NoteRecord> {
+  if (isTauri) {
+    return await invoke<NoteRecord>('rename_note', { oldTitle, newTitle });
+  }
+  const note = MOCK_NOTES.find((n) => n.title.toLowerCase() === oldTitle.toLowerCase());
+  if (!note) throw new Error(`Nota '${oldTitle}' não encontrada`);
+  note.title = newTitle;
+  note.path = `${newTitle}.md`;
+  return note;
+}
+
+export async function deleteNote(target: string): Promise<void> {
+  if (isTauri) {
+    return await invoke<void>('delete_note', { target });
+  }
+  const idx = MOCK_NOTES.findIndex(
+    (n) => n.id === target || n.title.toLowerCase() === target.toLowerCase()
+  );
+  if (idx >= 0) {
+    MOCK_NOTES.splice(idx, 1);
+  }
+}
+
+export async function fetchVaultStats(): Promise<VaultStats> {
+  if (isTauri) {
+    return await invoke<VaultStats>('get_vault_stats');
+  }
+  return {
+    total_notes: MOCK_NOTES.length,
+    total_chunks: MOCK_NOTES.length * 3,
+    total_links: 7,
+    total_tags: 8,
+    total_tokens: 1250,
+  };
+}
+
+export async function readSection(target: string, section: string): Promise<ChunkHit | null> {
+  if (isTauri) {
+    return await invoke<ChunkHit | null>('read_section', { target, section });
+  }
+  return null;
+}
+
 
 

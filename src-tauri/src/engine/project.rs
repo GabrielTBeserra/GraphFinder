@@ -37,10 +37,17 @@ pub struct VaultManager {
 }
 
 pub fn resolve_base_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("GRAPHFINDER_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
     if Path::new("package.json").exists() {
         PathBuf::from(".")
     } else if Path::new("../package.json").exists() {
         PathBuf::from("..")
+    } else if let Some(data) = dirs::data_dir() {
+        let p = data.join("GraphFinder");
+        let _ = fs::create_dir_all(&p);
+        p
     } else {
         PathBuf::from(".")
     }
@@ -56,6 +63,15 @@ pub fn slugify(name: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-")
+}
+
+pub fn sanitize_project_id(id: &str) -> String {
+    let clean = slugify(id);
+    if clean.is_empty() {
+        "default".to_string()
+    } else {
+        clean
+    }
 }
 
 impl VaultManager {
@@ -115,31 +131,26 @@ impl VaultManager {
         }
     }
 
-    pub async fn get_or_create_engine(&self, project_id: &str) -> Arc<Engine> {
-        let id = if project_id.trim().is_empty() {
-            "default"
-        } else {
-            project_id
-        };
+    pub async fn try_get_or_create_engine(&self, project_id: &str) -> Result<Arc<Engine>, String> {
+        let id = sanitize_project_id(project_id);
 
         // Check if already in cache
         {
             let map = self.engines.read().await;
-            if let Some(engine) = map.get(id) {
-                return Arc::clone(engine);
+            if let Some(engine) = map.get(&id) {
+                return Ok(Arc::clone(engine));
             }
         }
 
         // Create new engine for this project vault
-        let (vault_path, db_path) = self.resolve_project_paths(id).await;
+        let (vault_path, db_path) = self.resolve_project_paths(&id).await;
 
-        let engine = Arc::new(
-            Engine::new(&vault_path, &db_path, Arc::clone(&self.embeddings))
-                .expect("Falha ao inicializar Engine do projeto"),
-        );
+        let engine = Engine::new(&vault_path, &db_path, Arc::clone(&self.embeddings))
+            .map_err(|e| format!("Falha ao inicializar Engine do projeto '{}': {}", id, e))?;
+        let engine_arc = Arc::new(engine);
 
-        // Sync initial notes
-        let engine_clone = Arc::clone(&engine);
+        // Sync initial notes in background
+        let engine_clone = Arc::clone(&engine_arc);
         tokio::spawn(async move {
             let _ = engine_clone.sync_vault().await;
         });
@@ -147,18 +158,31 @@ impl VaultManager {
         // Insert into cache
         {
             let mut map = self.engines.write().await;
-            map.insert(id.to_string(), Arc::clone(&engine));
+            map.insert(id, Arc::clone(&engine_arc));
         }
 
-        engine
+        Ok(engine_arc)
+    }
+
+    pub async fn get_or_create_engine(&self, project_id: &str) -> Arc<Engine> {
+        match self.try_get_or_create_engine(project_id).await {
+            Ok(e) => e,
+            Err(err) => {
+                eprintln!("[GraphFinder Error] {}, recorrendo ao engine default.", err);
+                self.try_get_or_create_engine("default")
+                    .await
+                    .expect("Falha crítica ao inicializar o vault padrão")
+            }
+        }
     }
 
     async fn resolve_project_paths(&self, project_id: &str) -> (PathBuf, PathBuf) {
-        if project_id == "default" {
+        let safe_id = sanitize_project_id(project_id);
+        if safe_id == "default" {
             (resolve_vault_path(), resolve_db_path())
         } else {
             let custom_paths = self.custom_paths.read().await;
-            if let Some(custom_path_str) = custom_paths.get(project_id) {
+            if let Some(custom_path_str) = custom_paths.get(&safe_id) {
                 let p = PathBuf::from(custom_path_str);
                 if !p.exists() {
                     let _ = fs::create_dir_all(&p);
@@ -166,7 +190,7 @@ impl VaultManager {
                 let db_path = p.join("index.db");
                 (p, db_path)
             } else {
-                let project_vault = self.base_dir.join("vaults").join(project_id);
+                let project_vault = self.base_dir.join("vaults").join(&safe_id);
                 if !project_vault.exists() {
                     let _ = fs::create_dir_all(&project_vault);
                 }

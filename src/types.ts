@@ -100,3 +100,12 @@ export interface Neighborhood {
   nodes: GraphNode[];
   links: GraphLink[];
 }
+
+export interface VaultStats {
+  total_notes: number;
+  total_chunks: number;
+  total_links: number;
+  total_tags: number;
+  total_tokens: number;
+}
+
