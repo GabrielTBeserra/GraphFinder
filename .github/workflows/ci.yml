@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
@@ -51,4 +49,3 @@ jobs:
 
       - name: Cargo Test
         run: cargo test --manifest-path src-tauri/Cargo.toml --verbose
-

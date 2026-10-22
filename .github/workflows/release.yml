@@ -14,67 +14,67 @@ on:
 jobs:
   build-and-release:
     name: Build & Release (${{ matrix.os-name }})
-        permissions:
-          contents: write
-        strategy:
-          fail-fast: false
-          matrix:
-            include:
-              - platform: 'windows-latest'
-                os-name: 'Windows'
-              - platform: 'macos-latest'
-                os-name: 'macOS'
-              - platform: 'ubuntu-22.04'
-                os-name: 'Linux'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'windows-latest'
+            os-name: 'Windows'
+          - platform: 'macos-latest'
+            os-name: 'macOS'
+          - platform: 'ubuntu-22.04'
+            os-name: 'Linux'
 
-        runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
 
-        steps:
-          - name: Checkout Repository
-            uses: actions/checkout@v4
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-          - name: Setup Node.js
-            uses: actions/setup-node@v4
-            with:
-              node-version: 20
-              cache: 'npm'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
 
-          - name: Setup Rust Toolchain
-            uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-          - name: Install System Dependencies (Linux)
-            if: matrix.platform == 'ubuntu-22.04'
-            run: |
-              sudo apt-get update
-              sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils
+      - name: Install System Dependencies (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils
 
-          - name: Synchronize Version with Tag
-            run: node scripts/sync-version.js "${{ github.event.inputs.tag || github.ref_name }}"
+      - name: Synchronize Version with Tag
+        run: node scripts/sync-version.js "${{ github.event.inputs.tag || github.ref_name }}"
 
-          - name: Install Frontend Dependencies
-            run: npm ci
+      - name: Install Frontend Dependencies
+        run: npm ci
 
-          - name: Build and Publish with Tauri Action
-            uses: tauri-apps/tauri-action@v0
-            env:
-              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              # Optional signing key if tauri-plugin-updater is enabled in the future:
-              # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-              # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-            with:
-              tagName: ${{ github.event.inputs.tag || github.ref_name }}
-              releaseName: 'GraphFinder ${{ github.event.inputs.tag || github.ref_name }}'
-              releaseBody: |
-                ## GraphFinder ${{ github.event.inputs.tag || github.ref_name }}
-                
-                Official installers and executables for Windows, macOS, and Linux.
-                
-                ### Available Binaries:
-                - **Windows**: `.exe` (NSIS) and `.msi` (WiX)
-                - **macOS**: `.dmg` (Apple Silicon)
-                - **Linux**: `.deb` (Debian/Ubuntu) and `.AppImage`
-                
-                ---
-                *Compiled and distributed automatically via GitHub Actions.*
-              releaseDraft: false
+      - name: Build and Publish with Tauri Action
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional signing key if tauri-plugin-updater is enabled in the future:
+          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'GraphFinder ${{ github.event.inputs.tag || github.ref_name }}'
+          releaseBody: |
+            ## GraphFinder ${{ github.event.inputs.tag || github.ref_name }}
+
+            Official installers and executables for Windows, macOS, and Linux.
+
+            ### Available Binaries:
+            - **Windows**: `.exe` (NSIS) and `.msi` (WiX)
+            - **macOS**: `.dmg` (Apple Silicon)
+            - **Linux**: `.deb` (Debian/Ubuntu) and `.AppImage`
+
+            ---
+            *Compiled and distributed automatically via GitHub Actions.*
+          releaseDraft: false
           prerelease: false
