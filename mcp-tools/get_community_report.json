@@ -1,0 +1,26 @@
+{
+  "description": "Returns high-density architectural audit of communities, god nodes, and surprises.",
+  "name": "get_community_report",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "format": {
+        "default": null,
+        "description": "'markdown' (default human-readable audit) or 'json'",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}

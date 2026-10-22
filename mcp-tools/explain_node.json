@@ -1,0 +1,25 @@
+{
+  "description": "Generates a comprehensive 360° architectural context card for any symbol, file, or note.",
+  "name": "explain_node",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "target": {
+        "description": "Target node title, file path, or symbol",
+        "type": "string"
+      }
+    },
+    "required": [
+      "target"
+    ],
+    "type": "object"
+  }
+}

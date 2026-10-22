@@ -1,0 +1,17 @@
+{
+  "description": "Switches the active default vault for subsequent GraphFinder operations.",
+  "name": "switch_project",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "project_id": {
+        "description": "Target project ID or slug to switch to",
+        "type": "string"
+      }
+    },
+    "required": [
+      "project_id"
+    ],
+    "type": "object"
+  }
+}

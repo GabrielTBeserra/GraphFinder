@@ -233,7 +233,7 @@ async fn info_handler(
     </div>
 
     <div class="notice">
-      <strong>About this endpoint:</strong> The <code>/mcp</code> route is a <strong>JSON-RPC 2.0 (Streamable HTTP)</strong> protocol endpoint utilized by AI clients and agents such as Cursor, Antigravity, and Claude. When opened in a web browser, this dashboard displays operational status and local neural vault diagnostics.
+      <strong>About this endpoint:</strong> The <code>/mcp</code> route is a <strong>JSON-RPC 2.0 (Streamable HTTP)</strong> protocol endpoint utilized by AI clients and agents such as Cursor, Claude Desktop, VS Code, Windsurf, Zed, and any MCP client. When opened in a web browser, this dashboard displays operational status and local neural vault diagnostics.
     </div>
 
     <div class="card">
@@ -272,7 +272,7 @@ async fn info_handler(
       </div>
     </div>
 
-    <h3 style="color: var(--muted); font-size: 0.95rem; text-transform: uppercase; margin-top: 1.5rem; margin-bottom: 0.5rem;">MCP Configuration (Cursor, Claude, Antigravity)</h3>
+    <h3 style="color: var(--muted); font-size: 0.95rem; text-transform: uppercase; margin-top: 1.5rem; margin-bottom: 0.5rem;">Universal MCP Configuration (Any Editor / Agent)</h3>
     <pre>{{{{
   "mcpServers": {{{{
     "graphfinder": {{{{

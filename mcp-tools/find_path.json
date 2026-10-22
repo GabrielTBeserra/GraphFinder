@@ -1,0 +1,30 @@
+{
+  "description": "Discovers shortest multi-hop dependency path connecting any two symbols, files, or notes.",
+  "name": "find_path",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "source": {
+        "description": "Origin node title, file path, or symbol (e.g. 'App.tsx' or 'Note Title')",
+        "type": "string"
+      },
+      "target": {
+        "description": "Destination node title, file path, or symbol (e.g. 'db.rs')",
+        "type": "string"
+      }
+    },
+    "required": [
+      "source",
+      "target"
+    ],
+    "type": "object"
+  }
+}

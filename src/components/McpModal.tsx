@@ -30,7 +30,7 @@ interface McpModalProps {
   onClose: () => void;
 }
 
-type ClientTab = 'cursor' | 'claude' | 'antigravity' | 'url';
+type ClientTab = 'cursor' | 'claude' | 'universal' | 'url';
 
 export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
   const [copiedType, setCopiedType] = useState<string | null>(null);
@@ -61,7 +61,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
         return MCP_CURSOR_CONFIG_SNIPPET;
       case 'claude':
         return MCP_CLAUDE_CONFIG_SNIPPET;
-      case 'antigravity':
+      case 'universal':
         return currentConfigJson;
       case 'url':
         return mcpUrl;
@@ -94,7 +94,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                   </span>
                 </Dialog.Title>
                 <Dialog.Description className="text-xs text-[#64748b] mt-0.5">
-                  Universal protocol for Cursor, Claude, Antigravity, and AI Agents with zero-latency SQLite shared memory.
+                  Universal protocol for Cursor, Claude Desktop, VS Code, Windsurf, Zed, and AI Agents with zero-latency SQLite shared memory.
                 </Dialog.Description>
               </div>
             </div>
@@ -304,14 +304,14 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setActiveClient('antigravity')}
+                    onClick={() => setActiveClient('universal')}
                     className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                      activeClient === 'antigravity'
+                      activeClient === 'universal'
                         ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 font-semibold shadow-sm'
                         : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#141824]'
                     }`}
                   >
-                    Antigravity / VS Code
+                    VS Code / Windsurf / Universal
                   </button>
                 </div>
 
@@ -324,15 +324,13 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               <div className="space-y-1.5 pt-1">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-[#cbd5e1]">
                   <ShieldCheck size={14} className="text-emerald-400" />
-                  <span>Available Atomic MCP Tools via Streamable HTTP:</span>
+                  <span>Available Atomic MCP Tools (All 24 Tools Registered):</span>
                 </div>
                 <ul className="text-[11.5px] text-[#94a3b8] space-y-1 pl-4 list-disc leading-relaxed">
-                  <li><code>search_semantic(query)</code>: Zero-allocation vector search with <code>[[Note#Section]]</code> deep links.</li>
-                  <li><code>get_compressed_context(note_id)</code>: Structural outline and token estimates (~60-100 tokens).</li>
-                  <li><code>suggest_links(text)</code>: Real-time semantic auto-linker for drafted paragraphs.</li>
-                  <li><code>store_context(title, content, tags)</code>: Saves note with auto-chunking &amp; live graph canvas neon shockwave.</li>
-                  <li><code>get_graph_neighborhood(note_id)</code>: Topological adjacency without loading full files.</li>
-                  <li><code>link_notes(from, to)</code>: Bidirectional relationship creation in real time.</li>
+                  <li><strong>Semantic Vault</strong>: <code>search_semantic</code>, <code>get_compressed_context</code>, <code>read_section</code>, <code>store_context</code>, <code>suggest_links</code>, <code>link_notes</code>, <code>get_graph_neighborhood</code>.</li>
+                  <li><strong>Code Intelligence</strong>: <code>search_code</code>, <code>find_files</code>, <code>get_file_context</code>, <code>read_code_chunk</code>, <code>get_code_dependencies</code>.</li>
+                  <li><strong>Topological Audit</strong>: <code>get_community_report</code>, <code>explain_node</code>, <code>find_path</code>, <code>export_graph</code>.</li>
+                  <li><strong>Synchronization</strong>: <code>sync_vault</code>, <code>list_projects</code>, <code>switch_project</code>, <code>create_project</code>.</li>
                 </ul>
               </div>
             </Tabs.Content>

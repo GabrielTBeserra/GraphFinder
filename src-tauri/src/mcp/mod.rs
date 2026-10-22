@@ -51,8 +51,10 @@ pub struct SearchSemanticArgs {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetCompressedContextArgs {
     /// Note title or ID
+    #[serde(alias = "note", alias = "title")]
     pub target: String,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
@@ -110,45 +112,56 @@ pub struct ListRecentNotesArgs {
     pub project: Option<String>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct SyncVaultArgs {
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
     /// Local directory path to sync/index (optional). Auto-detects if already indexed or creates a new project.
+    #[serde(default, alias = "directory", alias = "dir", alias = "vault_path")]
     pub path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReadSectionArgs {
     /// Note title or ID
+    #[serde(alias = "note", alias = "title")]
     pub target: String,
     /// Section heading (H2/H3) or deep link fragment (e.g. '2. SQLite WAL Configuration')
+    #[serde(alias = "heading")]
     pub section: String,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct RenameNoteArgs {
     /// Current title or ID of the note
+    #[serde(alias = "old", alias = "source")]
     pub old_title: String,
     /// Desired new title for the note
+    #[serde(alias = "new", alias = "target")]
     pub new_title: String,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DeleteNoteArgs {
     /// Note title or ID to delete
+    #[serde(alias = "note", alias = "title")]
     pub target: String,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct GetVaultStatsArgs {
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
@@ -157,84 +170,108 @@ pub struct SearchCodeArgs {
     /// Semantic or exact search query for code symbols, functions, or concepts
     pub query: String,
     /// Maximum code chunks to return (default: 5)
+    #[serde(default)]
     pub limit: Option<usize>,
     /// Filter by programming language (e.g. 'rust', 'typescript', 'python', optional)
+    #[serde(default, alias = "lang")]
     pub language: Option<String>,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct FindFilesArgs {
     /// Glob pattern or file path match (e.g. '*.tsx', 'db.rs', 'engine', optional)
+    #[serde(default, alias = "query", alias = "file", alias = "name")]
     pub pattern: Option<String>,
     /// Filter by programming language (e.g. 'rust', 'typescript', optional)
+    #[serde(default, alias = "lang")]
     pub language: Option<String>,
     /// Maximum files to return (default: 20)
+    #[serde(default)]
     pub limit: Option<usize>,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetFileContextArgs {
     /// Relative path or file name in codebase (e.g. 'src/App.tsx', 'main.rs')
+    #[serde(alias = "file", alias = "path", alias = "target")]
     pub file_path: String,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReadCodeChunkArgs {
     /// Relative path or file name in codebase
+    #[serde(alias = "file", alias = "path", alias = "target")]
     pub file_path: String,
     /// Target symbol name (function/class/struct) or line range (optional)
+    #[serde(default, alias = "symbol", alias = "lines", alias = "range")]
     pub symbol_or_lines: Option<String>,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetCodeDependenciesArgs {
     /// Relative path of code file (e.g. 'src/App.tsx')
+    #[serde(alias = "file", alias = "path", alias = "target")]
     pub file_path: String,
     /// Dependency direction: 'imports' (what it imports), 'imported_by' (who imports it), or 'both' (default)
+    #[serde(default)]
     pub direction: Option<String>,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct FindPathArgs {
     /// Origin node title, file path, or symbol (e.g. 'App.tsx' or 'Note Title')
+    #[serde(alias = "from", alias = "start")]
     pub source: String,
     /// Destination node title, file path, or symbol (e.g. 'db.rs')
+    #[serde(alias = "to", alias = "end")]
     pub target: String,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ExplainNodeArgs {
     /// Target node title, file path, or symbol
+    #[serde(alias = "node", alias = "symbol", alias = "file")]
     pub target: String,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct GetCommunityReportArgs {
     /// 'markdown' (default human-readable audit) or 'json'
+    #[serde(default)]
     pub format: Option<String>,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct ExportGraphArgs {
     /// Custom output directory (optional, defaults to './graphfinder-out')
+    #[serde(default)]
     pub out_dir: Option<String>,
     /// Target project/vault ID (optional)
+    #[serde(default)]
     pub project: Option<String>,
 }
 
@@ -917,7 +954,95 @@ pub async fn run_mcp_server(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server = GraphFinderMcpServer::new(manager, None);
     let (read, write) = rmcp::transport::io::stdio();
-    server.serve((read, write)).await?;
+    let running = server.serve((read, write)).await?;
+    running.waiting().await?;
     Ok(())
 }
+
+pub fn export_all_schemas(dirs: &[&std::path::Path]) -> Vec<String> {
+    let router = GraphFinderMcpServer::tool_router();
+    let tools = router.list_all();
+    let mut names = Vec::new();
+    let mut all_tools_json = Vec::new();
+
+    for tool in &tools {
+        names.push(tool.name.to_string());
+        let schema_obj = serde_json::json!({
+            "name": tool.name.as_ref(),
+            "description": tool.description.as_deref().unwrap_or(""),
+            "parameters": tool.input_schema.as_ref(),
+        });
+        all_tools_json.push(schema_obj.clone());
+
+        let json_str = serde_json::to_string_pretty(&schema_obj).unwrap_or_default();
+
+        for dir in dirs {
+            let _ = std::fs::create_dir_all(dir);
+            let file_path = dir.join(format!("{}.json", tool.name));
+            let _ = std::fs::write(&file_path, &json_str);
+        }
+    }
+
+    // Export unified tools.json manifest for generic agents (Cursor, Claude, LangChain, etc.)
+    let manifest_obj = serde_json::json!({
+        "schema_version": "1.0",
+        "server": {
+            "name": "graphfinder",
+            "version": env!("CARGO_PKG_VERSION"),
+            "description": "GraphFinder Neural Knowledge Graph & Universal Code Intelligence MCP Server",
+        },
+        "tools_count": tools.len(),
+        "tools": all_tools_json,
+    });
+    let manifest_str = serde_json::to_string_pretty(&manifest_obj).unwrap_or_default();
+
+    for dir in dirs {
+        let _ = std::fs::create_dir_all(dir);
+        let manifest_path = dir.join("tools.json");
+        let _ = std::fs::write(&manifest_path, &manifest_str);
+
+        let instr_path = dir.join("instructions.md");
+        let instructions_content = r#"# GraphFinder Universal MCP Agent Instructions
+
+GraphFinder is a neural knowledge graph and universal codebase intelligence engine. It provides 24 atomic tools across 4 categories:
+
+## 1. Architectural & Topological Audit
+- `get_community_report`: Global map of modular subsystems, architectural God Nodes (central hubs), and unexpected cross-couplings.
+- `explain_node`: 360-degree context card for a file/symbol (centrality, callers, callees, community).
+- `find_path`: BFS shortest dependency path connecting any two files, symbols, or notes.
+- `export_graph`: Exports standalone `graph.json`, `GRAPH_REPORT.md`, and visual `graph.html`.
+
+## 2. Multi-Language Codebase Intelligence
+- `search_code`: Hybrid semantic (BM25 + neural) search for symbols, functions, and logic across code repositories.
+- `find_files`: Fast glob and regex pattern matching across project files.
+- `get_file_context`: High-density structural overview of a file (imports, dependents, exported symbols) without reading the entire file.
+- `read_code_chunk`: Surgical extraction of a specific function, class, or line range.
+- `get_code_dependencies`: Forward and reverse dependency analysis for any file.
+
+## 3. Semantic Vault & Knowledge Search
+- `search_semantic`: Atomic vector search over knowledge notes with deep links (`[[Note#Section]]`).
+- `get_compressed_context`: Compressed structural map and token estimates for a note.
+- `read_section`: Targeted reading of a single H2/H3 section.
+- `get_vault_stats`: Metrics on indexed notes, chunks, and embeddings.
+- `get_graph_neighborhood`: 1-hop or 2-hop graph adjacency.
+
+## 4. Vault Synchronization & Mutation
+- `sync_vault`: Incrementally re-indexes notes and codebases via SHA-256 change detection.
+- `store_context`: Saves a new markdown note with automatic semantic chunking and tag taxonomy.
+- `suggest_links`: Evaluates draft text and suggests semantic wikilinks to existing vault notes.
+- `link_notes`: Creates bidirectional relationships between notes.
+- `rename_note`, `delete_note`: Knowledge maintenance operations.
+- `list_projects`, `switch_project`, `create_project`: Multi-workspace management.
+
+## Golden Rules for AI Agents:
+1. Prefer atomic excerpts: Use `search_semantic` or `read_code_chunk` rather than reading entire files into context.
+2. Verify connections: Use `suggest_links` before saving new knowledge with `store_context`.
+3. Audit architecture first: Use `get_community_report()` when onboarding or inspecting unfamiliar systems.
+"#;
+        let _ = std::fs::write(&instr_path, instructions_content);
+    }
+
+    names
+}
+
 

@@ -1,0 +1,26 @@
+{
+  "description": "Exports graph.json, GRAPH_REPORT.md, and standalone graph.html to disk.",
+  "name": "export_graph",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "out_dir": {
+        "default": null,
+        "description": "Custom output directory (optional, defaults to './graphfinder-out')",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "description": "Returns compact structural summary of a code file (<80 tokens): imported files, dependents, external packages, and symbol catalog.",
+  "name": "get_file_context",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "file_path": {
+        "description": "Relative path or file name in codebase (e.g. 'src/App.tsx', 'main.rs')",
+        "type": "string"
+      },
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "file_path"
+    ],
+    "type": "object"
+  }
+}

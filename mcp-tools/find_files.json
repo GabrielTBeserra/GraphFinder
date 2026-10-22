@@ -1,0 +1,44 @@
+{
+  "description": "Quickly finds files in project codebase by name, glob pattern, or language, including connectivity degree in the dependency graph.",
+  "name": "find_files",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "language": {
+        "default": null,
+        "description": "Filter by programming language (e.g. 'rust', 'typescript', optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "limit": {
+        "default": null,
+        "description": "Maximum files to return (default: 20)",
+        "format": "uint",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "pattern": {
+        "default": null,
+        "description": "Glob pattern or file path match (e.g. '*.tsx', 'db.rs', 'engine', optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}

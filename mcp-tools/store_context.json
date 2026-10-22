@@ -1,0 +1,49 @@
+{
+  "description": "Saves or updates a Markdown note in the vault with CommonMark AST chunking, dense summary, and FastEmbed vectorization.",
+  "name": "store_context",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "content": {
+        "description": "Markdown body content of the note",
+        "type": "string"
+      },
+      "links": {
+        "description": "List of notes to connect with explicit wikilinks (optional)",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "project": {
+        "description": "Target project/vault ID to save into (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "tags": {
+        "description": "List of context tags (optional)",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "title": {
+        "description": "Main concept or note title",
+        "type": "string"
+      }
+    },
+    "required": [
+      "title",
+      "content"
+    ],
+    "type": "object"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "description": "Returns health and graph statistics: total notes, code files, vectorized chunks, graph connections, tags, and estimated tokens.",
+  "name": "get_vault_stats",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}

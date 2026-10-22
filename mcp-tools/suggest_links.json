@@ -1,0 +1,39 @@
+{
+  "description": "Auto-Linker: analyzes draft text and recommends conceptual wikilinks with high semantic affinity.",
+  "name": "suggest_links",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "current_note": {
+        "description": "Current note title or ID to exclude self-referencing (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "project": {
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "text": {
+        "description": "Draft text or paragraph being authored",
+        "type": "string"
+      },
+      "threshold": {
+        "description": "Minimum cosine similarity threshold (0.0 to 1.0, default: 0.60)",
+        "format": "float",
+        "type": [
+          "number",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "type": "object"
+  }
+}

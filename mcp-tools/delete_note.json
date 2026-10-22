@@ -1,0 +1,25 @@
+{
+  "description": "Deletes a note from the vault (removes .md file and purges vector records from SQLite).",
+  "name": "delete_note",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "target": {
+        "description": "Note title or ID to delete",
+        "type": "string"
+      }
+    },
+    "required": [
+      "target"
+    ],
+    "type": "object"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "description": "Returns associative subgraph around a note (1 or 2 hops) with concise neighbor summaries.",
+  "name": "get_graph_neighborhood",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "depth": {
+        "description": "Graph hops of separation (1 or 2, default: 1)",
+        "format": "uint",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "project": {
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "target": {
+        "description": "Note title or ID",
+        "type": "string"
+      }
+    },
+    "required": [
+      "target"
+    ],
+    "type": "object"
+  }
+}

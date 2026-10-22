@@ -1,0 +1,33 @@
+{
+  "description": "Explores dependency and import graph of a code file (imports, dependents, external modules).",
+  "name": "get_code_dependencies",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "direction": {
+        "default": null,
+        "description": "Dependency direction: 'imports' (what it imports), 'imported_by' (who imports it), or 'both' (default)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "file_path": {
+        "description": "Relative path of code file (e.g. 'src/App.tsx')",
+        "type": "string"
+      },
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "file_path"
+    ],
+    "type": "object"
+  }
+}

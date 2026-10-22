@@ -1,0 +1,30 @@
+{
+  "description": "Renames a note and its file on disk, refactoring all incoming wikilinks [[Old Title]] across the entire vault to prevent broken links.",
+  "name": "rename_note",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "new_title": {
+        "description": "Desired new title for the note",
+        "type": "string"
+      },
+      "old_title": {
+        "description": "Current title or ID of the note",
+        "type": "string"
+      },
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "old_title",
+      "new_title"
+    ],
+    "type": "object"
+  }
+}

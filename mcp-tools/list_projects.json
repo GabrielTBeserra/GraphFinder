@@ -1,0 +1,8 @@
+{
+  "description": "Lists all isolated projects/vaults, note counts, and active project indicator.",
+  "name": "list_projects",
+  "parameters": {
+    "properties": {},
+    "type": "object"
+  }
+}

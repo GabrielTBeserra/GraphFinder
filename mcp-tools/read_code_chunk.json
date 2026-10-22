@@ -1,0 +1,33 @@
+{
+  "description": "Surgically reads a function, class, struct, or line range from a code file without loading the entire file into context.",
+  "name": "read_code_chunk",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "file_path": {
+        "description": "Relative path or file name in codebase",
+        "type": "string"
+      },
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "symbol_or_lines": {
+        "default": null,
+        "description": "Target symbol name (function/class/struct) or line range (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "file_path"
+    ],
+    "type": "object"
+  }
+}

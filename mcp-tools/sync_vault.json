@@ -1,0 +1,26 @@
+{
+  "description": "Synchronizes Markdown notes and code files with local SQLite vector index, re-embedding modified files and updating AST import graph. Accepts optional 'path' to index any local folder.",
+  "name": "sync_vault",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "path": {
+        "default": null,
+        "description": "Local directory path to sync/index (optional). Auto-detects if already indexed or creates a new project.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}

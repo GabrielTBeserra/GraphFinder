@@ -1,0 +1,40 @@
+{
+  "description": "Surgical section retrieval for maximum token conservation. Returns exact 2-4 line chunks with deep link [[Note#Section]] and relevance score.",
+  "name": "search_semantic",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "format": {
+        "description": "'dense_chunks' (default, surgical 60-80 token chunks) or 'summaries' (1-line overview)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "limit": {
+        "description": "Maximum number of atomic chunks to return (default: 5)",
+        "format": "uint",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "project": {
+        "description": "Target project/vault ID (optional, defaults to active project)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "query": {
+        "description": "Semantic search query or natural language question",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  }
+}

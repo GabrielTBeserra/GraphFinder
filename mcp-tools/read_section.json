@@ -1,0 +1,30 @@
+{
+  "description": "Surgically reads a single section (heading H2/H3) of a note, guaranteeing maximum token economy for LLMs.",
+  "name": "read_section",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "project": {
+        "default": null,
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "section": {
+        "description": "Section heading (H2/H3) or deep link fragment (e.g. '2. SQLite WAL Configuration')",
+        "type": "string"
+      },
+      "target": {
+        "description": "Note title or ID",
+        "type": "string"
+      }
+    },
+    "required": [
+      "target",
+      "section"
+    ],
+    "type": "object"
+  }
+}

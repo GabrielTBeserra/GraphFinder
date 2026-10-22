@@ -1,0 +1,29 @@
+{
+  "description": "Creates an explicit bidirectional wikilink between two notes or concepts.",
+  "name": "link_notes",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "from_note": {
+        "description": "Source note title or ID",
+        "type": "string"
+      },
+      "project": {
+        "description": "Target project/vault ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "to_note": {
+        "description": "Destination note title",
+        "type": "string"
+      }
+    },
+    "required": [
+      "from_note",
+      "to_note"
+    ],
+    "type": "object"
+  }
+}
