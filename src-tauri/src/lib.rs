@@ -6,8 +6,9 @@ pub mod mcp;
 
 use engine::{
     ChunkHit, CodeChunkHit, CodeDependencies, CodeFileRecord, CompressedContext, EmbeddingEngine,
-    FileContext, GraphData, LinkSuggestion, Neighborhood, NoteRecord, NoteSummary, ProjectInfo,
-    SearchHit, VaultManager, VaultStats,
+    ExportSummary, FileContext, GraphAnalysisReport, GraphData, LinkSuggestion, Neighborhood,
+    NodeExplanation, NoteRecord, NoteSummary, PathResult, ProjectInfo, SearchHit, VaultManager,
+    VaultStats,
 };
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
 use std::time::Duration;
@@ -399,6 +400,57 @@ async fn list_code_files(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn analyze_graph(manager: State<'_, Arc<VaultManager>>) -> Result<GraphAnalysisReport, String> {
+    manager
+        .active_engine()
+        .await
+        .analyze_graph()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn find_path(
+    source: String,
+    target: String,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<Option<PathResult>, String> {
+    manager
+        .active_engine()
+        .await
+        .find_path(&source, &target)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn explain_node(
+    target: String,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<Option<NodeExplanation>, String> {
+    manager
+        .active_engine()
+        .await
+        .explain_node(&target)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn export_artifacts(
+    out_dir: Option<String>,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<ExportSummary, String> {
+    let path = out_dir.as_ref().map(std::path::Path::new);
+    manager
+        .active_engine()
+        .await
+        .export_artifacts(path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -535,7 +587,11 @@ pub fn run() {
             get_file_context,
             read_code_chunk,
             get_code_dependencies,
-            list_code_files
+            list_code_files,
+            analyze_graph,
+            find_path,
+            explain_node,
+            export_artifacts
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

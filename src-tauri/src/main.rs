@@ -36,7 +36,27 @@ COMMANDS:
       If already indexed, updates incrementally via SHA-256 hashes.
       If new, automatically registers a new isolated project.
       Options:
-        --json    Returns structured JSON output (ideal for scripts/skills)
+        --json      Returns structured JSON output (ideal for scripts/skills)
+        --export    Also generates graph.json, GRAPH_REPORT.md, and graph.html
+
+  report, audit [path] [--out-dir <dir>] [--json]
+      Performs topological community clustering (Louvain/LPA), identifies
+      God Nodes (central hubs), detects cross-community surprises and cycles,
+      and produces standalone artifacts in graphfinder-out/:
+        • GRAPH_REPORT.md  (High-density architectural audit)
+        • graph.json       (Standardized schema consumed by AI agents)
+        • graph.html       (Zero-dependency standalone canvas visualizer)
+
+  path <from> <to> [--path <path>] [--json]
+      Finds the shortest multi-hop dependency path connecting any two
+      symbols, files, or notes (e.g. graphfinder path "App.tsx" "db.rs").
+
+  explain <node> [--path <path>] [--json]
+      Generates 360° architectural context card for a node: community,
+      centrality rank, callers, callees, and sibling dependencies.
+
+  export [path] [--out-dir <dir>]
+      Generates graph.json, GRAPH_REPORT.md, and graph.html without terminal report.
 
   status, info [path]
       Displays directory indexing statistics (notes, code, graph, db).
@@ -59,11 +79,10 @@ COMMANDS:
 
 EXAMPLES:
   graphfinder sync
-  graphfinder sync .
-  graphfinder syn Z:\MyProject
-  graphfinder sync --json
-  graphfinder status
-  graphfinder projects
+  graphfinder report
+  graphfinder path "GraphView.tsx" "DbManager"
+  graphfinder explain "DbManager"
+  graphfinder export --out-dir ./artifacts
   graphfinder search "JWT authentication"
   graphfinder mcp
 ======================================================================
@@ -207,6 +226,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     println!("  Languages        : {}", if stats.languages.is_empty() { "None".to_string() } else { stats.languages.join(", ") });
                     println!("  Changed Items    : {}", changed_count);
                     println!("  SQLite Database  : {}", clean_path_str(engine.db_path()));
+                    if args.iter().any(|a| a == "--export") {
+                        if let Ok(exp) = engine.export_artifacts(None).await {
+                            println!("  Artifacts Exported: {}", exp.output_dir);
+                        }
+                    }
                     println!("────────────────────────────────────────────────────────────\n");
                 }
             }
@@ -337,6 +361,208 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 println!("  {}", h.content.lines().next().unwrap_or(""));
             }
         }
+        println!();
+        return Ok(());
+    }
+
+    // 7. Command: report / audit
+    if cmd == "report" || cmd == "audit" {
+        let is_json = args.iter().any(|a| a == "--json");
+        let target_arg = args
+            .iter()
+            .skip(2)
+            .find(|a| !a.starts_with("--"))
+            .map(|s| s.as_str())
+            .unwrap_or(".");
+
+        let target_dir = Path::new(target_arg);
+        let abs_path = if target_dir.is_absolute() {
+            target_dir.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(target_dir)
+        };
+        let canonical = std::fs::canonicalize(&abs_path).unwrap_or(abs_path);
+
+        let custom_out_dir = args
+            .iter()
+            .position(|a| a == "--out-dir")
+            .and_then(|i| args.get(i + 1))
+            .map(PathBuf::from);
+
+        let embeddings = Arc::new(EmbeddingEngine::new_lazy());
+        let manager = Arc::new(VaultManager::new(embeddings)?);
+        let (project_id, engine, _) = manager.get_or_register_project_by_path(&canonical).await?;
+
+        let report = engine.analyze_graph().await?;
+        let export_summary = engine.export_artifacts(custom_out_dir.as_deref()).await?;
+
+        if is_json {
+            let out = serde_json::json!({
+                "project_id": project_id,
+                "report": report,
+                "artifacts": export_summary,
+            });
+            println!("{}", serde_json::to_string_pretty(&out)?);
+        } else {
+            println!("┌────────────────────────────────────────────────────────────┐");
+            println!("│ GraphFinder Architectural Topology Report                  │");
+            println!("└────────────────────────────────────────────────────────────┘");
+            println!("Project          : {}", project_id);
+            println!("Total Nodes      : {} | Total Connections: {}", report.total_nodes, report.total_edges);
+            println!("Graph Density    : {:.4}", report.density);
+            println!("Communities (LPA): {}", report.communities.len());
+            println!("God Nodes (Hubs) : {}", report.god_nodes.len());
+            println!("Cross Surprises  : {}", report.surprises.len());
+            println!("Dependency Cycles: {}", report.cycles.len());
+            println!("────────────────────────────────────────────────────────────");
+            println!("\nTop Architectural Hubs (God Nodes):");
+            for (i, g) in report.god_nodes.iter().take(6).enumerate() {
+                println!("  {}. {} [{}] - Degree: {} (In: {}, Out: {}) | {}", i + 1, g.title, g.node_type, g.degree, g.in_degree, g.out_degree, g.role);
+            }
+            println!("\nDetected Modular Subsystems:");
+            for c in report.communities.iter().take(6) {
+                println!("  • C{}: {} ({} nodes) - Stack: {}", c.id, c.name, c.node_count, c.dominant_type);
+            }
+            println!("\nStandalone Artifacts Generated:");
+            println!("  • Audit Report : {}", export_summary.report_markdown_path);
+            println!("  • Graph Schema : {}", export_summary.graph_json_path);
+            println!("  • Visual Canvas: {}", export_summary.standalone_html_path);
+            println!("────────────────────────────────────────────────────────────\n");
+        }
+        return Ok(());
+    }
+
+    // 8. Command: path
+    if cmd == "path" {
+        if args.len() < 4 {
+            eprintln!("Usage: graphfinder path <from> <to> [--path <path>] [--json]");
+            std::process::exit(1);
+        }
+        let from = &args[2];
+        let to = &args[3];
+        let is_json = args.iter().any(|a| a == "--json");
+
+        let target_dir = args
+            .iter()
+            .position(|a| a == "--path")
+            .and_then(|i| args.get(i + 1))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+        let embeddings = Arc::new(EmbeddingEngine::new_lazy());
+        let manager = Arc::new(VaultManager::new(embeddings)?);
+        let (_, engine, _) = manager.get_or_register_project_by_path(&target_dir).await?;
+
+        let path_opt = engine.find_path(from, to).await?;
+
+        if is_json {
+            println!("{}", serde_json::to_string_pretty(&path_opt)?);
+        } else {
+            match path_opt {
+                Some(p) => {
+                    println!("\nShortest Dependency Path: '{}' ➔ '{}' ({} hops)", p.source, p.target, p.length);
+                    println!("────────────────────────────────────────────────────────────");
+                    for (i, step) in p.steps.iter().enumerate() {
+                        let prefix = if i == 0 { "START" } else { &step.direction };
+                        let edge_info = step.edge_label.as_deref().map(|l| format!(" [{}]", l)).unwrap_or_default();
+                        println!("  {} {} [{}] {}{}", prefix, step.title, step.node_type, step.node_id, edge_info);
+                    }
+                    println!("────────────────────────────────────────────────────────────\n");
+                }
+                None => {
+                    println!("\nNo path found connecting '{}' to '{}'.\n", from, to);
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // 9. Command: explain
+    if cmd == "explain" {
+        if args.len() < 3 {
+            eprintln!("Usage: graphfinder explain <node> [--path <path>] [--json]");
+            std::process::exit(1);
+        }
+        let target_node = &args[2];
+        let is_json = args.iter().any(|a| a == "--json");
+
+        let target_dir = args
+            .iter()
+            .position(|a| a == "--path")
+            .and_then(|i| args.get(i + 1))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+        let embeddings = Arc::new(EmbeddingEngine::new_lazy());
+        let manager = Arc::new(VaultManager::new(embeddings)?);
+        let (_, engine, _) = manager.get_or_register_project_by_path(&target_dir).await?;
+
+        let explanation = engine.explain_node(target_node).await?;
+
+        if is_json {
+            println!("{}", serde_json::to_string_pretty(&explanation)?);
+        } else {
+            match explanation {
+                Some(e) => {
+                    let god_tag = if e.is_god_node { " 🌟 [GOD NODE / CENTRAL HUB]" } else { "" };
+                    println!("┌────────────────────────────────────────────────────────────┐");
+                    println!("│ Node Context Card: {}{}", e.title, god_tag);
+                    println!("└────────────────────────────────────────────────────────────┘");
+                    println!("Type             : {}", e.node_type);
+                    if let Some(p) = e.path {
+                        println!("Path             : {}", p);
+                    }
+                    println!("Community        : C{} ({})", e.community_id, e.community_name);
+                    println!("Degree           : {} (In: {}, Out: {}) - Centrality Rank #{}", e.degree, e.in_degree, e.out_degree, e.centrality_rank);
+                    if let Some(s) = e.summary {
+                        println!("Summary          : {}", s);
+                    }
+                    println!("Inbound Callers  : {}", if e.incoming_dependents.is_empty() { "None".to_string() } else { e.incoming_dependents.join(", ") });
+                    println!("Dependencies     : {}", if e.outgoing_dependencies.is_empty() { "None".to_string() } else { e.outgoing_dependencies.join(", ") });
+                    println!("Community Siblings: {}", if e.sibling_nodes.is_empty() { "None".to_string() } else { e.sibling_nodes.join(", ") });
+                    println!("────────────────────────────────────────────────────────────\n");
+                }
+                None => {
+                    println!("\nEntity '{}' not found in indexed graph.\n", target_node);
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // 10. Command: export
+    if cmd == "export" {
+        let target_arg = args
+            .iter()
+            .skip(2)
+            .find(|a| !a.starts_with("--"))
+            .map(|s| s.as_str())
+            .unwrap_or(".");
+
+        let target_dir = Path::new(target_arg);
+        let abs_path = if target_dir.is_absolute() {
+            target_dir.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(target_dir)
+        };
+        let canonical = std::fs::canonicalize(&abs_path).unwrap_or(abs_path);
+
+        let custom_out_dir = args
+            .iter()
+            .position(|a| a == "--out-dir")
+            .and_then(|i| args.get(i + 1))
+            .map(PathBuf::from);
+
+        let embeddings = Arc::new(EmbeddingEngine::new_lazy());
+        let manager = Arc::new(VaultManager::new(embeddings)?);
+        let (_, engine, _) = manager.get_or_register_project_by_path(&canonical).await?;
+
+        let exp = engine.export_artifacts(custom_out_dir.as_deref()).await?;
+        println!("[OK] Knowledge graph artifacts exported successfully!");
+        println!("  • Directory : {}", exp.output_dir);
+        println!("  • Graph JSON: {}", exp.graph_json_path);
+        println!("  • Report MD : {}", exp.report_markdown_path);
+        println!("  • HTML View : {}", exp.standalone_html_path);
         println!();
         return Ok(());
     }

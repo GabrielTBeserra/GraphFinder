@@ -659,8 +659,68 @@ impl Engine {
     }
 
     pub async fn get_graph(&self) -> Result<GraphData, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
-        Ok(db.get_graph_data()?)
+        let (mut graph, summaries) = {
+            let db = self.db.lock().await;
+            (db.get_graph_data()?, db.get_all_summaries()?)
+        };
+        let analytics = super::graph_analytics::GraphAnalyticsEngine::new(&graph, summaries);
+        let report = analytics.analyze();
+        let god_ids: HashSet<String> = report.god_nodes.into_iter().map(|g| g.id).collect();
+
+        for node in &mut graph.nodes {
+            if let Some(idx) = analytics.find_node_index(&node.id) {
+                node.community = Some(analytics.node_community(idx));
+                node.is_god_node = god_ids.contains(&node.id);
+            }
+        }
+        Ok(graph)
+    }
+
+    pub async fn get_analytics_engine(
+        &self,
+    ) -> Result<super::graph_analytics::GraphAnalyticsEngine, Box<dyn std::error::Error + Send + Sync>> {
+        let (graph, summaries) = {
+            let db = self.db.lock().await;
+            (db.get_graph_data()?, db.get_all_summaries()?)
+        };
+        Ok(super::graph_analytics::GraphAnalyticsEngine::new(&graph, summaries))
+    }
+
+    pub async fn analyze_graph(
+        &self,
+    ) -> Result<super::graph_analytics::GraphAnalysisReport, Box<dyn std::error::Error + Send + Sync>> {
+        let engine = self.get_analytics_engine().await?;
+        Ok(engine.analyze())
+    }
+
+    pub async fn find_path(
+        &self,
+        source: &str,
+        target: &str,
+    ) -> Result<Option<super::graph_analytics::PathResult>, Box<dyn std::error::Error + Send + Sync>> {
+        let engine = self.get_analytics_engine().await?;
+        Ok(engine.find_path(source, target))
+    }
+
+    pub async fn explain_node(
+        &self,
+        target: &str,
+    ) -> Result<Option<super::graph_analytics::NodeExplanation>, Box<dyn std::error::Error + Send + Sync>> {
+        let engine = self.get_analytics_engine().await?;
+        Ok(engine.explain_node(target))
+    }
+
+    pub async fn export_artifacts(
+        &self,
+        out_dir: Option<&Path>,
+    ) -> Result<super::graph_analytics::ExportSummary, Box<dyn std::error::Error + Send + Sync>> {
+        let engine = self.get_analytics_engine().await?;
+        let target_dir = match out_dir {
+            Some(d) => d.to_path_buf(),
+            None => self.vault_path.join("graphfinder-out"),
+        };
+        let project_name = self.vault_path.file_name().and_then(|s| s.to_str()).unwrap_or("GraphFinder Project");
+        Ok(engine.export_artifacts(&target_dir, project_name)?)
     }
 
     pub async fn get_neighborhood(

@@ -5,6 +5,9 @@ export interface GraphNode {
   degree: number;
   node_type?: 'note' | 'code' | 'unresolved';
   path?: string;
+  community?: number;
+  is_god_node?: boolean;
+  centrality?: number;
   x?: number;
   y?: number;
   vx?: number;
@@ -167,6 +170,97 @@ export interface CodeDependencies {
   imports: string[];
   imported_by: string[];
   external: string[];
+}
+
+export interface CommunityInfo {
+  id: number;
+  name: string;
+  node_count: number;
+  dominant_type: string;
+  key_nodes: string[];
+}
+
+export interface GodNodeInfo {
+  id: string;
+  title: string;
+  node_type: string;
+  degree: number;
+  in_degree: number;
+  out_degree: number;
+  centrality: number;
+  community_id: number;
+  role: string;
+}
+
+export interface SurpriseEdge {
+  source: string;
+  source_title: string;
+  target: string;
+  target_title: string;
+  label: string;
+  source_community: number;
+  target_community: number;
+  reason: string;
+}
+
+export interface DependencyCycle {
+  nodes: string[];
+  length: number;
+}
+
+export interface GraphAnalysisReport {
+  total_nodes: number;
+  total_edges: number;
+  density: number;
+  communities: CommunityInfo[];
+  god_nodes: GodNodeInfo[];
+  surprises: SurpriseEdge[];
+  cycles: DependencyCycle[];
+  isolated_nodes: string[];
+}
+
+export interface PathStep {
+  node_id: string;
+  title: string;
+  node_type: string;
+  edge_label?: string;
+  direction: string;
+}
+
+export interface PathResult {
+  source: string;
+  target: string;
+  length: number;
+  steps: PathStep[];
+}
+
+export interface NodeExplanation {
+  id: string;
+  title: string;
+  node_type: string;
+  path?: string;
+  community_id: number;
+  community_name: string;
+  is_god_node: boolean;
+  centrality_rank: number;
+  degree: number;
+  in_degree: number;
+  out_degree: number;
+  incoming_dependents: string[];
+  outgoing_dependencies: string[];
+  sibling_nodes: string[];
+  summary?: string;
+}
+
+export interface ExportSummary {
+  output_dir: string;
+  graph_json_path: string;
+  report_markdown_path: string;
+  standalone_html_path: string;
+  total_nodes: number;
+  total_edges: number;
+  communities_count: number;
+  god_nodes_count: number;
 }
 
 

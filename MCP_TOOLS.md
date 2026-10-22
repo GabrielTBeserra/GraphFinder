@@ -1,6 +1,6 @@
 # GraphFinder MCP Server Tools Specification
 
-All 20 tools described below are **fully implemented and active** using the official Model Context Protocol Rust SDK (`rmcp`).
+All 24 tools described below are **fully implemented and active** using the official Model Context Protocol Rust SDK (`rmcp`).
 They operate concurrently in two modes:
 1. **Desktop App Embedded Server**: Streamable HTTP/SSE at `http://127.0.0.1:45123/mcp` and `http://127.0.0.1:45123/sse` (with DNS rebinding protection and origin validation).
 2. **Headless CLI Stdio Mode**: `GraphFinder.exe --mcp` directly connecting to AI client standard IO (Claude Desktop, Cursor, Antigravity, etc.).
@@ -268,4 +268,62 @@ They operate concurrently in two modes:
     "project": "string (optional, target specific vault/project id)"
   }
   ```
+
+---
+
+## 21. `find_path` (Multi-Hop Shortest Path Finding)
+* **Purpose**: Trace the shortest connection path between any two nodes (notes, code files, or architectural concepts) across the unified knowledge and dependency graph.
+* **Mechanism**: Executes a breadth-first search (BFS) over directed wikilinks and code imports/dependencies.
+* **Parameters**:
+  ```json
+  {
+    "source": "string (starting note title, file path, or node id)",
+    "target": "string (destination note title, file path, or node id)",
+    "directed": "boolean (optional, default: false)",
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
+* **Output**: Returns an ordered sequence of hops (`steps`), edge relationships (`imports`, `wikilink`), direction, and node types.
+
+---
+
+## 22. `explain_node` (Deep Architectural & Topological Context)
+* **Purpose**: Provide a complete architectural briefing for any file or note in the graph, explaining *why* it matters and how it fits into the broader system.
+* **Mechanism**: Combines degree centrality, community/cluster membership, God Node status, incoming dependents, outgoing dependencies, and semantic siblings into a dense summary.
+* **Parameters**:
+  ```json
+  {
+    "target": "string (note title, file path, or node id)",
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
+
+---
+
+## 23. `get_community_report` (System-Wide Modular Subsystems & Hubs)
+* **Purpose**: Deliver an architectural audit report of the entire repository or vault (similar to `graphify` audits).
+* **Mechanism**: Runs Label Propagation (LPA) community detection, degree centrality ranking, God Nodes identification, cross-community architectural surprises, and dependency cycle detection.
+* **Parameters**:
+  ```json
+  {
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
+
+---
+
+## 24. `export_graph` (Standalone Artifacts Generation Suite)
+* **Purpose**: Export the unified knowledge and dependency graph into standalone, zero-dependency artifacts matching and exceeding `graphify-out/`.
+* **Mechanism**: Generates three files on disk in `<out_dir>`:
+  1. `graph.json` — Complete graph schema (nodes with communities, degrees, god-node flags, edges with labels and weights).
+  2. `GRAPH_REPORT.md` — Full markdown audit report with executive stats, top God Nodes table, community breakdown, cross-coupling surprises, and cycles.
+  3. `graph.html` — Zero-dependency interactive HTML5 canvas visualizer with ForceGraph, search filter, community color coding, and hub highlights (runs 100% offline).
+* **Parameters**:
+  ```json
+  {
+    "out_dir": "string (optional, default: './graphfinder-out')",
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
+
 

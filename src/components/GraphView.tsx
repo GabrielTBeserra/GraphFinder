@@ -10,8 +10,15 @@ import {
   Code,
   FileText,
   CirclesThree,
+  Crown,
+  GitBranch,
+  ChartBar,
+  SquaresFour,
+  X,
 } from '@phosphor-icons/react';
-import type { GraphData } from '../types';
+import type { GraphData, PathResult, PathStep } from '../types';
+import { findPath } from '../services/api';
+import { ArchitecturalReportModal } from './ArchitecturalReportModal';
 
 interface GraphViewProps {
   graphData: GraphData;
@@ -22,6 +29,12 @@ interface GraphViewProps {
   glowingNode?: { id: string; timestamp: number } | null;
   theme?: 'dark' | 'light';
 }
+
+const COMMUNITY_PALETTE = [
+  '#6366f1', '#10b981', '#38bdf8', '#f59e0b', '#ec4899',
+  '#8b5cf6', '#06b6d4', '#f97316', '#14b8a6', '#e11d48',
+  '#84cc16', '#a855f7', '#0ea5e9', '#eab308'
+];
 
 const LANG_COLORS: Record<string, string> = {
   typescript: '#38bdf8',
@@ -86,7 +99,10 @@ function hashStringToColor(str: string, isLight: boolean): string {
   return isLight ? VIBRANT_ACCENTS[index].light : VIBRANT_ACCENTS[index].dark;
 }
 
-function getNodeColor(node: any, isLight: boolean = false): string {
+function getNodeColor(node: any, isLight: boolean = false, colorMode: 'communities' | 'default' = 'communities'): string {
+  if (colorMode === 'communities' && typeof node.community === 'number') {
+    return COMMUNITY_PALETTE[node.community % COMMUNITY_PALETTE.length];
+  }
   if (node.node_type === 'code') {
     const lang = (node.tags && node.tags[0]) || '';
     return LANG_COLORS[lang.toLowerCase()] || (isLight ? '#0284c7' : '#38bdf8');
@@ -126,6 +142,12 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const graphInstanceRef = useRef<any>(null);
   const [localOnly, setLocalOnly] = useState<boolean>(false);
   const [filterMode, setFilterMode] = useState<'all' | 'notes' | 'code'>('all');
+  const [colorMode, setColorMode] = useState<'communities' | 'default'>('communities');
+  const [highlightGodNodes, setHighlightGodNodes] = useState<boolean>(true);
+  const [pathMode, setPathMode] = useState<boolean>(false);
+  const [pathStartNode, setPathStartNode] = useState<any | null>(null);
+  const [pathResult, setPathResult] = useState<PathResult | null>(null);
+  const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
 
   // Interaction refs: keep rendering independent of React state to prevent canvas flickers
   const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
@@ -134,6 +156,40 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const onSelectNodeRef = useRef(onSelectNode);
   const onSelectCodeRef = useRef(onSelectCode);
   const themeRef = useRef<'dark' | 'light'>(theme);
+  const colorModeRef = useRef<'communities' | 'default'>('communities');
+  const highlightGodNodesRef = useRef<boolean>(true);
+  const pathModeRef = useRef<boolean>(false);
+  const pathStartNodeRef = useRef<any | null>(null);
+  const pathResultRef = useRef<PathResult | null>(null);
+
+  useEffect(() => {
+    colorModeRef.current = colorMode;
+    graphInstanceRef.current?.d3ReheatSimulation();
+  }, [colorMode]);
+
+  useEffect(() => {
+    highlightGodNodesRef.current = highlightGodNodes;
+    graphInstanceRef.current?.d3ReheatSimulation();
+  }, [highlightGodNodes]);
+
+  useEffect(() => {
+    pathModeRef.current = pathMode;
+    if (!pathMode) {
+      setPathStartNode(null);
+      setPathResult(null);
+      pathStartNodeRef.current = null;
+      pathResultRef.current = null;
+      graphInstanceRef.current?.d3ReheatSimulation();
+    }
+  }, [pathMode]);
+
+  useEffect(() => {
+    pathStartNodeRef.current = pathStartNode;
+  }, [pathStartNode]);
+
+  useEffect(() => {
+    pathResultRef.current = pathResult;
+  }, [pathResult]);
 
   useEffect(() => {
     themeRef.current = theme;
@@ -265,6 +321,19 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const isImports = link.label === 'imports';
         const isLight = themeRef.current === 'light';
 
+        // Path finding priority highlight
+        if (pathResultRef.current && pathResultRef.current.steps.length > 1) {
+          const steps = pathResultRef.current.steps;
+          const isOnPath = steps.some((step, idx) => {
+            if (idx === 0) return false;
+            const prev = steps[idx - 1];
+            return (prev.node_id === s && step.node_id === t) || (prev.node_id === t && step.node_id === s);
+          });
+          if (isOnPath) {
+            return isLight ? '#0284c7' : '#38bdf8';
+          }
+        }
+
         if (connected.size > 0) {
           if (connected.has(s) && connected.has(t)) {
             return isImports
@@ -280,6 +349,17 @@ export const GraphView: React.FC<GraphViewProps> = ({
       .linkWidth((link: any) => {
         const s = typeof link.source === 'object' ? link.source.id : link.source;
         const t = typeof link.target === 'object' ? link.target.id : link.target;
+
+        if (pathResultRef.current && pathResultRef.current.steps.length > 1) {
+          const steps = pathResultRef.current.steps;
+          const isOnPath = steps.some((step, idx) => {
+            if (idx === 0) return false;
+            const prev = steps[idx - 1];
+            return (prev.node_id === s && step.node_id === t) || (prev.node_id === t && step.node_id === s);
+          });
+          if (isOnPath) return 3.5;
+        }
+
         const connected = connectedNodeIdsRef.current;
         if (connected.has(s) && connected.has(t)) return 2.2;
         return 1.2;
@@ -294,7 +374,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const isConnected = connected.has(node.id);
         const isDimmed = connected.size > 0 && !isConnected;
         const isCode = node.node_type === 'code';
-        const accentColor = getNodeColor(node, isLight);
+        const accentColor = getNodeColor(node, isLight, colorModeRef.current);
 
         // Check Glowing MCP State
         const glowing = glowingStateRef.current;
@@ -333,6 +413,37 @@ export const GraphView: React.FC<GraphViewProps> = ({
           ctx.shadowColor = '#10b981';
           ctx.shadowBlur = 8;
           ctx.fillText('MCP LIVE', node.x, node.y - 18);
+          ctx.restore();
+        }
+
+        // God Node / Hub halo effect
+        const isGod = highlightGodNodesRef.current && (node.is_god_node || (node.degree || 0) >= 12);
+        if (isGod && !isDimmed) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, Math.max(14, (node.degree || 0) * 1.5 + 6), 0, 2 * Math.PI, false);
+          ctx.strokeStyle = 'rgba(245, 158, 11, 0.65)';
+          ctx.lineWidth = 1.6;
+          ctx.setLineDash([3, 3]);
+          ctx.shadowColor = '#f59e0b';
+          ctx.shadowBlur = 8;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // Path finding node highlight
+        const isPathStart = pathStartNodeRef.current && pathStartNodeRef.current.id === node.id;
+        const isPathStep = pathResultRef.current?.steps?.some((s: PathStep) => s.node_id === node.id);
+        if (isPathStart || isPathStep) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, 14, 0, 2 * Math.PI, false);
+          ctx.strokeStyle = isPathStart ? '#38bdf8' : '#06b6d4';
+          ctx.lineWidth = 2.4;
+          if (isPathStart) ctx.setLineDash([4, 2]);
+          ctx.shadowColor = '#38bdf8';
+          ctx.shadowBlur = 10;
+          ctx.stroke();
           ctx.restore();
         }
 
@@ -505,13 +616,40 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const textWidth = ctx.measureText(tagText).width;
         ctx.fillRect(node.x - textWidth / 2 - 8, node.y + 10, textWidth + 16, 18);
       })
-      .onNodeClick((node: any) => {
-        if (node && node.id) {
-          if (node.node_type === 'code' && onSelectCodeRef.current) {
-            onSelectCodeRef.current(node.path || node.id);
-          } else {
-            onSelectNodeRef.current(node.id);
+      .onNodeClick(async (node: any) => {
+        if (!node || !node.id) return;
+
+        // Path Inspector mode handling
+        if (pathModeRef.current) {
+          if (!pathStartNodeRef.current) {
+            setPathStartNode(node);
+            pathStartNodeRef.current = node;
+            graphInstanceRef.current?.d3ReheatSimulation();
+            return;
           }
+          if (pathStartNodeRef.current.id === node.id) {
+            setPathStartNode(null);
+            pathStartNodeRef.current = null;
+            setPathResult(null);
+            pathResultRef.current = null;
+            graphInstanceRef.current?.d3ReheatSimulation();
+            return;
+          }
+          try {
+            const res = await findPath(pathStartNodeRef.current.id, node.id);
+            setPathResult(res);
+            pathResultRef.current = res;
+            graphInstanceRef.current?.d3ReheatSimulation();
+          } catch (err) {
+            console.error('Failed to find path:', err);
+          }
+          return;
+        }
+
+        if (node.node_type === 'code' && onSelectCodeRef.current) {
+          onSelectCodeRef.current(node.path || node.id);
+        } else {
+          onSelectNodeRef.current(node.id);
         }
       })
       .onNodeHover((node: any) => {
@@ -742,6 +880,80 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
 
+        {/* Communities / Clusters toggle */}
+        <button
+          type="button"
+          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+            colorMode === 'communities'
+              ? isLight
+                ? 'bg-purple-100 text-purple-700 border border-purple-200'
+                : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
+              : isLight
+              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+          }`}
+          title={colorMode === 'communities' ? 'Color Mode: Communities (Active)' : 'Color by Communities'}
+          onClick={() => setColorMode(colorMode === 'communities' ? 'default' : 'communities')}
+        >
+          <SquaresFour size={12} weight={colorMode === 'communities' ? 'bold' : 'regular'} />
+          <span>Clusters</span>
+        </button>
+
+        {/* God Nodes / Hubs toggle */}
+        <button
+          type="button"
+          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+            highlightGodNodes
+              ? isLight
+                ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                : 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+              : isLight
+              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+          }`}
+          title={highlightGodNodes ? 'Highlight Architectural Hubs / God Nodes' : 'God Nodes Hidden'}
+          onClick={() => setHighlightGodNodes(!highlightGodNodes)}
+        >
+          <Crown size={12} weight={highlightGodNodes ? 'bold' : 'regular'} />
+          <span>Hubs</span>
+        </button>
+
+        {/* Path Inspector toggle */}
+        <button
+          type="button"
+          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+            pathMode
+              ? isLight
+                ? 'bg-sky-100 text-sky-700 border border-sky-200'
+                : 'bg-sky-500/25 text-sky-300 border border-sky-500/40'
+              : isLight
+              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+          }`}
+          title="Path Inspector: Click any 2 nodes to find shortest path"
+          onClick={() => setPathMode(!pathMode)}
+        >
+          <GitBranch size={12} weight={pathMode ? 'bold' : 'regular'} />
+          <span>Path</span>
+        </button>
+
+        {/* Architectural Audit Modal */}
+        <button
+          type="button"
+          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+            isLight
+              ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#94a3b8] hover:text-white hover:bg-[#1a2030]'
+          }`}
+          title="Open Architectural Audit Report"
+          onClick={() => setShowAuditModal(true)}
+        >
+          <ChartBar size={12} weight="bold" />
+          <span>Audit</span>
+        </button>
+
+        <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
+
         <button
           type="button"
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
@@ -812,6 +1024,48 @@ export const GraphView: React.FC<GraphViewProps> = ({
         </button>
       </div>
 
+      {/* Floating Path Inspector Banner */}
+      {pathMode && (
+        <div className={`absolute top-16 left-3 z-30 flex items-center gap-2.5 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md text-[11px] font-mono border transition-all ${
+          isLight
+            ? 'bg-white/95 border-sky-300 text-slate-700 shadow-sky-100'
+            : 'bg-[#0b1220]/90 border-sky-500/40 text-slate-200 shadow-[0_4px_20px_rgba(56,189,248,0.15)]'
+        }`}>
+          <GitBranch size={14} className="text-sky-400 shrink-0 animate-pulse" />
+          {!pathStartNode ? (
+            <span>Clique no <strong className="text-sky-400">nó de origem</strong> no grafo...</span>
+          ) : !pathResult ? (
+            <span>
+              Origem: <strong className="text-sky-400">{pathStartNode.title || pathStartNode.id}</strong> → Clique no <strong className="text-emerald-400">nó de destino</strong>...
+            </span>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span>
+                Caminho: <strong className="text-sky-400">{pathResult.length} nós</strong> ({pathResult.steps.length > 1 ? pathResult.steps.length - 1 : 0} saltos)
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setPathStartNode(null);
+                  setPathResult(null);
+                }}
+                className="px-1.5 py-0.5 rounded text-[10px] bg-slate-700 hover:bg-slate-600 text-white cursor-pointer"
+              >
+                Limpar
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setPathMode(false)}
+            className="p-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            title="Fechar Inspetor de Caminhos"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
       {/* Floating HUD Telemetry Capsule */}
       <div className={`absolute bottom-3 left-3 z-30 flex items-center gap-2 px-2.5 py-1 rounded-lg shadow-lg backdrop-blur-md text-[10.5px] font-mono transition-colors ${
         isLight
@@ -837,6 +1091,14 @@ export const GraphView: React.FC<GraphViewProps> = ({
           </>
         )}
       </div>
+
+      {/* Architectural Audit Modal */}
+      <ArchitecturalReportModal
+        isOpen={showAuditModal}
+        onClose={() => setShowAuditModal(false)}
+        onSelectNode={onSelectNode}
+        theme={theme}
+      />
     </div>
   );
 };

@@ -5,12 +5,16 @@ import type {
   CodeDependencies,
   CodeFileRecord,
   CompressedContext,
+  ExportSummary,
   FileContext,
+  GraphAnalysisReport,
   GraphData,
   LinkSuggestion,
   Neighborhood,
+  NodeExplanation,
   NoteRecord,
   NoteSummary,
+  PathResult,
   ProjectInfo,
   SearchHit,
   VaultStats,
@@ -493,6 +497,54 @@ export async function listCodeFiles(limit: number = 200): Promise<CodeFileRecord
     }
   }
   return [];
+}
+
+export async function analyzeGraph(): Promise<GraphAnalysisReport | null> {
+  if (isTauri) {
+    try {
+      return await invoke<GraphAnalysisReport>('analyze_graph');
+    } catch (e) {
+      console.warn('analyze_graph error:', e);
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function findPath(source: string, target: string): Promise<PathResult | null> {
+  if (isTauri) {
+    try {
+      return await invoke<PathResult | null>('find_path', { source, target });
+    } catch (e) {
+      console.warn('find_path error:', e);
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function explainNode(target: string): Promise<NodeExplanation | null> {
+  if (isTauri) {
+    try {
+      return await invoke<NodeExplanation | null>('explain_node', { target });
+    } catch (e) {
+      console.warn('explain_node error:', e);
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function exportArtifacts(outDir?: string): Promise<ExportSummary | null> {
+  if (isTauri) {
+    try {
+      return await invoke<ExportSummary>('export_artifacts', { outDir: outDir || null });
+    } catch (e) {
+      console.warn('export_artifacts error:', e);
+      return null;
+    }
+  }
+  return null;
 }
 
 

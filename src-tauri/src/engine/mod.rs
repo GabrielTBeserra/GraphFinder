@@ -1,6 +1,7 @@
 pub mod code;
 pub mod db;
 pub mod embeddings;
+pub mod graph_analytics;
 pub mod parser;
 pub mod project;
 pub mod vault;
@@ -12,6 +13,10 @@ pub use db::{
     NoteSummary, SearchHit, SectionSummary, SymbolInfo, VaultStats,
 };
 pub use embeddings::EmbeddingEngine;
+pub use graph_analytics::{
+    CommunityInfo, DependencyCycle, ExportSummary, GodNodeInfo, GraphAnalysisReport,
+    GraphAnalyticsEngine, NodeExplanation, PathResult, PathStep, SurpriseEdge,
+};
 pub use project::{clean_path_str, ProjectInfo, VaultManager};
 pub use vault::Engine;
 

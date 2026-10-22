@@ -37,6 +37,6 @@ models/
 Thumbs.db
 *.suo
 *.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Exported Graph Artifacts
+graphfinder-out/
+src-tauri/graphfinder-out/

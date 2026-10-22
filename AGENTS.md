@@ -105,3 +105,31 @@ GraphFinder indexes entire software repositories across multiple programming lan
 1. **Never read whole source code files into context** unless explicitly asked. Use `get_file_context` to see the symbol map, then `read_code_chunk` to fetch only the required function or method.
 2. **Cite deep links**: Reference code locations using `[[filepath#symbol]]` or line ranges.
 
+---
+
+## 6. Topological Graph Analytics & Architectural Auditing
+
+GraphFinder includes native, pure-Rust graph analytics matching and exceeding tools like `graphify`. AI agents can audit codebases and knowledge vaults for modular boundaries, structural hubs, and coupling surprises.
+
+### Architectural Decision Pipeline for AI Agents:
+```
+[Need to understand system architecture]
+       │
+       ├─► Want whole-system subsystem map? ─► `get_community_report()`
+       │                                       (LPA communities, God Nodes, cross surprises, cycles).
+       │
+       ├─► Need to understand a key file? ───► `explain_node(target)`
+       │                                       (Centrality, community, incoming/outgoing, role).
+       │
+       ├─► How does component A connect to B? ► `find_path(source, target)`
+       │                                       (BFS shortest path across imports & wikilinks).
+       │
+       └─► Need exportable offline artifacts? ► `export_graph(out_dir?)`
+                                               (Generates graph.json, GRAPH_REPORT.md, graph.html).
+```
+
+### Golden Rules for Architectural Inquiries:
+1. When asked about overall project architecture or code health, call `get_community_report()` first to get immediate, quantitative insight into modular boundaries and high-centrality God Nodes.
+2. When investigating how two unfamiliar modules interact, use `find_path(source, target)` before searching files manually.
+
+

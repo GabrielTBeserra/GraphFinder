@@ -43,6 +43,12 @@ pub struct GraphNode {
     pub node_type: String,
     #[serde(default)]
     pub path: Option<String>,
+    #[serde(default)]
+    pub community: Option<usize>,
+    #[serde(default)]
+    pub is_god_node: bool,
+    #[serde(default)]
+    pub centrality: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -873,6 +879,9 @@ impl DbManager {
                 degree,
                 node_type,
                 path,
+                community: None,
+                is_god_node: false,
+                centrality: 0.0,
             });
         }
 
@@ -890,11 +899,32 @@ impl DbManager {
                     degree,
                     node_type: "unresolved".to_string(),
                     path: None,
+                    community: None,
+                    is_god_node: false,
+                    centrality: 0.0,
                 });
             }
         }
 
         Ok(GraphData { nodes, links })
+    }
+
+    pub fn get_all_summaries(&self) -> Result<HashMap<String, String>> {
+        let mut map = HashMap::new();
+        let mut note_stmt = self.conn.prepare("SELECT id, summary FROM notes WHERE summary != ''")?;
+        let note_rows = note_stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        for r in note_rows {
+            let (id, s) = r?;
+            map.insert(id, s);
+        }
+
+        let mut code_stmt = self.conn.prepare("SELECT id, summary FROM code_files WHERE summary != ''")?;
+        let code_rows = code_stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        for r in code_rows {
+            let (id, s) = r?;
+            map.insert(id, s);
+        }
+        Ok(map)
     }
 
     pub fn get_neighborhood(&self, note_id_or_title: &str, depth: usize) -> Result<Neighborhood> {

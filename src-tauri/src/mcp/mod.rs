@@ -204,6 +204,40 @@ pub struct GetCodeDependenciesArgs {
     pub project: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct FindPathArgs {
+    /// Origin node title, file path, or symbol (e.g. 'App.tsx' or 'Note Title')
+    pub source: String,
+    /// Destination node title, file path, or symbol (e.g. 'db.rs')
+    pub target: String,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExplainNodeArgs {
+    /// Target node title, file path, or symbol
+    pub target: String,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetCommunityReportArgs {
+    /// 'markdown' (default human-readable audit) or 'json'
+    pub format: Option<String>,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExportGraphArgs {
+    /// Custom output directory (optional, defaults to './graphfinder-out')
+    pub out_dir: Option<String>,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
 impl GraphFinderMcpServer {
     pub fn new(manager: Arc<VaultManager>, app_handle: Option<tauri::AppHandle>) -> Self {
         Self {
@@ -746,6 +780,125 @@ impl GraphFinderMcpServer {
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error retrieving dependencies: {}", e))])),
         }
     }
+
+    /// Discovers shortest multi-hop dependency path connecting any two symbols, files, or notes.
+    #[tool(description = "Discovers shortest multi-hop dependency path connecting any two symbols, files, or notes.")]
+    async fn find_path(&self, Parameters(args): Parameters<FindPathArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.find_path(&args.source, &args.target).await {
+            Ok(Some(path)) => {
+                let mut out = format!("### Path from `{}` to `{}` (Length: {} hops)\n\n", path.source, path.target, path.length);
+                for (i, step) in path.steps.iter().enumerate() {
+                    let dir = if i == 0 { "START" } else { &step.direction };
+                    let lbl = step.edge_label.as_deref().map(|l| format!(" [{}]", l)).unwrap_or_default();
+                    out.push_str(&format!("{}. {} **{}** (`{}`){}\n", i + 1, dir, step.title, step.node_type, lbl));
+                }
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Ok(None) => Ok(CallToolResult::success(vec![ContentBlock::text(format!("No connection path found between `{}` and `{}`.", args.source, args.target))])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error finding path: {}", e))])),
+        }
+    }
+
+    /// Generates a comprehensive 360° architectural context card for any symbol, file, or note.
+    #[tool(description = "Generates a comprehensive 360° architectural context card for any symbol, file, or note.")]
+    async fn explain_node(&self, Parameters(args): Parameters<ExplainNodeArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.explain_node(&args.target).await {
+            Ok(Some(e)) => {
+                let god_badge = if e.is_god_node { " 🌟 **[GOD NODE / ARCHITECTURAL HUB]**" } else { "" };
+                let mut out = format!("# Architectural Context: `{}`{}\n\n", e.title, god_badge);
+                out.push_str(&format!("- **Node Type**: `{}`\n", e.node_type));
+                if let Some(p) = e.path {
+                    out.push_str(&format!("- **File Path**: `{}`\n", p));
+                }
+                out.push_str(&format!("- **Community Cluster**: C{} - {}\n", e.community_id, e.community_name));
+                out.push_str(&format!("- **Centrality Rank**: #{} (Degree: {} | Inbound: {} | Outbound: {})\n", e.centrality_rank, e.degree, e.in_degree, e.out_degree));
+                if let Some(s) = e.summary {
+                    out.push_str(&format!("- **Summary**: {}\n", s));
+                }
+                out.push_str(&format!("\n### Inbound Dependents ({}):\n", e.incoming_dependents.len()));
+                if e.incoming_dependents.is_empty() {
+                    out.push_str("- *(None)*\n");
+                } else {
+                    for dep in e.incoming_dependents {
+                        out.push_str(&format!("- {}\n", dep));
+                    }
+                }
+                out.push_str(&format!("\n### Outbound Dependencies ({}):\n", e.outgoing_dependencies.len()));
+                if e.outgoing_dependencies.is_empty() {
+                    out.push_str("- *(None)*\n");
+                } else {
+                    for dep in e.outgoing_dependencies {
+                        out.push_str(&format!("- {}\n", dep));
+                    }
+                }
+                out.push_str(&format!("\n### Co-located Sibling Nodes in Community C{}:\n", e.community_id));
+                for sib in e.sibling_nodes {
+                    out.push_str(&format!("- `{}`\n", sib));
+                }
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Ok(None) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Node `{}` not found in graph.", args.target))])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error explaining node: {}", e))])),
+        }
+    }
+
+    /// Returns high-density architectural audit of communities, god nodes, and surprises.
+    #[tool(description = "Returns high-density architectural audit of communities, god nodes, and surprises.")]
+    async fn get_community_report(&self, Parameters(args): Parameters<GetCommunityReportArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.analyze_graph().await {
+            Ok(report) => {
+                if args.format.as_deref() == Some("json") {
+                    let json = serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string());
+                    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+                } else {
+                    let mut out = String::from("# Architectural Community & Topology Report\n\n");
+                    out.push_str(&format!("- **Total Nodes**: {} | **Connections**: {} | **Density**: {:.4}\n", report.total_nodes, report.total_edges, report.density));
+                    out.push_str(&format!("- **Communities**: {} | **God Nodes**: {} | **Surprises**: {}\n\n", report.communities.len(), report.god_nodes.len(), report.surprises.len()));
+                    
+                    out.push_str("### 🌟 God Nodes (Architectural Hubs)\n");
+                    for g in &report.god_nodes {
+                        out.push_str(&format!("- **`{}`** (`{}`) | Degree: {} (In: {}, Out: {}) | C{} ({})\n", g.title, g.node_type, g.degree, g.in_degree, g.out_degree, g.community_id, g.role));
+                    }
+
+                    out.push_str("\n### 🧩 Modular Subsystem Communities\n");
+                    for c in &report.communities {
+                        out.push_str(&format!("- **C{}**: {} ({} nodes) - Key nodes: {}\n", c.id, c.name, c.node_count, c.key_nodes.join(", ")));
+                    }
+
+                    if !report.surprises.is_empty() {
+                        out.push_str("\n### ⚡ Architectural Surprises (Cross-Couplings)\n");
+                        for (i, s) in report.surprises.iter().take(8).enumerate() {
+                            out.push_str(&format!("{}. `{}` (C{}) -> `{}` (C{}) [{}]\n   *{}*\n", i + 1, s.source_title, s.source_community, s.target_title, s.target_community, s.label, s.reason));
+                        }
+                    }
+
+                    Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+                }
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error generating report: {}", e))])),
+        }
+    }
+
+    /// Exports graph.json, GRAPH_REPORT.md, and standalone graph.html to disk.
+    #[tool(description = "Exports graph.json, GRAPH_REPORT.md, and standalone graph.html to disk.")]
+    async fn export_graph(&self, Parameters(args): Parameters<ExportGraphArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let out_path = args.out_dir.as_ref().map(std::path::Path::new);
+        match engine.export_artifacts(out_path).await {
+            Ok(summary) => {
+                let out = format!(
+                    "Knowledge graph artifacts exported successfully to `{}`:\n\n- **Audit Report**: `{}`\n- **Graph Schema**: `{}`\n- **Offline Visual Canvas**: `{}`\n\nTotal Nodes: {} | Connections: {} | Communities: {} | God Nodes: {}",
+                    summary.output_dir, summary.report_markdown_path, summary.graph_json_path, summary.standalone_html_path,
+                    summary.total_nodes, summary.total_edges, summary.communities_count, summary.god_nodes_count
+                );
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error exporting graph: {}", e))])),
+        }
+    }
 }
 
 #[tool_handler]
@@ -755,7 +908,7 @@ impl ServerHandler for GraphFinderMcpServer {
             ServerCapabilities::builder().enable_tools().build(),
         )
         .with_server_info(Implementation::new("graphfinder", env!("CARGO_PKG_VERSION")))
-        .with_instructions("GraphFinder Neural Knowledge Graph & Local Semantic Vault MCP Server. Delivers atomic semantic search, structural context compression, wikilink recommendations, and local-first vault persistence.".to_string())
+        .with_instructions("GraphFinder Neural Knowledge Graph & Local Semantic Vault MCP Server. Delivers atomic semantic search, topological community clustering, God Nodes identification, multi-hop pathfinding, structural context compression, and local-first vault persistence.".to_string())
     }
 }
 
