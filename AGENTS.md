@@ -73,4 +73,35 @@ GraphFinder supports isolated workspaces (`./vaults/<project_id>`), each with it
 * `list_projects()`: Lists all configured projects, file paths, and note counts.
 * `create_project(name)`: Initializes a new isolated vault at `./vaults/<slug>/` with an introductory note.
 * `switch_project(project_id)`: Toggles the active default vault.
-* **Direct Vault Targeting**: All querying and mutation tools (`search_semantic`, `store_context`, `get_compressed_context`, `get_graph_neighborhood`, `suggest_links`, `link_notes`) accept an optional `project: "<id>"` parameter, enabling multi-vault management without cross-project contamination.
+* **Direct Vault Targeting**: All querying and mutation tools (`search_semantic`, `store_context`, `get_compressed_context`, `get_graph_neighborhood`, `suggest_links`, `link_notes`, `search_code`, `find_files`, `get_file_context`, `read_code_chunk`, `get_code_dependencies`) accept an optional `project: "<id>"` parameter, enabling multi-vault management without cross-project contamination.
+
+---
+
+## 5. Multi-Language Codebase Indexing & AST-Lite Graph
+
+GraphFinder indexes entire software repositories across multiple programming languages (Rust, TypeScript, JavaScript, Python, Go, C/C++, Java, Kotlin, C#, PHP, Ruby, Swift, CSS, Shell). It parses import statements (`import`, `require`, `use`, `include`, `mod`, etc.), constructs an internal dependency graph, and creates atomic symbol embeddings for functions, classes, and structs.
+
+### Code Retrieval Decision Pipeline for AI Agents:
+```
+[Need to find or inspect code]
+       │
+       ├─► Looking for a concept/feature? ──► `search_code(query, language?)`
+       │                                       (RRF hybrid search across symbols and comments).
+       │
+       ├─► Looking for a file path? ────────► `find_files(pattern)`
+       │                                       (Fast pattern/glob matching).
+       │
+       ├─► Need structural summary of file? ─► `get_file_context(file)`
+       │                                       (Imports, dependents, external pkgs, symbols).
+       │
+       ├─► Need a specific function/symbol? ─► `read_code_chunk(file, symbol)`
+       │                                       (Surgical snippet without reading full file).
+       │
+       └─► Analyzing architectural impact? ──► `get_code_dependencies(file)`
+                                               (Who imports this file & what does it import?).
+```
+
+### Golden Rules for Code Context:
+1. **Never read whole source code files into context** unless explicitly asked. Use `get_file_context` to see the symbol map, then `read_code_chunk` to fetch only the required function or method.
+2. **Cite deep links**: Reference code locations using `[[filepath#symbol]]` or line ranges.
+

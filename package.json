@@ -29,6 +29,10 @@
     "build": "tsc -b && vite build",
     "app": "tauri dev",
     "tauri": "tauri",
+    "sync": "cargo run --manifest-path src-tauri/Cargo.toml -- sync",
+    "status": "cargo run --manifest-path src-tauri/Cargo.toml -- status",
+    "search": "cargo run --manifest-path src-tauri/Cargo.toml -- search",
+    "projects": "cargo run --manifest-path src-tauri/Cargo.toml -- projects",
     "mcp": "cargo run --manifest-path src-tauri/Cargo.toml -- --mcp",
     "lint": "oxlint",
     "preview": "vite preview"

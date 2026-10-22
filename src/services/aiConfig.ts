@@ -1,8 +1,8 @@
 export const MCP_CONFIG_SNIPPET = `{
   "mcpServers": {
     "graphfinder": {
-      "type": "http",
-      "url": "http://127.0.0.1:45123/mcp"
+      "type": "sse",
+      "url": "http://127.0.0.1:45123/sse"
     }
   }
 }`;
@@ -10,8 +10,7 @@ export const MCP_CONFIG_SNIPPET = `{
 export const MCP_CURSOR_CONFIG_SNIPPET = `{
   "mcpServers": {
     "graphfinder": {
-      "type": "http",
-      "url": "http://127.0.0.1:45123/mcp"
+      "url": "http://127.0.0.1:45123/sse"
     }
   }
 }`;
@@ -19,8 +18,8 @@ export const MCP_CURSOR_CONFIG_SNIPPET = `{
 export const MCP_CLAUDE_CONFIG_SNIPPET = `{
   "mcpServers": {
     "graphfinder": {
-      "type": "http",
-      "url": "http://127.0.0.1:45123/mcp"
+      "command": "GraphFinder.exe",
+      "args": ["--mcp"]
     }
   }
 }`;
@@ -100,7 +99,37 @@ GraphFinder supports isolated workspaces (\`./vaults/<project_id>\`), each with 
 * \`list_projects()\`: Lists all configured projects, file paths, and note counts.
 * \`create_project(name)\`: Initializes a new isolated vault at \`./vaults/<slug>/\` with an introductory note.
 * \`switch_project(project_id)\`: Toggles the active default vault.
-* **Direct Vault Targeting**: All querying and mutation tools (\`search_semantic\`, \`store_context\`, \`get_compressed_context\`, \`get_graph_neighborhood\`, \`suggest_links\`, \`link_notes\`) accept an optional \`project: "<id>"\` parameter, enabling multi-vault management without cross-project contamination.`;
+* **Direct Vault Targeting**: All querying and mutation tools (\`search_semantic\`, \`store_context\`, \`get_compressed_context\`, \`get_graph_neighborhood\`, \`suggest_links\`, \`link_notes\`, \`search_code\`, \`find_files\`, \`get_file_context\`, \`read_code_chunk\`, \`get_code_dependencies\`) accept an optional \`project: "<id>"\` parameter, enabling multi-vault management without cross-project contamination.
+
+---
+
+## 5. Multi-Language Codebase Indexing & AST-Lite Graph
+
+GraphFinder indexes entire software repositories across multiple programming languages (Rust, TypeScript, JavaScript, Python, Go, C/C++, Java, Kotlin, C#, PHP, Ruby, Swift, CSS, Shell). It parses import statements (\`import\`, \`require\`, \`use\`, \`include\`, \`mod\`, etc.), constructs an internal dependency graph, and creates atomic symbol embeddings for functions, classes, and structs.
+
+### Code Retrieval Decision Pipeline for AI Agents:
+\`\`\`
+[Need to find or inspect code]
+       │
+       ├─► Looking for a concept/feature? ──► \`search_code(query, language?)\`
+       │                                       (RRF hybrid search across symbols and comments).
+       │
+       ├─► Looking for a file path? ────────► \`find_files(pattern)\`
+       │                                       (Fast pattern/glob matching).
+       │
+       ├─► Need structural summary of file? ─► \`get_file_context(file)\`
+       │                                       (Imports, dependents, external pkgs, symbols).
+       │
+       ├─► Need a specific function/symbol? ─► \`read_code_chunk(file, symbol)\`
+       │                                       (Surgical snippet without reading full file).
+       │
+       └─► Analyzing architectural impact? ──► \`get_code_dependencies(file)\`
+                                               (Who imports this file & what does it import?).
+\`\`\`
+
+### Golden Rules for Code Context:
+1. **Never read whole source code files into context** unless explicitly asked. Use \`get_file_context\` to see the symbol map, then \`read_code_chunk\` to fetch only the required function or method.
+2. **Cite deep links**: Reference code locations using \`[[filepath#symbol]]\` or line ranges.`;
 
 export const SKILL_CONTENT = `---
 name: graphfinder-curator
@@ -119,9 +148,10 @@ This skill guides AI agents and human editors in managing the **GraphFinder** kn
 ## When to Use This Skill
 - When drafting or structuring new notes in \`./vault\` or isolated project vaults (\`./vaults/<project>\`).
 - When toggling between workspaces with \`list_projects\`, \`switch_project\`, or creating new ones with \`create_project\`.
-- When communicating with GraphFinder via the embedded HTTP MCP server (/mcp).
+- When communicating with GraphFinder via the embedded MCP server (HTTP/SSE or Stdio).
 - When executing semantic searches while preserving LLM context budget.
 - When generating or applying bidirectional graph links.
+- When inspecting codebase files, symbols, and dependency import graphs.
 
 ---
 
@@ -163,6 +193,63 @@ Before committing a new note:
 ### 3. Vault Persistence
 - Via MCP: Call \`store_context(title, content, tags)\`.
 - Via Direct Filesystem: Save as \`./vault/<Title>.md\` and trigger \`sync_vault\` or allow automatic watcher indexing.
+
+---
+
+## Codebase Retrieval & Dependency Workflow (Cost-Effective Code Inspection)
+
+When inspecting or navigating codebase files:
+
+1. **Step 1: Surgical Code Search**
+   - Execute \`search_code(query, language?)\` to locate relevant functions, structs, or methods via hybrid semantic + BM25 search.
+   - Or execute \`find_files(pattern)\` if looking for a specific path or file type.
+
+2. **Step 2: File Context Inspection**
+   - Execute \`get_file_context(file)\` to get a dense summary (<80 tokens), list of exported symbols with line numbers, internal dependencies, external packages, and dependents.
+
+3. **Step 3: Atomic Function / Symbol Retrieval**
+   - Execute \`read_code_chunk(file, symbol)\` to retrieve only the relevant function body without dumping the entire file into context.
+
+4. **Step 4: Dependency Graph Navigation**
+   - Execute \`get_code_dependencies(file)\` to see what files import this file and what local files are imported.
+
+---
+
+## Terminal CLI & Skill-Driven Synchronization
+
+GraphFinder allows instant indexing and incremental updates directly from any terminal or programmatically from AI skills/MCP:
+
+\`\`\`bash
+# Sync and index the current directory
+graphfinder sync
+
+# Abbreviated shortcut
+graphfinder syn
+
+# Index a specific path on disk
+graphfinder sync Z:\\MyProject
+
+# Structured JSON output (ideal for automation scripts and AI skills)
+graphfinder sync --json
+\`\`\`
+
+- **Smart Path Auto-Detection**: GraphFinder normalizes the directory path. If the project was previously indexed, it executes a lightning-fast **incremental update via SHA-256** (only modified files are reprocessed). If it is a new folder, it registers the project automatically and generates embeddings.
+- **Other CLI Commands**:
+  - \`graphfinder status [path]\`: Displays indexing statistics for notes, code files, and graph connections.
+  - \`graphfinder projects\`: Lists all registered projects and paths.
+  - \`graphfinder search "query"\`: Runs fast hybrid semantic search directly from the terminal.
+
+### 2. Synchronization via MCP Tool in Skills
+AI assistants and skills can synchronize any project by calling the \`sync_vault\` tool:
+\`\`\`json
+{
+  "name": "sync_vault",
+  "arguments": {
+    "path": "Z:/MyProject"
+  }
+}
+\`\`\`
+This triggers the same smart path detection and incremental update workflow, returning complete telemetry on notes, code, and graph edges.
 
 ---
 

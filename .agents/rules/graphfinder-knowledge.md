@@ -14,3 +14,10 @@ This rule applies to all read, write, and query operations performed within the 
 - Use `get_compressed_context` to inspect section summaries without retrieving full document bodies.
 - Use `suggest_links` when drafting new content to discover semantic affinity with existing vault nodes.
 - Avoid duplicate concepts; connect new insights to existing notes.
+
+## 3. Codebase Retrieval & Dependency Navigation
+- **Never load whole source code files**: Use `get_file_context` to see the symbol map and dependency graph in <80 tokens.
+- **Surgical Function Retrieval**: Use `read_code_chunk(file, symbol)` to inspect only the required function or method body.
+- **Search Conceptually**: Use `search_code(query, language?)` for hybrid vector + BM25 keyword matching across all programming languages.
+- **Deep Code Links**: Cite code locations using `[[filepath#symbol]]` or line ranges.
+

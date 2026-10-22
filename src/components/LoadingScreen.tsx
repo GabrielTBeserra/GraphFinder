@@ -7,7 +7,7 @@ interface LoadingScreenProps {
 }
 
 export const LoadingScreen: React.FC<LoadingScreenProps> = ({
-  statusMessage = 'Inicializando motor neural de embeddings...',
+  statusMessage = 'Initializing neural embedding engine...',
   isError = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -127,7 +127,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
           <div className="flex items-center justify-between text-xs mb-2.5">
             <span className="flex items-center gap-2 text-indigo-300 font-medium">
               <Sparkle size={14} className="text-indigo-400 animate-spin" />
-              <span>{isError ? 'Erro na Inicialização' : 'Inicializando Ambiente'}</span>
+              <span>{isError ? 'Initialization Error' : 'Initializing Environment'}</span>
             </span>
             <span className="font-mono text-[10px] text-emerald-400 font-semibold">
               OFFLINE / LOCAL
@@ -148,7 +148,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
         <div className="grid grid-cols-2 gap-2 w-full text-left text-[11px] text-[#64748b]">
           <div className="flex items-center gap-1.5 p-2 rounded-xl bg-[#141824]/60 border border-[#1e2333]">
             <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
-            <span className="truncate">100% Dados Locais</span>
+            <span className="truncate">100% Local-First</span>
           </div>
           <div className="flex items-center gap-1.5 p-2 rounded-xl bg-[#141824]/60 border border-[#1e2333]">
             <HardDrives size={14} className="text-indigo-400 shrink-0" />
@@ -157,7 +157,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
         </div>
 
         <div className="mt-5 text-[10.5px] text-[#475569]">
-          O download do modelo ocorre apenas na primeira execução.
+          Model download only occurs on initial launch.
         </div>
       </div>
     </div>

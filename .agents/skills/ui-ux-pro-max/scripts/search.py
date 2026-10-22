@@ -151,14 +151,14 @@ if __name__ == "__main__":
                 persistence = result["persistence"] or {}
                 print("\n" + "=" * 60)
                 if persistence.get("status") == "skipped_exists":
-                    print(f"⚠️  {persistence.get('message', 'MASTER.md already exists; not overwritten.')}")
+                    print(f"[WARN] {persistence.get('message', 'MASTER.md already exists; not overwritten.')}")
                 else:
                     ds_dir = persistence.get("design_system_dir", "design-system/<project>")
-                    print(f"✅ Design system persisted to {ds_dir}/")
+                    print(f"[OK] Design system persisted to {ds_dir}/")
                     for f in persistence.get("created_files", []):
-                        print(f"   📄 {f}")
+                        print(f"   - {f}")
                     print("")
-                    print(f"📖 Usage: When building a page, check {ds_dir}/pages/[page].md first.")
+                    print(f"Usage: When building a page, check {ds_dir}/pages/[page].md first.")
                     print("   If it exists, its rules override MASTER.md. Otherwise, use MASTER.md.")
                 print("=" * 60)
     # Stack search

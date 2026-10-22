@@ -1,13 +1,15 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use walkdir::WalkDir;
 
+use super::code::{is_supported_code_file, parse_code_file, resolve_import_path};
 use super::db::{
-    ChunkHit, CompressedContext, DbManager, GraphData, LinkSuggestion, Neighborhood, NoteRecord,
-    NoteSummary, SearchHit, VaultStats,
+    ChunkHit, CodeChunkHit, CodeDependencies, CodeFileRecord, CompressedContext, DbManager,
+    FileContext, GraphData, LinkSuggestion, Neighborhood, NoteRecord, NoteSummary, SearchHit,
+    VaultStats,
 };
 use super::embeddings::EmbeddingEngine;
 use super::parser::parse_markdown;
@@ -70,122 +72,275 @@ impl Engine {
         &self.db_path
     }
 
-    /// Scans the vault directory and indexes all markdown files and their atomic chunks into SQLite
+    /// Scans the vault directory and indexes all markdown files AND source code files into SQLite
     pub async fn sync_vault(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         let mut count = 0;
-        let mut found_ids = HashSet::new();
+        let mut found_note_ids = HashSet::new();
+        let mut found_code_ids = HashSet::new();
 
         // 1. Fetch existing timestamps and content hashes for instant incremental sync
-        let existing_meta = {
+        let (existing_note_meta, existing_code_meta) = {
             let db = self.db.lock().await;
-            db.get_all_notes_meta()?
+            (db.get_all_notes_meta()?, db.get_all_code_files_meta()?)
         };
+
+        // Standard directories to ignore
+        let ignored_dirs: HashSet<&str> = [
+            ".git", "node_modules", "target", "dist", "build", ".next", "vendor",
+            ".fastembed_cache", "__pycache__", ".venv", "venv", ".idea", ".vscode",
+            "coverage", "out", ".turbo", ".gradle", "bin", "obj", ".gemini", "public"
+        ].into_iter().collect();
+
+        // Read optional .gitignore in root
+        let gitignore_patterns: Vec<String> = {
+            let gi_path = self.vault_path.join(".gitignore");
+            if gi_path.exists() {
+                if let Ok(content) = fs::read_to_string(&gi_path) {
+                    content
+                        .lines()
+                        .map(|l| l.trim())
+                        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                        .map(|l| l.trim_end_matches('/').to_string())
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        };
+
+        // First pass: collect entries and build path set for import resolution
+        let mut md_entries = Vec::new();
+        let mut code_entries = Vec::new();
+        let mut project_files_set = HashSet::new();
+        let mut project_files_by_name: HashMap<String, Vec<String>> = HashMap::new();
 
         for entry in WalkDir::new(&self.vault_path)
             .into_iter()
+            .filter_entry(|e| {
+                let file_name = e.file_name().to_string_lossy();
+                if e.file_type().is_dir() {
+                    if ignored_dirs.contains(file_name.as_ref()) {
+                        return false;
+                    }
+                    if gitignore_patterns.iter().any(|p| file_name == p.as_str()) {
+                        return false;
+                    }
+                }
+                true
+            })
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
-                let rel_path = path
-                    .strip_prefix(&self.vault_path)?
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                let id = rel_path.clone();
-                found_ids.insert(id.clone());
+            if !path.is_file() {
+                continue;
+            }
 
-                let metadata = match fs::metadata(path) {
-                    Ok(m) => m,
-                    Err(_) => continue,
-                };
-                let updated_at = metadata
-                    .modified()
-                    .map(|t| {
-                        t.duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs() as i64
-                    })
-                    .unwrap_or(0);
+            let rel_path = match path.strip_prefix(&self.vault_path) {
+                Ok(p) => p.to_string_lossy().replace('\\', "/"),
+                Err(_) => continue,
+            };
 
-                let content = match fs::read_to_string(path) {
-                    Ok(c) => c,
-                    Err(_) => continue,
-                };
+            if gitignore_patterns.iter().any(|p| {
+                rel_path == *p || rel_path.starts_with(&format!("{}/", p)) || rel_path.ends_with(p)
+            }) {
+                continue;
+            }
 
-                let hash = crate::engine::parser::content_hash(&content);
-
-                // Incremental check: if mtime AND content hash match, skip re-embedding
-                if let Some((existing_mtime, existing_hash)) = existing_meta.get(&id) {
-                    if *existing_mtime == updated_at && existing_hash == &hash {
-                        continue;
-                    }
-                }
-
-                let stem = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("untitled");
-
-                let parsed = parse_markdown(stem, &content);
-
-                // Batch all texts (overview + sections) into a single vectorized ONNX inference
-                let note_embed_text = format!(
-                    "{} {}\n{}",
-                    parsed.title,
-                    parsed.tags.join(" "),
-                    parsed.summary
-                );
-
-                let mut batch_texts = Vec::with_capacity(1 + parsed.chunks.len());
-                batch_texts.push(note_embed_text);
-
-                for chunk in &parsed.chunks {
-                    let chunk_text = format!(
-                        "{} {} {}\n{}",
-                        parsed.title,
-                        chunk.heading.as_deref().unwrap_or(""),
-                        chunk.tags.join(" "),
-                        chunk.content
-                    );
-                    batch_texts.push(chunk_text);
-                }
-
-                let mut all_vectors = self.embeddings.embed_batch(batch_texts).await?;
-                if all_vectors.is_empty() {
-                    continue;
-                }
-
-                let note_embedding = all_vectors.remove(0);
-                let mut chunk_embeddings = Vec::with_capacity(parsed.chunks.len());
-                for (chunk, vec) in parsed.chunks.into_iter().zip(all_vectors.into_iter()) {
-                    chunk_embeddings.push((chunk, vec));
-                }
-
-                let mut db = self.db.lock().await;
-                db.upsert_note(
-                    &id,
-                    &rel_path,
-                    &parsed.title,
-                    &parsed.summary,
-                    &content,
-                    &hash,
-                    updated_at,
-                    &parsed.links,
-                    &parsed.tags,
-                    Some(&note_embedding),
-                    &chunk_embeddings,
-                )?;
-                count += 1;
+            if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                md_entries.push((path.to_path_buf(), rel_path));
+            } else if is_supported_code_file(path) {
+                let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+                project_files_set.insert(rel_path.clone());
+                project_files_by_name.entry(file_name).or_default().push(rel_path.clone());
+                code_entries.push((path.to_path_buf(), rel_path));
             }
         }
 
-        // Clean up notes in db that no longer exist on disk (O(1) HashSet check)
-        let mut db = self.db.lock().await;
-        let existing = db.get_all_notes()?;
-        for n in existing {
-            if !found_ids.contains(&n.id) {
-                db.delete_note(&n.id)?;
+        // 2. Index Markdown Notes
+        for (path, rel_path) in md_entries {
+            let id = rel_path.clone();
+            found_note_ids.insert(id.clone());
+
+            let metadata = match fs::metadata(&path) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            let updated_at = metadata
+                .modified()
+                .map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64
+                })
+                .unwrap_or(0);
+
+            let content = match fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let hash = crate::engine::parser::content_hash(&content);
+
+            // Incremental check: if mtime AND content hash match, skip re-embedding
+            if let Some((existing_mtime, existing_hash)) = existing_note_meta.get(&id) {
+                if *existing_mtime == updated_at && existing_hash == &hash {
+                    continue;
+                }
             }
+
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("untitled");
+
+            let parsed = parse_markdown(stem, &content);
+
+            let note_embed_text = format!(
+                "{} {}\n{}",
+                parsed.title,
+                parsed.tags.join(" "),
+                parsed.summary
+            );
+
+            let mut batch_texts = Vec::with_capacity(1 + parsed.chunks.len());
+            batch_texts.push(note_embed_text);
+
+            for chunk in &parsed.chunks {
+                let chunk_text = format!(
+                    "{} {} {}\n{}",
+                    parsed.title,
+                    chunk.heading.as_deref().unwrap_or(""),
+                    chunk.tags.join(" "),
+                    chunk.content
+                );
+                batch_texts.push(chunk_text);
+            }
+
+            let mut all_vectors = self.embeddings.embed_batch(batch_texts).await?;
+            if all_vectors.is_empty() {
+                continue;
+            }
+
+            let note_embedding = all_vectors.remove(0);
+            let mut chunk_embeddings = Vec::with_capacity(parsed.chunks.len());
+            for (chunk, vec) in parsed.chunks.into_iter().zip(all_vectors.into_iter()) {
+                chunk_embeddings.push((chunk, vec));
+            }
+
+            let mut db = self.db.lock().await;
+            db.upsert_note(
+                &id,
+                &rel_path,
+                &parsed.title,
+                &parsed.summary,
+                &content,
+                &hash,
+                updated_at,
+                &parsed.links,
+                &parsed.tags,
+                Some(&note_embedding),
+                &chunk_embeddings,
+            )?;
+            count += 1;
+        }
+
+        // Clean up notes in db that no longer exist on disk
+        {
+            let mut db = self.db.lock().await;
+            let existing = db.get_all_notes()?;
+            for n in existing {
+                if !found_note_ids.contains(&n.id) {
+                    db.delete_note(&n.id)?;
+                }
+            }
+        }
+
+        // 3. Index Code Files
+        for (path, rel_path) in code_entries {
+            let id = rel_path.clone();
+            found_code_ids.insert(id.clone());
+
+            let metadata = match fs::metadata(&path) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+
+            // Skip large files (> 1 MB) to prevent overhead on massive bundles
+            if metadata.len() > 1_048_576 {
+                continue;
+            }
+
+            let updated_at = metadata
+                .modified()
+                .map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64
+                })
+                .unwrap_or(0);
+
+            let content = match fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let hash = crate::engine::parser::content_hash(&content);
+
+            // Incremental check: if mtime AND content hash match, skip re-embedding
+            if let Some((existing_mtime, existing_hash)) = existing_code_meta.get(&id) {
+                if *existing_mtime == updated_at && existing_hash == &hash {
+                    continue;
+                }
+            }
+
+            let parsed = parse_code_file(&rel_path, &content);
+
+            // Resolve imports to internal files or external packages
+            let mut resolved_links = Vec::new();
+            for imp in &parsed.imports {
+                if let Some(target_file) = resolve_import_path(
+                    &rel_path,
+                    &imp.target,
+                    &project_files_set,
+                    &project_files_by_name,
+                ) {
+                    resolved_links.push((rel_path.clone(), target_file, false));
+                } else {
+                    resolved_links.push((rel_path.clone(), imp.target.clone(), true));
+                }
+            }
+
+            // Batch embed code chunk texts
+            let mut batch_texts = Vec::with_capacity(parsed.chunks.len());
+            for chunk in &parsed.chunks {
+                let chunk_text = format!(
+                    "{}: {} (lines {}-{})\n{}",
+                    parsed.name,
+                    chunk.symbol_name.as_deref().unwrap_or("code"),
+                    chunk.start_line,
+                    chunk.end_line,
+                    chunk.content
+                );
+                batch_texts.push(chunk_text);
+            }
+
+            let vectors = if !batch_texts.is_empty() {
+                self.embeddings.embed_batch(batch_texts).await?
+            } else {
+                Vec::new()
+            };
+
+            let mut db = self.db.lock().await;
+            db.save_code_file_batch(&parsed, &hash, updated_at, &vectors, &resolved_links)?;
+            count += 1;
+        }
+
+        // Clean up deleted code files
+        {
+            let mut db = self.db.lock().await;
+            let _ = db.delete_missing_code_files(&found_code_ids)?;
         }
 
         Ok(count)
@@ -402,7 +557,7 @@ impl Engine {
         let note = self
             .get_note(old_id_or_title)
             .await?
-            .ok_or_else(|| format!("Nota '{}' não encontrada", old_id_or_title))?;
+            .ok_or_else(|| format!("Note '{}' not found", old_id_or_title))?;
 
         let old_title = note.title.clone();
         let old_path = self.vault_path.join(&note.path);
@@ -455,7 +610,7 @@ impl Engine {
         self.sync_vault().await?;
         self.get_note(&new_id)
             .await?
-            .ok_or_else(|| "Erro ao carregar nota renomeada".into())
+            .ok_or_else(|| "Failed to load renamed note".into())
     }
 
     /// Deletes a note from disk and cleans up SQLite database
@@ -466,7 +621,7 @@ impl Engine {
         let note = self
             .get_note(id_or_title)
             .await?
-            .ok_or_else(|| format!("Nota '{}' não encontrada", id_or_title))?;
+            .ok_or_else(|| format!("Note '{}' not found", id_or_title))?;
 
         let file_path = self.vault_path.join(&note.path);
         if file_path.exists() {
@@ -590,4 +745,64 @@ impl Engine {
         self.save_note(&note.title, &new_content, Some(&note.path))
             .await
     }
+
+    // ==========================================
+    // Codebase Query & Search Methods
+    // ==========================================
+
+    pub async fn search_code(
+        &self,
+        query: &str,
+        limit: usize,
+        lang_filter: Option<&str>,
+    ) -> Result<Vec<CodeChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
+        let query_emb = self.embeddings.embed_text(query).await.unwrap_or_default();
+        let db = self.db.lock().await;
+        Ok(db.search_code_hybrid(query, &query_emb, limit, lang_filter)?)
+    }
+
+    pub async fn find_files(
+        &self,
+        pattern: Option<&str>,
+        language: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<CodeFileRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let db = self.db.lock().await;
+        Ok(db.find_files(pattern, language, limit)?)
+    }
+
+    pub async fn get_file_context(
+        &self,
+        file_path: &str,
+    ) -> Result<Option<FileContext>, Box<dyn std::error::Error + Send + Sync>> {
+        let db = self.db.lock().await;
+        Ok(db.get_file_context(file_path)?)
+    }
+
+    pub async fn read_code_chunk(
+        &self,
+        file_path: &str,
+        symbol_or_lines: Option<&str>,
+    ) -> Result<Option<CodeChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
+        let db = self.db.lock().await;
+        Ok(db.read_code_chunk(file_path, symbol_or_lines)?)
+    }
+
+    pub async fn get_code_dependencies(
+        &self,
+        file_path: &str,
+        direction: &str,
+    ) -> Result<CodeDependencies, Box<dyn std::error::Error + Send + Sync>> {
+        let db = self.db.lock().await;
+        Ok(db.get_code_dependencies(file_path, direction)?)
+    }
+
+    pub async fn list_code_files(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<CodeFileRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let db = self.db.lock().await;
+        Ok(db.list_code_files(limit)?)
+    }
 }
+

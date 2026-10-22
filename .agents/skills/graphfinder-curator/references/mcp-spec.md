@@ -73,3 +73,63 @@ Establishes a bidirectional relationship between two notes, inserting the wikili
   - `from_note` (string, required): Source note title or id.
   - `to_note` (string, required): Target note title or id.
   - `project` (string, optional): Target specific vault project id.
+
+---
+
+## 7. `search_code` (Hybrid Code Retrieval)
+Surgical code search across all repository programming languages using RRF (FastEmbed vectors + BM25).
+
+* **Parameters**:
+  - `query` (string, required): Search query, function name, or conceptual keyword.
+  - `language` (string, optional): Filter by language (e.g. `rust`, `typescript`, `python`).
+  - `limit` (number, optional): Maximum chunks returned (default: 5).
+  - `project` (string, optional): Target specific project vault.
+* **Returns**:
+  List of matching code chunks with deep links `[[filepath#symbol]]`, line ranges, and token estimates.
+
+---
+
+## 8. `find_files` (Fast Pattern / Glob Matching)
+Locates source code files quickly by name or glob pattern.
+
+* **Parameters**:
+  - `pattern` (string, required): Glob or substring (e.g., `*.rs`, `engine`, `App.tsx`).
+  - `limit` (number, optional): Maximum files returned (default: 20).
+  - `project` (string, optional): Target specific project vault.
+* **Returns**:
+  List of matching relative file paths.
+
+---
+
+## 9. `get_file_context` (Structural File Overview)
+Returns a high-density summary (<80 tokens) of an individual source file.
+
+* **Parameters**:
+  - `file` (string, required): Relative file path or filename.
+  - `project` (string, optional): Target specific project vault.
+* **Returns**:
+  Language, token estimate, exported symbols with line ranges, local imported files, dependents, and third-party packages.
+
+---
+
+## 10. `read_code_chunk` (Atomic Symbol Retrieval)
+Retrieves the body of a specific function, class, or struct without reading full files.
+
+* **Parameters**:
+  - `file` (string, required): Relative file path.
+  - `symbol` (string, required): Name of function, struct, or class.
+  - `project` (string, optional): Target specific project vault.
+* **Returns**:
+  Surgical code chunk with start/end lines and token estimate.
+
+---
+
+## 11. `get_code_dependencies` (Relational Code Graph)
+Navigates the directional dependency graph around an individual file.
+
+* **Parameters**:
+  - `file` (string, required): Relative file path.
+  - `project` (string, optional): Target specific project vault.
+* **Returns**:
+  Internal imports, third-party packages, and incoming dependents (files that import this file).
+

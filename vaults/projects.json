@@ -1,9 +1,13 @@
 {
-  "active_project": "default",
+  "active_project": "teste",
   "custom_names": {
-    "asfasfasf": "asfasfasf"
+    "asfasfasf": "asfasfasf",
+    "teste": "Teste",
+    "graphfinder": "GraphFinder"
   },
   "custom_paths": {
-    "asfasfasf": "\\\\?\\C:\\Users\\gabri\\Downloads"
+    "graphfinder": "Z:\\GraphFinder",
+    "asfasfasf": "\\\\?\\C:\\Users\\gabri\\Downloads",
+    "teste": "Z:\\Projetos\\iptvurso"
   }
 }

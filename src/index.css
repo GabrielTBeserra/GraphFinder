@@ -148,3 +148,93 @@
   border-color: rgba(56, 189, 248, 0.45);
   color: #7dd3fc;
 }
+
+/* Light Theme Overrides */
+html.light,
+html.light body,
+html.light #root,
+[data-theme='light'],
+[data-theme='light'] body,
+[data-theme='light'] #root {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+html.light ::-webkit-scrollbar-thumb,
+[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+html.light ::-webkit-scrollbar-thumb:hover,
+[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.light .preview-content,
+[data-theme='light'] .preview-content {
+  color: #334155;
+}
+
+.light .preview-content h1,
+[data-theme='light'] .preview-content h1 {
+  color: #0f172a;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.light .preview-content h2,
+[data-theme='light'] .preview-content h2 {
+  color: #2563eb;
+}
+
+.light .preview-content h3,
+[data-theme='light'] .preview-content h3 {
+  color: #7c3aed;
+}
+
+.light .preview-content p,
+.light .preview-content ul,
+.light .preview-content ol,
+[data-theme='light'] .preview-content p,
+[data-theme='light'] .preview-content ul,
+[data-theme='light'] .preview-content ol {
+  color: #475569;
+}
+
+.light .preview-content code,
+[data-theme='light'] .preview-content code {
+  background-color: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+}
+
+.light .preview-content pre,
+[data-theme='light'] .preview-content pre {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.light .preview-content pre code,
+[data-theme='light'] .preview-content pre code {
+  color: #0f172a;
+}
+
+.light .preview-content blockquote,
+[data-theme='light'] .preview-content blockquote {
+  border-left: 2px solid #6366f1;
+  color: #64748b;
+}
+
+.light .wikilink-btn,
+[data-theme='light'] .wikilink-btn {
+  color: #0284c7;
+  background-color: rgba(2, 132, 199, 0.08);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+}
+
+.light .wikilink-btn:hover,
+[data-theme='light'] .wikilink-btn:hover {
+  background-color: rgba(2, 132, 199, 0.16);
+  border-color: rgba(2, 132, 199, 0.45);
+  color: #0369a1;
+}
+
