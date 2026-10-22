@@ -40,3 +40,7 @@ Thumbs.db
 # Exported Graph Artifacts
 graphfinder-out/
 src-tauri/graphfinder-out/
+
+# Local User Projects & Vaults Metadata
+vaults/projects.json
+vaults/*/
