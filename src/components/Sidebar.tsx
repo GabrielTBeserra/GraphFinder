@@ -1,43 +1,64 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   MagnifyingGlass,
   Plus,
-  Stack,
   FileText,
-  Tag,
   Hash,
   Lightning,
   X,
-  ArrowElbowDownLeft,
+  Trash,
+  Code,
+  FileCode,
+  ArrowUpRight,
+  ArrowDownLeft,
+  ArrowClockwise,
 } from '@phosphor-icons/react';
-import type { ChunkHit, NoteSummary } from '../types';
+import type { ChunkHit, CodeChunkHit, CodeFileRecord, NoteSummary } from '../types';
+import { getLanguageStyle } from './CodeInspector';
 
 interface SidebarProps {
   notes: NoteSummary[];
+  codeFiles?: CodeFileRecord[];
   selectedNoteId: string | null;
+  selectedCodePath?: string | null;
   onSelectNote: (id: string) => void;
+  onSelectCodeFile?: (path: string, symbol?: string) => void;
   onNewNote: () => void;
+  onDeleteNote?: (id: string, title: string) => Promise<void>;
   onSearchSemantic: (query: string) => Promise<void>;
+  onSearchCode?: (query: string) => Promise<void>;
   chunkResults: ChunkHit[];
+  codeChunkResults?: CodeChunkHit[];
   isSearching: boolean;
   isCollapsed?: boolean;
+  theme?: 'dark' | 'light';
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   notes,
+  codeFiles = [],
   selectedNoteId,
+  selectedCodePath,
   onSelectNote,
+  onSelectCodeFile,
   onNewNote,
+  onDeleteNote,
   onSearchSemantic,
+  onSearchCode,
   chunkResults,
+  codeChunkResults = [],
   isSearching,
   isCollapsed = false,
+  theme = 'dark',
 }) => {
-  const [activeTab, setActiveTab] = useState<'notes' | 'semantic' | 'tags'>('notes');
+  const isLight = theme === 'light';
+  const [mode, setMode] = useState<'notes' | 'code'>('notes');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [codeLanguageFilter, setCodeLanguageFilter] = useState<string | null>(null);
+  const [isSemanticView, setIsSemanticView] = useState(false);
 
-  const tagCounts = React.useMemo(() => {
+  const tagCounts = useMemo(() => {
     const map = new Map<string, number>();
     for (const n of notes) {
       for (const t of n.tags) {
@@ -47,14 +68,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
   }, [notes]);
 
+  const languageCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const cf of codeFiles) {
+      map.set(cf.language, (map.get(cf.language) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [codeFiles]);
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchTerm.trim()) return;
-    setActiveTab('semantic');
-    onSearchSemantic(searchTerm);
+    if (!searchTerm.trim()) {
+      setIsSemanticView(false);
+      return;
+    }
+    setIsSemanticView(true);
+    if (mode === 'code' && onSearchCode) {
+      onSearchCode(searchTerm);
+    } else {
+      onSearchSemantic(searchTerm);
+    }
   };
 
-  const filteredNotes = React.useMemo(() => {
+  const handleClearSearch = () => {
+    setSearchTerm('');
+    setIsSemanticView(false);
+  };
+
+  const filteredNotes = useMemo(() => {
     return notes.filter((n) => {
       const matchesSearch =
         !searchTerm ||
@@ -67,168 +108,233 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   }, [notes, searchTerm, selectedTag]);
 
+  const filteredCodeFiles = useMemo(() => {
+    return codeFiles.filter((cf) => {
+      const matchesSearch =
+        !searchTerm ||
+        cf.path.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        cf.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        cf.language.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesLang =
+        !codeLanguageFilter || cf.language.toLowerCase() === codeLanguageFilter.toLowerCase();
+      return matchesSearch && matchesLang;
+    });
+  }, [codeFiles, searchTerm, codeLanguageFilter]);
+
   if (isCollapsed) return null;
 
   return (
     <aside
-      className="w-72 h-full flex flex-col bg-[#0d0f14] border-r border-[#1f232d] shrink-0 select-none z-10"
-      aria-label="Painel de Navegacao e Busca"
+      className={`w-72 h-full flex flex-col border-r shrink-0 select-none z-10 transition-colors duration-200 ${
+        isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#0b0d13] border-[#181c26]'
+      }`}
+      aria-label="Sidebar"
     >
-      {/* Section Label matching banner.svg line 41 */}
-      <div className="px-3.5 pt-3 pb-1 flex items-center justify-between">
-        <span className="text-[11px] font-bold text-[#64748b] tracking-[0.8px] uppercase">
-          Knowledge Vault
-        </span>
-        <button
-          type="button"
-          onClick={onNewNote}
-          className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#161922] hover:bg-[#1a1e28] border border-[#262a36] text-[11px] font-medium text-[#cbd5e1] transition-all cursor-pointer"
-          title="Create new Markdown note"
-        >
-          <Plus size={11} weight="bold" />
-          <span>Note</span>
-        </button>
+      {/* 2-Mode Segmented Selector: Notes vs Code */}
+      <div className="p-2.5 pb-1 flex items-center gap-1.5">
+        <div className={`flex-1 flex p-0.5 rounded-lg border ${
+          isLight ? 'bg-slate-200/70 border-slate-300/60' : 'bg-[#12151f] border-[#1f2536]'
+        }`}>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('notes');
+              setIsSemanticView(false);
+            }}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+              mode === 'notes'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : isLight
+                ? 'text-slate-600 hover:text-slate-900'
+                : 'text-[#64748b] hover:text-[#cbd5e1]'
+            }`}
+          >
+            <FileText size={13} weight={mode === 'notes' ? 'bold' : 'regular'} />
+            <span>Notes ({notes.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMode('code');
+              setIsSemanticView(false);
+            }}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+              mode === 'code'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : isLight
+                ? 'text-slate-600 hover:text-slate-900'
+                : 'text-[#64748b] hover:text-[#cbd5e1]'
+            }`}
+          >
+            <Code size={13} weight={mode === 'code' ? 'bold' : 'regular'} />
+            <span>Code ({codeFiles.length})</span>
+          </button>
+        </div>
+
+        {onNewNote && mode === 'notes' && (
+          <button
+            type="button"
+            onClick={onNewNote}
+            className={`flex items-center justify-center w-7 h-7 rounded-lg border transition-colors cursor-pointer shrink-0 ${
+              isLight
+                ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700'
+                : 'bg-[#12151f] hover:bg-[#181d2a] border-[#1f2536] text-[#cbd5e1] hover:text-white'
+            }`}
+            title="Create new note"
+          >
+            <Plus size={13} weight="bold" />
+          </button>
+        )}
       </div>
 
-      {/* Search Bar matching banner.svg line 129 */}
-      <div className="p-3 pt-1.5 border-b border-[#1f232d]">
+      {/* Filter and Search Bar */}
+      <div className="px-2.5 py-1.5">
         <form onSubmit={handleSearchSubmit}>
-          <div className="relative flex items-center w-full rounded-md bg-[#171b26] border border-[#2d3446] focus-within:border-indigo-500/80 focus-within:ring-1 focus-within:ring-indigo-500/30 transition-all">
+          <div className={`relative flex items-center w-full rounded-lg border transition-all ${
+            isLight
+              ? 'bg-white border-slate-200 focus-within:border-indigo-500/70 focus-within:ring-1 focus-within:ring-indigo-500/20'
+              : 'bg-[#12151f] border-[#1f2536] focus-within:border-indigo-500/70 focus-within:ring-1 focus-within:ring-indigo-500/20'
+          }`}>
             <MagnifyingGlass size={13} className="absolute left-2.5 text-[#64748b] pointer-events-none" />
             <input
               type="text"
-              className="w-full pl-8 pr-7 py-1.5 text-xs text-[#f1f5f9] placeholder-[#64748b] bg-transparent focus:outline-none"
-              placeholder="search_semantic()..."
+              className={`w-full pl-8 pr-7 py-1.5 text-xs bg-transparent focus:outline-none ${
+                isLight ? 'text-slate-800 placeholder-slate-400' : 'text-[#f1f5f9] placeholder-[#64748b]'
+              }`}
+              placeholder={mode === 'notes' ? 'Filter notes... (↵ search)' : 'Filter code... (↵ search)'}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
             {searchTerm ? (
               <button
                 type="button"
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2 p-0.5 rounded text-[#64748b] hover:text-[#f1f5f9] transition-colors cursor-pointer"
+                onClick={handleClearSearch}
+                className="absolute right-2 p-0.5 rounded text-[#64748b] hover:text-slate-900 transition-colors cursor-pointer"
                 title="Clear search"
               >
                 <X size={12} />
               </button>
-            ) : (
-              <span
-                className="absolute right-2 flex items-center justify-center w-3.5 h-3.5 rounded bg-[#1e222d] text-[#64748b] text-[9px]"
-                title="Press Enter for semantic search"
-              >
-                <ArrowElbowDownLeft size={9} />
-              </span>
-            )}
+            ) : null}
           </div>
         </form>
       </div>
 
-      {/* Segmented Navigation Tabs */}
-      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[#1f232d]" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'notes'}
-          onClick={() => setActiveTab('notes')}
-          className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${
-            activeTab === 'notes'
-              ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
-              : 'text-[#64748b] hover:text-[#cbd5e1] hover:bg-[#13161f]'
-          }`}
-        >
-          <FileText size={12} />
-          <span>Notes ({notes.length})</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'semantic'}
-          onClick={() => {
-            setActiveTab('semantic');
-            if (searchTerm.trim() && chunkResults.length === 0) {
-              onSearchSemantic(searchTerm);
-            }
-          }}
-          className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${
-            activeTab === 'semantic'
-              ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
-              : 'text-[#64748b] hover:text-[#cbd5e1] hover:bg-[#13161f]'
-          }`}
-        >
-          <Stack size={12} />
-          <span>Chunks ({chunkResults.length})</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'tags'}
-          onClick={() => setActiveTab('tags')}
-          className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${
-            activeTab === 'tags'
-              ? 'bg-[#1a1e28] text-[#f8fafc] border border-[#2c3242]'
-              : 'text-[#64748b] hover:text-[#cbd5e1] hover:bg-[#13161f]'
-          }`}
-        >
-          <Tag size={12} />
-          <span>Tags ({tagCounts.length})</span>
-        </button>
-      </div>
-
-      {/* Tag Filters Bar */}
-      {activeTab === 'tags' && (
-        <div className="flex items-center gap-1.5 p-2 overflow-x-auto border-b border-[#1f232d] bg-[#12151c]">
+      {/* Chips: Tags (Notes) or Languages (Code) */}
+      {mode === 'notes' && tagCounts.length > 0 && !isSemanticView && (
+        <div className={`flex items-center gap-1 px-2.5 py-1.5 overflow-x-auto border-b scrollbar-none ${
+          isLight ? 'border-slate-200 bg-white/40' : 'border-[#181c26]'
+        }`}>
           {selectedTag && (
             <button
               type="button"
               onClick={() => setSelectedTag(null)}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-rose-950/60 text-rose-300 border border-rose-800/40 hover:bg-rose-900/50 transition-colors cursor-pointer shrink-0"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/10 text-rose-600 border border-rose-500/30 hover:bg-rose-500/20 transition-colors cursor-pointer shrink-0"
             >
               <X size={10} />
-              Clear Filter
+              Clear
             </button>
           )}
-          {tagCounts.map(([tag, count]) => {
+          {tagCounts.slice(0, 8).map(([tag, count]) => {
             const isSelected = selectedTag === tag;
             return (
               <button
                 key={tag}
                 type="button"
                 onClick={() => setSelectedTag(isSelected ? null : tag)}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer shrink-0 ${
+                className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer shrink-0 ${
                   isSelected
                     ? 'bg-indigo-600 text-white'
-                    : 'bg-[#171b26] text-[#94a3b8] border border-[#262a36] hover:bg-[#1e222d] hover:text-[#f1f5f9]'
+                    : isLight
+                    ? 'bg-slate-200/70 text-slate-700 border border-slate-300/60 hover:bg-slate-200'
+                    : 'bg-[#12151f] text-[#8e9bb2] border border-[#1f2536] hover:bg-[#181d2a] hover:text-[#f1f5f9]'
                 }`}
               >
                 <Hash size={9} />
-                {tag} <span className="text-[#64748b]">({count})</span>
+                <span>{tag}</span>
+                <span className={isLight ? 'text-slate-500 ml-0.5' : 'text-[#64748b] ml-0.5'}>{count}</span>
               </button>
             );
           })}
         </div>
       )}
 
-      {/* List Container */}
+      {mode === 'code' && languageCounts.length > 0 && !isSemanticView && (
+        <div className={`flex items-center gap-1 px-2.5 py-1.5 overflow-x-auto border-b scrollbar-none ${
+          isLight ? 'border-slate-200 bg-white/40' : 'border-[#181c26]'
+        }`}>
+          <button
+            type="button"
+            onClick={() => setCodeLanguageFilter(null)}
+            className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer shrink-0 ${
+              codeLanguageFilter === null
+                ? 'bg-indigo-600 text-white'
+                : isLight
+                ? 'bg-slate-200/70 text-slate-700 border border-slate-300/60 hover:bg-slate-200'
+                : 'bg-[#12151f] text-[#8e9bb2] border border-[#1f2536] hover:bg-[#181d2a]'
+            }`}
+          >
+            All
+          </button>
+          {languageCounts.map(([lang, count]) => {
+            const isSelected = codeLanguageFilter?.toLowerCase() === lang.toLowerCase();
+            const style = getLanguageStyle(lang);
+            return (
+              <button
+                key={lang}
+                type="button"
+                onClick={() => setCodeLanguageFilter(isSelected ? null : lang)}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer shrink-0 ${
+                  isSelected
+                    ? `${style.bg} ${style.text} border ${style.border}`
+                    : isLight
+                    ? 'bg-slate-200/70 text-slate-700 border border-slate-300/60 hover:bg-slate-200'
+                    : 'bg-[#12151f] text-[#8e9bb2] border border-[#1f2536] hover:bg-[#181d2a]'
+                }`}
+              >
+                <span>{lang}</span>
+                <span className={isLight ? 'text-slate-500' : 'text-[#64748b]'}>({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Semantic Results Banner */}
+      {isSemanticView && (
+        <div className={`px-3 py-1.5 border-b flex items-center justify-between ${
+          isLight ? 'bg-amber-50/70 border-amber-200/60' : 'bg-[#12151f] border-[#181c26]'
+        }`}>
+          <div className="flex items-center gap-1.5 text-[11px] truncate">
+            <Lightning size={12} className="text-amber-500 shrink-0" />
+            <span className={`truncate ${isLight ? 'text-slate-700 font-medium' : 'text-[#94a3b8]'}`}>
+              Neural Search: &quot;{searchTerm}&quot;
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsSemanticView(false)}
+            className="text-[10px] text-indigo-500 hover:text-indigo-600 font-medium cursor-pointer shrink-0"
+          >
+            Back
+          </button>
+        </div>
+      )}
+
+      {/* Items List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {activeTab === 'semantic' ? (
-          <div>
-            {isSearching ? (
-              <div className="py-8 text-center text-[#64748b] text-xs">
-                <Stack size={18} className="mx-auto mb-2 text-indigo-400 animate-spin" />
-                <span className="font-medium text-[#cbd5e1] block">Calculating Embeddings...</span>
-                <span className="text-[11px] text-[#64748b] block mt-1">
-                  Local FastEmbed isolating chunks
-                </span>
-              </div>
-            ) : chunkResults.length === 0 ? (
-              <div className="py-8 px-3 text-center text-[#64748b] text-xs">
-                <div className="w-8 h-8 rounded-lg bg-[#12151c] border border-[#1e222d] flex items-center justify-center mx-auto mb-2 text-[#64748b]">
-                  <Stack size={14} />
-                </div>
-                <strong className="block text-[#cbd5e1] mb-1">Semantic Search</strong>
-                Enter a query and press Enter to retrieve atomic sections.
+        {/* SEMANTIC RESULTS MODE */}
+        {isSemanticView ? (
+          isSearching ? (
+            <div className="py-12 text-center text-[#64748b] text-xs">
+              <ArrowClockwise size={18} className="mx-auto mb-2 text-indigo-500 animate-spin" />
+              <span>Computing embeddings...</span>
+            </div>
+          ) : mode === 'notes' ? (
+            chunkResults.length === 0 ? (
+              <div className="py-12 text-center text-[#64748b] text-xs">
+                No note chunks found for &quot;{searchTerm}&quot;.
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -236,82 +342,236 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div
                     key={chunk.chunk_id}
                     onClick={() => onSelectNote(chunk.note_id)}
-                    className={`p-2.5 rounded-md border transition-all cursor-pointer ${
+                    className={`p-2.5 rounded-lg border transition-all cursor-pointer ${
                       selectedNoteId === chunk.note_id
-                        ? 'bg-[#1a1e28] border-[#2c3242]'
-                        : 'bg-[#13161f] border-[#222736] hover:bg-[#171b26]'
+                        ? isLight
+                          ? 'bg-indigo-50/90 border-indigo-300 text-slate-900 shadow-xs'
+                          : 'bg-[#171b28] border-indigo-500/40 text-white'
+                        : isLight
+                        ? 'bg-white border-slate-200 hover:bg-slate-50'
+                        : 'bg-[#10131c] border-[#1c2130] hover:bg-[#141824]'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1.5">
-                      <span className="text-[11px] font-semibold text-[#e2e8f0] truncate">
+                      <span className={`text-xs font-semibold truncate ${isLight ? 'text-slate-800' : 'text-[#e2e8f0]'}`}>
                         {chunk.deep_link}
                       </span>
-                      <span className="text-[10px] font-mono font-semibold text-[#10b981] shrink-0">
+                      <span className="text-[10px] font-mono font-semibold text-emerald-500 shrink-0">
                         {Math.round(chunk.score * 100)}% match
                       </span>
                     </div>
-                    <p className="text-[10.5px] text-[#94a3b8] line-clamp-2 mt-1 leading-relaxed">
+                    <p className={`text-[10.5px] line-clamp-2 mt-1 leading-relaxed ${isLight ? 'text-slate-600' : 'text-[#94a3b8]'}`}>
                       &quot;{chunk.content}&quot;
                     </p>
-                    <div className="flex items-center gap-1 text-[9.5px] font-mono text-[#64748b] mt-1.5">
-                      <Lightning size={9} className="text-amber-400" />
-                      <span>~{chunk.token_estimate} tokens</span>
-                    </div>
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-        ) : filteredNotes.length === 0 ? (
-          <div className="py-8 text-center text-[#64748b] text-xs">
-            <FileText size={20} className="mx-auto mb-2 opacity-40" />
-            No notes found {searchTerm ? `for "${searchTerm}"` : ''}.
-          </div>
-        ) : (
-          filteredNotes.map((note) => {
-            const isSelected = selectedNoteId === note.id;
-            return (
-              <div
-                key={note.id}
-                onClick={() => onSelectNote(note.id)}
-                className={`px-3 py-2 rounded-md border transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-[#1a1e28] border-[#2c3242] shadow-xs'
-                    : 'bg-transparent border-transparent hover:bg-[#13161f] hover:border-[#1e222d]'
-                }`}
-              >
+            )
+          ) : codeChunkResults.length === 0 ? (
+            <div className="py-12 text-center text-[#64748b] text-xs">
+              No code symbols found for &quot;{searchTerm}&quot;.
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {codeChunkResults.map((chunk) => (
                 <div
-                  className={`text-xs font-semibold truncate ${
-                    isSelected ? 'text-[#f8fafc]' : 'text-[#94a3b8] hover:text-[#f1f5f9]'
+                  key={chunk.chunk_id}
+                  onClick={() => onSelectCodeFile?.(chunk.file_name, chunk.symbol_name || undefined)}
+                  className={`p-2.5 rounded-lg border transition-all cursor-pointer ${
+                    isLight
+                      ? 'bg-white border-slate-200 hover:border-sky-400 hover:bg-sky-50/30'
+                      : 'bg-[#10131c] border-[#1c2130] hover:bg-[#141824] hover:border-sky-500/40'
                   }`}
                 >
-                  {note.title.endsWith('.md') ? note.title : `${note.title}.md`}
-                </div>
-                {note.summary && (
-                  <p className="text-[11px] text-[#64748b] line-clamp-1 mt-0.5 leading-tight">
-                    {note.summary}
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className={`text-xs font-mono font-semibold truncate ${isLight ? 'text-sky-700' : 'text-sky-300'}`}>
+                      {chunk.deep_link}
+                    </span>
+                    <span className="text-[10px] font-mono font-semibold text-emerald-500 shrink-0">
+                      {Math.round(chunk.score * 100)}% match
+                    </span>
+                  </div>
+                  <p className={`text-[10px] font-mono line-clamp-2 mt-1 p-1.5 rounded border ${
+                    isLight
+                      ? 'bg-slate-50 text-slate-700 border-slate-200'
+                      : 'bg-[#090b10] text-[#94a3b8] border-[#161a26]'
+                  }`}>
+                    {chunk.content}
                   </p>
-                )}
-              </div>
-            );
-          })
+                  <div className="flex items-center justify-between text-[9px] font-mono text-[#64748b] mt-1.5">
+                    <span>L{chunk.start_line}–{chunk.end_line}</span>
+                    <span>~{chunk.token_estimate} tokens</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        ) : mode === 'notes' ? (
+          /* REGULAR NOTES LIST */
+          filteredNotes.length === 0 ? (
+            <div className="py-12 text-center text-[#64748b] text-xs">
+              <FileText size={22} className="mx-auto mb-2 opacity-30" />
+              No notes found {searchTerm ? `for "${searchTerm}"` : ''}.
+            </div>
+          ) : (
+            filteredNotes.map((note) => {
+              const isSelected = selectedNoteId === note.id;
+              const displayTitle = note.title.replace(/\.md$/, '');
+              return (
+                <div
+                  key={note.id}
+                  onClick={() => onSelectNote(note.id)}
+                  className={`group px-3 py-2 rounded-lg border transition-all cursor-pointer relative ${
+                    isSelected
+                      ? isLight
+                        ? 'bg-indigo-50/90 border-indigo-200 shadow-xs'
+                        : 'bg-[#181d2a] border-indigo-500/40 text-white shadow-xs'
+                      : isLight
+                      ? 'bg-white/90 border-slate-200/80 hover:bg-white hover:border-slate-300 hover:shadow-xs'
+                      : 'bg-transparent border-transparent hover:bg-[#12151f] hover:border-[#1d2230]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span
+                      className={`text-xs font-semibold truncate flex-1 ${
+                        isSelected
+                          ? isLight
+                            ? 'text-indigo-950 font-bold'
+                            : 'text-[#f8fafc]'
+                          : isLight
+                          ? 'text-slate-800 group-hover:text-slate-950'
+                          : 'text-[#cbd5e1] group-hover:text-[#f8fafc]'
+                      }`}
+                    >
+                      {displayTitle}
+                    </span>
+                    {onDeleteNote && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Are you sure you want to delete note "${displayTitle}"?`)) {
+                            onDeleteNote(note.id, note.title);
+                          }
+                        }}
+                        className={`opacity-0 group-hover:opacity-100 p-1 rounded transition-all shrink-0 cursor-pointer ${
+                          isLight
+                            ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                            : 'text-[#64748b] hover:text-rose-400 hover:bg-rose-950/40'
+                        }`}
+                        title="Delete note"
+                      >
+                        <Trash size={12} />
+                      </button>
+                    )}
+                  </div>
+                  {note.summary && (
+                    <p className={`text-[11px] line-clamp-1 mt-0.5 leading-normal ${isLight ? 'text-slate-500' : 'text-[#64748b]'}`}>
+                      {note.summary}
+                    </p>
+                  )}
+                  {note.tags.length > 0 && (
+                    <div className="flex items-center gap-1 mt-1 flex-wrap">
+                      {note.tags.slice(0, 3).map((t) => (
+                        <span
+                          key={t}
+                          className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${
+                            isLight
+                              ? 'bg-slate-100 text-slate-600 border-slate-200'
+                              : 'bg-[#171a25] text-[#8e9bb2] border-[#202534]'
+                          }`}
+                        >
+                          #{t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )
+        ) : (
+          /* REGULAR CODE FILES LIST */
+          filteredCodeFiles.length === 0 ? (
+            <div className="py-12 text-center text-[#64748b] text-xs">
+              <FileCode size={22} className="mx-auto mb-2 opacity-30" />
+              No code files found {searchTerm ? `for "${searchTerm}"` : ''}.
+            </div>
+          ) : (
+            filteredCodeFiles.map((cf) => {
+              const isSelected = selectedCodePath === cf.path;
+              const style = getLanguageStyle(cf.language);
+              return (
+                <div
+                  key={cf.id}
+                  onClick={() => onSelectCodeFile?.(cf.path)}
+                  className={`group px-2.5 py-2 rounded-lg border transition-all cursor-pointer relative ${
+                    isSelected
+                      ? isLight
+                        ? 'bg-sky-50 border-sky-300 shadow-xs'
+                        : 'bg-[#181d2a] border-sky-500/40 shadow-xs'
+                      : isLight
+                      ? 'bg-white/90 border-slate-200/80 hover:bg-white hover:border-slate-300'
+                      : 'bg-[#10131d]/60 border-transparent hover:bg-[#131722] hover:border-[#1d2232]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-semibold shrink-0 ${style.bg} ${style.text}`}
+                      >
+                        {cf.extension.toUpperCase().replace('.', '') || cf.language.slice(0, 3).toUpperCase()}
+                      </span>
+                      <span
+                        className={`text-xs font-semibold truncate ${
+                          isSelected
+                            ? isLight
+                              ? 'text-sky-950 font-bold'
+                              : 'text-[#f8fafc]'
+                            : isLight
+                            ? 'text-slate-800 group-hover:text-slate-950'
+                            : 'text-[#cbd5e1] group-hover:text-[#f8fafc]'
+                        }`}
+                      >
+                        {cf.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0 text-[10px] font-mono text-[#64748b]">
+                      {cf.imports_count > 0 && (
+                        <span className="flex items-center text-sky-500" title={`${cf.imports_count} imports`}>
+                          <ArrowUpRight size={10} />
+                          {cf.imports_count}
+                        </span>
+                      )}
+                      {cf.dependents_count > 0 && (
+                        <span className="flex items-center text-violet-500" title={`Imported by ${cf.dependents_count} files`}>
+                          <ArrowDownLeft size={10} />
+                          {cf.dependents_count}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className={`text-[10px] font-mono truncate mt-0.5 ${isLight ? 'text-slate-400' : 'text-[#64748b]'}`}>
+                    {cf.path}
+                  </p>
+                </div>
+              );
+            })
+          )
         )}
       </div>
 
-      {/* Vault Stats Box matching banner.svg lines 53-56 */}
-      <div className="p-3 border-t border-[#1f232d] bg-[#0d0f14]">
-        <div className="p-2.5 rounded-lg bg-[#12151c] border border-[#1e222d] space-y-1">
-          <span className="text-[11px] font-semibold text-[#cbd5e1] block">
-            Vault Overview
-          </span>
-          <div className="font-mono text-[11px] text-[#64748b] flex items-center justify-between">
-            <span>Nodes: <strong className="text-[#f8fafc] font-semibold">{notes.length}</strong></span>
-            <span>Edges: <strong className="text-[#f8fafc] font-semibold">{notes.reduce((acc, n) => acc + (n.tags.length || 1), 0)}</strong></span>
-          </div>
-          <div className="font-mono text-[10px] text-[#64748b]">
-            Local-First &amp; SQLite WAL
-          </div>
-        </div>
+      {/* Footer Info Pill */}
+      <div className={`px-3 py-2 border-t flex items-center justify-between text-[10.5px] font-mono transition-colors ${
+        isLight ? 'bg-slate-100/70 border-slate-200 text-slate-500' : 'bg-[#090b10] border-[#181c26] text-[#64748b]'
+      }`}>
+        <span>{notes.length} notes • {codeFiles.length} files</span>
+        <span className="flex items-center gap-1.5 text-emerald-500">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          Ready
+        </span>
       </div>
     </aside>
   );

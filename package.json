@@ -29,6 +29,10 @@
     "build": "tsc -b && vite build",
     "app": "tauri dev",
     "tauri": "tauri",
+    "sync": "cargo run --manifest-path src-tauri/Cargo.toml -- sync",
+    "status": "cargo run --manifest-path src-tauri/Cargo.toml -- status",
+    "search": "cargo run --manifest-path src-tauri/Cargo.toml -- search",
+    "projects": "cargo run --manifest-path src-tauri/Cargo.toml -- projects",
     "mcp": "cargo run --manifest-path src-tauri/Cargo.toml -- --mcp",
     "lint": "oxlint",
     "preview": "vite preview"
@@ -41,6 +45,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "^2.12.4",
     "clsx": "^2.1.1",
+    "dompurify": "^3.4.17",
     "force-graph": "^1.52.0",
     "marked": "^18.1.1",
     "react": "^19.2.8",
@@ -50,6 +55,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.3",
+    "@types/dompurify": "^3.0.5",
     "@types/force-graph": "^1.21.2",
     "@types/marked": "^5.0.2",
     "@types/node": "^24.13.3",

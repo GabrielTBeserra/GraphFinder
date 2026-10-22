@@ -101,9 +101,21 @@ impl EmbeddingEngine {
             }
         }
 
-        let model = if let Some(dir) = local_dir {
+        let selected_model = std::env::var("GRAPHFINDER_MODEL")
+            .or_else(|_| std::env::var("GRAPHFINDER_EMBEDDING_MODEL"))
+            .unwrap_or_else(|_| "auto".to_string())
+            .to_lowercase();
+
+        let model = if selected_model == "multilingual"
+            || selected_model == "multilingual-e5-small"
+            || selected_model == "e5"
+        {
+            eprintln!("[GraphFinder] Loading multilingual model MultilingualE5Small...");
+            let options = InitOptions::new(EmbeddingModel::MultilingualE5Small);
+            TextEmbedding::try_new(options)?
+        } else if let Some(dir) = local_dir {
             eprintln!(
-                "[GraphFinder] Carregando modelo local offline de {}...",
+                "[GraphFinder] Loading local offline model from {}...",
                 dir.display()
             );
             let onnx_file = std::fs::read(dir.join("model.onnx"))?;
@@ -116,7 +128,7 @@ impl EmbeddingEngine {
             let user_model = UserDefinedEmbeddingModel::new(onnx_file, tokenizer_files);
             TextEmbedding::try_new_from_user_defined(user_model, InitOptionsUserDefined::default())?
         } else {
-            eprintln!("[GraphFinder] Baixando modelo via HuggingFace Hub...");
+            eprintln!("[GraphFinder] Loading default neural model (all-MiniLM-L6-v2)...");
             let options = InitOptions::new(EmbeddingModel::AllMiniLML6V2);
             TextEmbedding::try_new(options)?
         };
@@ -134,7 +146,7 @@ impl EmbeddingEngine {
                     "engine-status",
                     serde_json::json!({
                         "status": "ready",
-                        "message": "Motor neural pronto!"
+                        "message": "Neural engine ready!"
                     }),
                 );
             }
@@ -146,7 +158,7 @@ impl EmbeddingEngine {
                 "engine-status",
                 serde_json::json!({
                     "status": "loading",
-                    "message": "Carregando modelo de embeddings (all-MiniLM-L6-v2)..."
+                    "message": "Loading embedding model (all-MiniLM-L6-v2)..."
                 }),
             );
         }
@@ -200,7 +212,7 @@ impl EmbeddingEngine {
         let model = Arc::clone(&self.model);
         tokio::task::spawn_blocking(move || {
             let guard = model.lock().map_err(|e| e.to_string())?;
-            let m = guard.as_ref().ok_or("Modelo neural não carregado")?;
+            let m = guard.as_ref().ok_or("Neural model not loaded")?;
             let embeddings = m.embed(texts, None)?;
             Ok(embeddings)
         })

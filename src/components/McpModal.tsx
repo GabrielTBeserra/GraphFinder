@@ -246,10 +246,10 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
               <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-200/90 space-y-1">
                 <div className="flex items-center gap-1.5 font-semibold text-amber-300">
                   <WarningCircle size={15} weight="bold" />
-                  <span>Stdio Descontinuado e Proibido</span>
+                  <span>Stdio Discontinued &amp; Prohibited</span>
                 </div>
                 <p className="text-[11px] text-amber-200/80 leading-relaxed">
-                  Para garantir performance máxima, o transporte STDIO foi <strong>descontinuado e proibido</strong>. O GraphFinder opera exclusivamente via <strong>Streamable HTTP</strong> no endpoint <code>/mcp</code>. Isso elimina bloqueios de arquivo SQLite, compartilha o cache de embeddings ONNX e reflete escritas do agente no grafo visual da tela em tempo real!
+                  To ensure maximum performance, STDIO transport has been <strong>discontinued and prohibited</strong>. GraphFinder operates exclusively via <strong>Streamable HTTP</strong> on the <code>/mcp</code> endpoint. This eliminates SQLite file locks, shares the ONNX embedding cache, and reflects agent writes on the visual screen graph in real time!
                 </p>
               </div>
 
@@ -258,7 +258,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                 <div className="flex items-center justify-between text-xs text-[#64748b] mb-1.5">
                   <span className="font-medium text-[#cbd5e1] flex items-center gap-1.5">
                     <Lightning size={13} className="text-indigo-400" />
-                    Selecione o seu editor / cliente:
+                    Select your editor / client:
                   </span>
                   <button
                     type="button"

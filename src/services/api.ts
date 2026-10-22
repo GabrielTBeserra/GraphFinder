@@ -1,7 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   ChunkHit,
+  CodeChunkHit,
+  CodeDependencies,
+  CodeFileRecord,
   CompressedContext,
+  FileContext,
   GraphData,
   LinkSuggestion,
   Neighborhood,
@@ -9,6 +13,7 @@ import type {
   NoteSummary,
   ProjectInfo,
   SearchHit,
+  VaultStats,
 } from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -276,34 +281,53 @@ export async function fetchMcpConfig(): Promise<McpConfigInfo> {
   };
 }
 
+let MOCK_PROJECTS: ProjectInfo[] = [
+  {
+    id: 'default',
+    name: 'Principal',
+    path: './vault',
+    db_path: './index.db',
+    note_count: 4,
+    is_active: true,
+  },
+  {
+    id: 'graphfinder',
+    name: 'GraphFinder',
+    path: 'Z:\\GraphFinder',
+    db_path: 'Z:\\GraphFinder\\index.db',
+    note_count: 5,
+    is_active: false,
+  },
+];
+
 export async function fetchProjects(): Promise<ProjectInfo[]> {
   if (isTauri) {
     return await invoke<ProjectInfo[]>('list_projects');
   }
-  return [
-    {
-      id: 'default',
-      name: 'Principal',
-      path: './vault',
-      db_path: './index.db',
-      note_count: 4,
-      is_active: true,
-    },
-  ];
+  return [...MOCK_PROJECTS];
 }
 
 export async function switchProject(projectId: string): Promise<ProjectInfo> {
   if (isTauri) {
-    return await invoke<ProjectInfo>('switch_project', { projectId });
+    return await invoke<ProjectInfo>('switch_project', { projectId, project_id: projectId });
   }
-  return {
-    id: projectId,
-    name: projectId,
-    path: `./vaults/${projectId}`,
-    db_path: `./vaults/${projectId}/index.db`,
-    note_count: 0,
-    is_active: true,
-  };
+  MOCK_PROJECTS = MOCK_PROJECTS.map((p) => ({
+    ...p,
+    is_active: p.id.toLowerCase() === projectId.toLowerCase(),
+  }));
+  let found = MOCK_PROJECTS.find((p) => p.id.toLowerCase() === projectId.toLowerCase());
+  if (!found) {
+    found = {
+      id: projectId,
+      name: projectId,
+      path: `./vaults/${projectId}`,
+      db_path: `./vaults/${projectId}/index.db`,
+      note_count: 0,
+      is_active: true,
+    };
+    MOCK_PROJECTS.push(found);
+  }
+  return found;
 }
 
 export async function pickDirectory(): Promise<string | null> {
@@ -318,14 +342,18 @@ export async function createProject(name: string, path?: string): Promise<Projec
     return await invoke<ProjectInfo>('create_project', { name, path: path || null });
   }
   const cleanPath = path || `./vaults/${name.toLowerCase()}`;
-  return {
-    id: name.toLowerCase(),
+  const id = name.toLowerCase().replace(/\s+/g, '-');
+  MOCK_PROJECTS = MOCK_PROJECTS.map((p) => ({ ...p, is_active: false }));
+  const newProj: ProjectInfo = {
+    id,
     name,
     path: cleanPath,
     db_path: `${cleanPath}/index.db`,
     note_count: 1,
     is_active: true,
   };
+  MOCK_PROJECTS.push(newProj);
+  return newProj;
 }
 
 export interface EngineStatusInfo {
@@ -342,5 +370,130 @@ export async function fetchEngineStatus(): Promise<EngineStatusInfo> {
     is_ready: true,
   };
 }
+
+export async function renameNote(oldTitle: string, newTitle: string): Promise<NoteRecord> {
+  if (isTauri) {
+    return await invoke<NoteRecord>('rename_note', { oldTitle, newTitle });
+  }
+  const note = MOCK_NOTES.find((n) => n.title.toLowerCase() === oldTitle.toLowerCase());
+  if (!note) throw new Error(`Note '${oldTitle}' not found`);
+  note.title = newTitle;
+  note.path = `${newTitle}.md`;
+  return note;
+}
+
+export async function deleteNote(target: string): Promise<void> {
+  if (isTauri) {
+    return await invoke<void>('delete_note', { target });
+  }
+  const idx = MOCK_NOTES.findIndex(
+    (n) => n.id === target || n.title.toLowerCase() === target.toLowerCase()
+  );
+  if (idx >= 0) {
+    MOCK_NOTES.splice(idx, 1);
+  }
+}
+
+export async function fetchVaultStats(): Promise<VaultStats> {
+  if (isTauri) {
+    return await invoke<VaultStats>('get_vault_stats');
+  }
+  return {
+    total_notes: MOCK_NOTES.length,
+    total_chunks: MOCK_NOTES.length * 3,
+    total_links: 7,
+    total_tags: 8,
+    total_tokens: 1250,
+  };
+}
+
+export async function readSection(target: string, section: string): Promise<ChunkHit | null> {
+  if (isTauri) {
+    return await invoke<ChunkHit | null>('read_section', { target, section });
+  }
+  return null;
+}
+
+export async function searchCode(
+  query: string,
+  language?: string,
+  limit: number = 10
+): Promise<CodeChunkHit[]> {
+  if (isTauri) {
+    try {
+      return await invoke<CodeChunkHit[]>('search_code', {
+        query,
+        language: language || null,
+        limit,
+      });
+    } catch (e) {
+      console.warn('search_code error:', e);
+      return [];
+    }
+  }
+  return [];
+}
+
+export async function findFiles(pattern: string, limit: number = 20): Promise<string[]> {
+  if (isTauri) {
+    try {
+      const records = await invoke<CodeFileRecord[]>('find_files', { pattern, limit });
+      return records.map((r) => r.path);
+    } catch (e) {
+      console.warn('find_files error:', e);
+      return [];
+    }
+  }
+  return [];
+}
+
+export async function getFileContext(file: string): Promise<FileContext | null> {
+  if (isTauri) {
+    try {
+      return await invoke<FileContext | null>('get_file_context', { file });
+    } catch (e) {
+      console.warn('get_file_context error:', e);
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function readCodeChunk(file: string, symbol: string): Promise<CodeChunkHit | null> {
+  if (isTauri) {
+    try {
+      return await invoke<CodeChunkHit | null>('read_code_chunk', { file, symbol });
+    } catch (e) {
+      console.warn('read_code_chunk error:', e);
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function getCodeDependencies(file: string): Promise<CodeDependencies> {
+  if (isTauri) {
+    try {
+      return await invoke<CodeDependencies>('get_code_dependencies', { file });
+    } catch (e) {
+      console.warn('get_code_dependencies error:', e);
+      return { file_id: file, imports: [], imported_by: [], external: [] };
+    }
+  }
+  return { file_id: file, imports: [], imported_by: [], external: [] };
+}
+
+export async function listCodeFiles(limit: number = 200): Promise<CodeFileRecord[]> {
+  if (isTauri) {
+    try {
+      return await invoke<CodeFileRecord[]>('list_code_files', { limit });
+    } catch (e) {
+      console.warn('list_code_files error:', e);
+      return [];
+    }
+  }
+  return [];
+}
+
 
 

@@ -12,7 +12,14 @@ GraphFinder is built upon three high-density architectural pillars designed for 
 - Learn more in [[Welcome]].
 
 ## 3. Model Context Protocol (MCP) Server
-- Exposes tools like `search_semantic`, `get_compressed_context`, and `store_context` via stdio for AI coding assistants.
+- Exposes 20 surgical tools (`search_semantic`, `search_code`, `get_file_context`) for AI coding assistants.
+- Operates concurrently in Streamable HTTP/SSE and Headless Stdio CLI modes.
 - See integration workflows in the [[Usage Guide]].
 
-Tags: #architecture #rust #sqlite #embeddings #mcp
+## 4. AST-Lite Multi-Language Code Engine
+- Indexes entire project repositories across 15+ programming languages (Rust, TypeScript, Python, Go, C/C++, etc.).
+- Parses module import statements to construct a bidirectional code dependency graph.
+- Generates atomic symbol embeddings for functions and structs, enabling sub-80-token structural inspection.
+
+Tags: #architecture #rust #sqlite #embeddings #mcp #code #ast
+

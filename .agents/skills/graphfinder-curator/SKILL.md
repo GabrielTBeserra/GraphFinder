@@ -62,8 +62,68 @@ Before committing a new note:
 
 ---
 
+## Codebase Retrieval & Dependency Workflow (Cost-Effective Code Inspection)
+
+When inspecting or navigating codebase files:
+
+1. **Step 1: Surgical Code Search**
+   - Execute `search_code(query, language?)` to locate relevant functions, structs, or methods via hybrid semantic + BM25 search.
+   - Or execute `find_files(pattern)` if looking for a specific path or file type.
+
+2. **Step 2: File Context Inspection**
+   - Execute `get_file_context(file)` to get a dense summary (<80 tokens), list of exported symbols with line numbers, internal dependencies, external packages, and dependents.
+
+3. **Step 3: Atomic Function / Symbol Retrieval**
+   - Execute `read_code_chunk(file, symbol)` to retrieve only the relevant function body without dumping the entire file into context.
+
+4. **Step 4: Dependency Graph Navigation**
+   - Execute `get_code_dependencies(file)` to see what files import this file and what local files are imported.
+
+---
+
+## Terminal CLI & Skill-Driven Synchronization
+
+GraphFinder allows instant indexing and incremental updates directly from any terminal or programmatically from AI skills/MCP:
+
+### 1. Terminal Command (`graphfinder sync [path]`)
+Run from any project repository or directory:
+```bash
+# Sync and index the current directory
+graphfinder sync
+
+# Abbreviated shortcut
+graphfinder syn
+
+# Index a specific path on disk
+graphfinder sync Z:\MyProject
+
+# Structured JSON output (ideal for automation scripts and AI skills)
+graphfinder sync --json
+```
+
+- **Smart Path Auto-Detection**: GraphFinder normalizes the directory path. If the project was previously indexed, it executes a lightning-fast **incremental update via SHA-256** (only modified files are reprocessed). If it is a new folder, it registers the project automatically and generates embeddings.
+- **Other CLI Commands**:
+  - `graphfinder status [path]`: Displays indexing statistics for notes, code files, and graph connections.
+  - `graphfinder projects`: Lists all registered projects and paths.
+  - `graphfinder search "query"`: Runs fast hybrid semantic search directly from the terminal.
+
+### 2. Synchronization via MCP Tool in Skills
+AI assistants and skills can synchronize any project by calling the `sync_vault` tool:
+```json
+{
+  "name": "sync_vault",
+  "arguments": {
+    "path": "Z:/MyProject"
+  }
+}
+```
+This triggers the same smart path detection and incremental update workflow, returning complete telemetry on notes, code, and graph edges.
+
+---
+
 ## Reference Documentation
 
 For ready-to-use schemas and tool specifications:
 - [Note Templates](./references/note-templates.md): Structured templates for Concepts, Architecture Decision Records (ADR), and MCP Sessions.
 - [MCP Tools Specification](./references/mcp-spec.md): Parameter schemas, return types, and protocol payloads.
+

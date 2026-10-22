@@ -3,6 +3,8 @@ export interface GraphNode {
   title: string;
   tags: string[];
   degree: number;
+  node_type?: 'note' | 'code' | 'unresolved';
+  path?: string;
   x?: number;
   y?: number;
   vx?: number;
@@ -100,3 +102,71 @@ export interface Neighborhood {
   nodes: GraphNode[];
   links: GraphLink[];
 }
+
+export interface VaultStats {
+  total_notes: number;
+  total_chunks: number;
+  total_links: number;
+  total_tags: number;
+  total_tokens: number;
+  total_code_files?: number;
+  total_code_chunks?: number;
+  total_code_links?: number;
+  languages?: string[];
+}
+
+export interface CodeFileRecord {
+  id: string;
+  path: string;
+  name: string;
+  extension: string;
+  language: string;
+  size_bytes: number;
+  summary: string;
+  updated_at: number;
+  imports_count: number;
+  dependents_count: number;
+}
+
+export interface CodeChunkHit {
+  chunk_id: string;
+  file_id: string;
+  file_name: string;
+  language: string;
+  symbol_name: string | null;
+  start_line: number;
+  end_line: number;
+  deep_link: string;
+  content: string;
+  token_estimate: number;
+  score: number;
+}
+
+export interface SymbolInfo {
+  name: string;
+  start_line: number;
+  end_line: number;
+  token_estimate: number;
+}
+
+export interface FileContext {
+  file_id: string;
+  name: string;
+  language: string;
+  size_bytes: number;
+  summary: string;
+  token_estimate: number;
+  imported_files: string[];
+  dependent_files: string[];
+  external_packages: string[];
+  symbols: SymbolInfo[];
+}
+
+export interface CodeDependencies {
+  file_id: string;
+  imports: string[];
+  imported_by: string[];
+  external: string[];
+}
+
+

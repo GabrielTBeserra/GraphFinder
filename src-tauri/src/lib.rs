@@ -5,9 +5,12 @@ pub mod engine;
 pub mod mcp;
 
 use engine::{
-    ChunkHit, CompressedContext, EmbeddingEngine, GraphData, LinkSuggestion, Neighborhood,
-    NoteRecord, NoteSummary, ProjectInfo, SearchHit, VaultManager,
+    ChunkHit, CodeChunkHit, CodeDependencies, CodeFileRecord, CompressedContext, EmbeddingEngine,
+    FileContext, GraphData, LinkSuggestion, Neighborhood, NoteRecord, NoteSummary, ProjectInfo,
+    SearchHit, VaultManager, VaultStats,
 };
+use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
+use std::time::Duration;
 
 #[tauri::command]
 async fn list_projects(manager: State<'_, Arc<VaultManager>>) -> Result<Vec<ProjectInfo>, String> {
@@ -15,11 +18,14 @@ async fn list_projects(manager: State<'_, Arc<VaultManager>>) -> Result<Vec<Proj
 }
 
 #[tauri::command]
+#[allow(non_snake_case)]
 async fn switch_project(
-    project_id: String,
+    project_id: Option<String>,
+    projectId: Option<String>,
     manager: State<'_, Arc<VaultManager>>,
 ) -> Result<ProjectInfo, String> {
-    manager.switch_project(&project_id).await
+    let id = project_id.or(projectId).unwrap_or_else(|| "default".to_string());
+    manager.switch_project(&id).await
 }
 
 #[tauri::command]
@@ -34,7 +40,7 @@ async fn create_project(
 #[tauri::command]
 async fn pick_directory() -> Result<Option<String>, String> {
     let folder = rfd::AsyncFileDialog::new()
-        .set_title("Selecionar Pasta para o Cofre de Notas")
+        .set_title("Select Folder for Knowledge Vault")
         .pick_folder()
         .await;
     Ok(folder.map(|f| f.path().to_string_lossy().to_string()))
@@ -84,6 +90,59 @@ async fn save_note(
         .active_engine()
         .await
         .save_note(&title, &content, filename.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn rename_note(
+    old_title: String,
+    new_title: String,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<NoteRecord, String> {
+    manager
+        .active_engine()
+        .await
+        .rename_note(&old_title, &new_title)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_note(
+    target: String,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<(), String> {
+    manager
+        .active_engine()
+        .await
+        .delete_note(&target)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_vault_stats(
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<VaultStats, String> {
+    manager
+        .active_engine()
+        .await
+        .get_vault_stats()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn read_section(
+    target: String,
+    section: String,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<Option<ChunkHit>, String> {
+    manager
+        .active_engine()
+        .await
+        .read_section(&target, &section)
         .await
         .map_err(|e| e.to_string())
 }
@@ -248,6 +307,98 @@ async fn get_engine_status(manager: State<'_, Arc<VaultManager>>) -> Result<serd
     }))
 }
 
+#[tauri::command]
+async fn search_code(
+    query: String,
+    limit: Option<usize>,
+    language: Option<String>,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<Vec<CodeChunkHit>, String> {
+    manager
+        .active_engine()
+        .await
+        .search_code(&query, limit.unwrap_or(5), language.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn find_files(
+    pattern: Option<String>,
+    language: Option<String>,
+    limit: Option<usize>,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<Vec<CodeFileRecord>, String> {
+    manager
+        .active_engine()
+        .await
+        .find_files(pattern.as_deref(), language.as_deref(), limit.unwrap_or(20))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_file_context(
+    file: Option<String>,
+    file_path: Option<String>,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<Option<FileContext>, String> {
+    let target = file.or(file_path).unwrap_or_default();
+    manager
+        .active_engine()
+        .await
+        .get_file_context(&target)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn read_code_chunk(
+    file: Option<String>,
+    file_path: Option<String>,
+    symbol: Option<String>,
+    symbol_or_lines: Option<String>,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<Option<CodeChunkHit>, String> {
+    let target = file.or(file_path).unwrap_or_default();
+    let sym = symbol.or(symbol_or_lines);
+    manager
+        .active_engine()
+        .await
+        .read_code_chunk(&target, sym.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_code_dependencies(
+    file: Option<String>,
+    file_path: Option<String>,
+    direction: Option<String>,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<CodeDependencies, String> {
+    let target = file.or(file_path).unwrap_or_default();
+    manager
+        .active_engine()
+        .await
+        .get_code_dependencies(&target, direction.as_deref().unwrap_or("both"))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn list_code_files(
+    limit: Option<usize>,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<Vec<CodeFileRecord>, String> {
+    manager
+        .active_engine()
+        .await
+        .list_code_files(limit.unwrap_or(50))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -260,11 +411,11 @@ pub fn run() {
                 )?;
             }
 
-            println!("[GraphFinder Tauri] Carregando motor semântico com inicialização assíncrona...");
+            println!("[GraphFinder Tauri] Loading semantic engine with asynchronous initialization...");
             let embeddings = Arc::new(EmbeddingEngine::new_lazy());
-            let manager = Arc::new(VaultManager::new(embeddings.clone()).expect("Falha ao inicializar VaultManager"));
+            let manager = Arc::new(VaultManager::new(embeddings.clone()).expect("Failed to initialize VaultManager"));
 
-            // Inicia o Servidor MCP HTTP Nativo (Localhost)
+            // Starts Native Localhost MCP HTTP Server
             let mcp_port = std::env::var("GRAPHFINDER_MCP_PORT")
                 .ok()
                 .and_then(|p| p.parse::<u16>().ok())
@@ -274,26 +425,76 @@ pub fn run() {
             let app_handle_for_mcp = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = mcp::server::start_http_mcp_server(manager_for_mcp, Some(app_handle_for_mcp), mcp_port).await {
-                    eprintln!("[GraphFinder MCP Error] Falha ao rodar servidor HTTP na porta {}: {}", mcp_port, e);
+                    eprintln!("[GraphFinder MCP Error] Failed to run HTTP server on port {}: {}", mcp_port, e);
                 }
             });
 
-            // Inicializa modelo neural em background de forma assíncrona com notificações de progresso
+            // Initializes neural model in background asynchronously with progress notifications
             let embeddings_for_init = Arc::clone(&embeddings);
             let manager_for_sync = Arc::clone(&manager);
             let app_handle_for_init = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = embeddings_for_init.init_model(Some(app_handle_for_init.clone())).await {
-                    eprintln!("[GraphFinder Error] Falha ao carregar modelo neural: {}", e);
+                    eprintln!("[GraphFinder Error] Failed to load neural model: {}", e);
                     let _ = app_handle_for_init.emit("engine-status", serde_json::json!({
                         "status": "error",
-                        "message": format!("Erro ao carregar modelo neural: {}", e)
+                        "message": format!("Error loading neural model: {}", e)
                     }));
                 } else {
                     let engine = manager_for_sync.active_engine().await;
                     if let Ok(count) = engine.sync_vault().await {
-                        println!("[GraphFinder Tauri] {} notas sincronizadas no cofre ativo.", count);
+                        println!("[GraphFinder Tauri] {} notes synchronized in active vault.", count);
                         let _ = app_handle_for_init.emit("vault-sync-complete", count);
+                    }
+                }
+            });
+
+            // File Watcher with Debounce (500ms) for automatic synchronization when files are edited externally (Obsidian, VS Code, etc)
+            let app_handle_for_watch = app.handle().clone();
+            let manager_for_watch = Arc::clone(&manager);
+            tauri::async_runtime::spawn_blocking(move || {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let mut debouncer = match new_debouncer(Duration::from_millis(500), tx) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!("[GraphFinder Watcher Error] Failed to create debouncer: {}", e);
+                        return;
+                    }
+                };
+
+                let base_dir = crate::engine::project::resolve_base_dir();
+                let vaults_dir = base_dir.join("vaults");
+                let default_vault = base_dir.join("vault");
+
+                if default_vault.exists() {
+                    let _ = debouncer.watcher().watch(&default_vault, RecursiveMode::Recursive);
+                }
+                if vaults_dir.exists() {
+                    let _ = debouncer.watcher().watch(&vaults_dir, RecursiveMode::Recursive);
+                }
+
+                while let Ok(res) = rx.recv() {
+                    match res {
+                        Ok(events) => {
+                            let has_md = events.iter().any(|e| {
+                                e.path.extension().map(|ext| ext == "md").unwrap_or(false)
+                            });
+                            if has_md {
+                                let manager = Arc::clone(&manager_for_watch);
+                                let handle = app_handle_for_watch.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    let engine = manager.active_engine().await;
+                                    if let Ok(count) = engine.sync_vault().await {
+                                        if count > 0 {
+                                            let _ = handle.emit("vault-sync-complete", count);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("[GraphFinder Watcher] Error: {:?}", err);
+                        }
                     }
                 }
             });
@@ -312,6 +513,10 @@ pub fn run() {
             list_notes,
             get_note,
             save_note,
+            rename_note,
+            delete_note,
+            get_vault_stats,
+            read_section,
             search_semantic,
             search_chunks,
             suggest_links,
@@ -324,7 +529,13 @@ pub fn run() {
             switch_project,
             create_project,
             pick_directory,
-            get_engine_status
+            get_engine_status,
+            search_code,
+            find_files,
+            get_file_context,
+            read_code_chunk,
+            get_code_dependencies,
+            list_code_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

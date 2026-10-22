@@ -9,7 +9,7 @@ use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig},
-    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
+    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt,
 };
 
 use crate::engine::VaultManager;
@@ -24,95 +24,183 @@ pub struct GraphFinderMcpServer {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateProjectArgs {
-    /// Nome do novo projeto (ex: 'HomeLab', 'Finanças', 'Estudos')
+    /// Name of the new project (e.g. 'HomeLab', 'Finances', 'Backend')
     pub name: String,
-    /// Caminho absoluto opcional da pasta no computador
+    /// Optional absolute folder path on disk
     pub path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SwitchProjectArgs {
-    /// ID ou slug do projeto para o qual deseja alternar
+    /// Target project ID or slug to switch to
     pub project_id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchSemanticArgs {
-    /// Texto ou pergunta para buscar no cofre
+    /// Semantic search query or natural language question
     pub query: String,
-    /// Quantidade máxima de trechos a retornar (padrão: 5)
+    /// Maximum number of atomic chunks to return (default: 5)
     pub limit: Option<usize>,
-    /// ID do projeto/vault específico (opcional, usa o ativo por padrão)
+    /// Target project/vault ID (optional, defaults to active project)
     pub project: Option<String>,
-    /// 'dense_chunks' (padrão, trecho exato de 60-80 tokens) ou 'summaries' (visão geral de 1 linha)
+    /// 'dense_chunks' (default, surgical 60-80 token chunks) or 'summaries' (1-line overview)
     pub format: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetCompressedContextArgs {
-    /// Título ou ID da nota
+    /// Note title or ID
     pub target: String,
-    /// ID do projeto/vault específico (opcional)
+    /// Target project/vault ID (optional)
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SuggestLinksArgs {
-    /// Texto ou parágrafo sendo redigido
+    /// Draft text or paragraph being authored
     pub text: String,
-    /// ID ou título da nota atual para ignorar auto-referência (opcional)
+    /// Current note title or ID to exclude self-referencing (optional)
     pub current_note: Option<String>,
-    /// Similaridade mínima de corte (0.0 a 1.0, padrão: 0.60)
+    /// Minimum cosine similarity threshold (0.0 to 1.0, default: 0.60)
     pub threshold: Option<f32>,
-    /// ID do projeto/vault específico (opcional)
+    /// Target project/vault ID (optional)
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct StoreContextArgs {
-    /// Título da nota ou conceito principal
+    /// Main concept or note title
     pub title: String,
-    /// Conteúdo em Markdown da nota
+    /// Markdown body content of the note
     pub content: String,
-    /// Lista de tags (opcional)
+    /// List of context tags (optional)
     pub tags: Option<Vec<String>>,
-    /// Lista de notas a conectar com wikilinks (opcional)
+    /// List of notes to connect with explicit wikilinks (optional)
     pub links: Option<Vec<String>>,
-    /// ID do projeto/vault específico onde salvar (opcional)
+    /// Target project/vault ID to save into (optional)
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetGraphNeighborhoodArgs {
-    /// Título ou ID da nota
+    /// Note title or ID
     pub target: String,
-    /// Graus de separação no grafo (1 ou 2, padrão: 1)
+    /// Graph hops of separation (1 or 2, default: 1)
     pub depth: Option<usize>,
-    /// ID do projeto/vault específico (opcional)
+    /// Target project/vault ID (optional)
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct LinkNotesArgs {
-    /// Título ou ID da nota de origem
+    /// Source note title or ID
     pub from_note: String,
-    /// Título da nota de destino
+    /// Destination note title
     pub to_note: String,
-    /// ID do projeto/vault específico (opcional)
+    /// Target project/vault ID (optional)
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListRecentNotesArgs {
-    /// Quantidade máxima de notas a retornar (padrão: 10)
+    /// Maximum number of notes to return (default: 10)
     pub limit: Option<usize>,
-    /// ID do projeto/vault específico (opcional)
+    /// Target project/vault ID (optional)
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SyncVaultArgs {
-    /// ID do projeto/vault específico (opcional)
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+    /// Local directory path to sync/index (optional). Auto-detects if already indexed or creates a new project.
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReadSectionArgs {
+    /// Note title or ID
+    pub target: String,
+    /// Section heading (H2/H3) or deep link fragment (e.g. '2. SQLite WAL Configuration')
+    pub section: String,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RenameNoteArgs {
+    /// Current title or ID of the note
+    pub old_title: String,
+    /// Desired new title for the note
+    pub new_title: String,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DeleteNoteArgs {
+    /// Note title or ID to delete
+    pub target: String,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetVaultStatsArgs {
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SearchCodeArgs {
+    /// Semantic or exact search query for code symbols, functions, or concepts
+    pub query: String,
+    /// Maximum code chunks to return (default: 5)
+    pub limit: Option<usize>,
+    /// Filter by programming language (e.g. 'rust', 'typescript', 'python', optional)
+    pub language: Option<String>,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct FindFilesArgs {
+    /// Glob pattern or file path match (e.g. '*.tsx', 'db.rs', 'engine', optional)
+    pub pattern: Option<String>,
+    /// Filter by programming language (e.g. 'rust', 'typescript', optional)
+    pub language: Option<String>,
+    /// Maximum files to return (default: 20)
+    pub limit: Option<usize>,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetFileContextArgs {
+    /// Relative path or file name in codebase (e.g. 'src/App.tsx', 'main.rs')
+    pub file_path: String,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReadCodeChunkArgs {
+    /// Relative path or file name in codebase
+    pub file_path: String,
+    /// Target symbol name (function/class/struct) or line range (optional)
+    pub symbol_or_lines: Option<String>,
+    /// Target project/vault ID (optional)
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetCodeDependenciesArgs {
+    /// Relative path of code file (e.g. 'src/App.tsx')
+    pub file_path: String,
+    /// Dependency direction: 'imports' (what it imports), 'imported_by' (who imports it), or 'both' (default)
+    pub direction: Option<String>,
+    /// Target project/vault ID (optional)
     pub project: Option<String>,
 }
 
@@ -128,57 +216,57 @@ impl GraphFinderMcpServer {
 
 #[tool_router]
 impl GraphFinderMcpServer {
-    /// Lista todos os projetos e seus respectivos cofres (vaults) isolados, incluindo quantidade de notas e projeto ativo.
-    #[tool(description = "Lista todos os projetos e seus respectivos cofres (vaults) isolados, incluindo quantidade de notas e projeto ativo.")]
+    /// Lists all isolated projects/vaults, note counts, and active project indicator.
+    #[tool(description = "Lists all isolated projects/vaults, note counts, and active project indicator.")]
     async fn list_projects(&self) -> Result<CallToolResult, McpError> {
         let projects = self.manager.list_projects().await;
-        let mut out = String::from("Projetos e Vaults no GraphFinder:\n\n");
+        let mut out = String::from("Projects and Vaults in GraphFinder:\n\n");
         for p in projects {
-            let status = if p.is_active { " (Ativo)" } else { "" };
+            let status = if p.is_active { " (Active)" } else { "" };
             out.push_str(&format!(
-                "- **{}** (ID: `{}`){} | {} notas\n  Caminho: {}\n\n",
+                "- **{}** (ID: `{}`){} | {} notes\n  Path: {}\n\n",
                 p.name, p.id, status, p.note_count, p.path
             ));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Cria um novo projeto com cofre (vault) e banco SQLite de embeddings 100% isolado.
-    #[tool(description = "Cria um novo projeto com cofre (vault) e banco SQLite de embeddings 100% isolado.")]
+    /// Creates a new isolated project with dedicated Markdown vault and SQLite vector index.
+    #[tool(description = "Creates a new isolated project with dedicated Markdown vault and SQLite vector index.")]
     async fn create_project(&self, Parameters(args): Parameters<CreateProjectArgs>) -> Result<CallToolResult, McpError> {
         let project = match self.manager.create_project(&args.name, args.path).await {
             Ok(p) => p,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao criar projeto: {}", e))])),
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to create project: {}", e))])),
         };
         if let Some(app) = &self.app_handle {
             let _ = app.emit("vault-sync-complete", 1);
         }
         let out = format!(
-            "Projeto '{}' (ID: '{}') criado com sucesso!\nCofre de notas: {}\nBanco SQLite de vetores: {}",
+            "Project '{}' (ID: '{}') created successfully!\nNote Vault: {}\nVector SQLite Database: {}",
             project.name, project.id, project.path, project.db_path
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Altera o projeto/vault ativo para as próximas operações no GraphFinder.
-    #[tool(description = "Altera o projeto/vault ativo para as próximas operações no GraphFinder.")]
+    /// Switches the active default vault for subsequent GraphFinder operations.
+    #[tool(description = "Switches the active default vault for subsequent GraphFinder operations.")]
     async fn switch_project(&self, Parameters(args): Parameters<SwitchProjectArgs>) -> Result<CallToolResult, McpError> {
         let project = match self.manager.switch_project(&args.project_id).await {
             Ok(p) => p,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao alternar projeto: {}", e))])),
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to switch project: {}", e))])),
         };
         if let Some(app) = &self.app_handle {
             let _ = app.emit("vault-sync-complete", project.note_count);
         }
         let out = format!(
-            "Projeto ativo alterado com sucesso para: {} (ID: '{}') com {} notas.",
+            "Active project successfully switched to: {} (ID: '{}') with {} notes.",
             project.name, project.id, project.note_count
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Busca semântica cirúrgica por seções para máxima economia de tokens. Retorna o trecho exato de 2-4 linhas com deep link [[Nota#Seção]] e pontuação de relevância.
-    #[tool(description = "Busca semântica cirúrgica por seções para máxima economia de tokens. Retorna o trecho exato de 2-4 linhas com deep link [[Nota#Seção]] e pontuação de relevância.")]
+    /// Surgical section retrieval for maximum token conservation. Returns exact 2-4 line chunks with deep link [[Note#Section]] and relevance score.
+    #[tool(description = "Surgical section retrieval for maximum token conservation. Returns exact 2-4 line chunks with deep link [[Note#Section]] and relevance score.")]
     async fn search_semantic(&self, Parameters(args): Parameters<SearchSemanticArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let limit = args.limit.unwrap_or(5);
@@ -187,15 +275,15 @@ impl GraphFinderMcpServer {
         if format == "summaries" {
             let hits = match engine.search_semantic(&args.query, limit).await {
                 Ok(h) => h,
-                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro na busca semântica: {}", e))])),
+                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error during semantic search: {}", e))])),
             };
             if hits.is_empty() {
-                return Ok(CallToolResult::success(vec![ContentBlock::text("Nenhum resultado semântico encontrado no cofre.")]));
+                return Ok(CallToolResult::success(vec![ContentBlock::text("No semantic results found in vault.")]));
             }
-            let mut out = String::from("Visão Geral Semântica:\n");
+            let mut out = String::from("Semantic Overview:\n");
             for (i, h) in hits.into_iter().enumerate() {
                 out.push_str(&format!(
-                    "{}. [[{}]] (Relevância: {:.0}%)\n   Síntese: {}\n",
+                    "{}. [[{}]] (Relevance: {:.0}%)\n   Summary: {}\n",
                     i + 1,
                     h.title,
                     h.score * 100.0,
@@ -207,13 +295,13 @@ impl GraphFinderMcpServer {
 
         let chunks = match engine.search_chunks(&args.query, limit).await {
             Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro na busca por trechos: {}", e))])),
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error during chunk search: {}", e))])),
         };
         if chunks.is_empty() {
-            return Ok(CallToolResult::success(vec![ContentBlock::text("Nenhum trecho semântico relevante encontrado no cofre.")]));
+            return Ok(CallToolResult::success(vec![ContentBlock::text("No relevant semantic chunks found in vault.")]));
         }
 
-        let mut out = String::from("Trechos Semânticos de Alta Densidade (Token-Efficient):\n\n");
+        let mut out = String::from("High-Density Semantic Chunks (Token-Efficient):\n\n");
         for (i, c) in chunks.into_iter().enumerate() {
             out.push_str(&format!(
                 "{}. {} | Score: {:.0}% (~{} tokens)\n\"{}\"\n\n",
@@ -227,18 +315,18 @@ impl GraphFinderMcpServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Retorna uma síntese ultracompacta (~50-80 tokens) de uma nota: resumo executivo, tópicos principais, tokens e nós vizinhos conectados.
-    #[tool(description = "Retorna uma síntese ultracompacta (~50-80 tokens) de uma nota: resumo executivo, tópicos principais, tokens e nós vizinhos conectados.")]
+    /// Returns ultracompact summary (<80 tokens) of a note: executive summary, headings map, token estimates, and connected graph neighbors.
+    #[tool(description = "Returns ultracompact summary (<80 tokens) of a note: executive summary, headings map, token estimates, and connected graph neighbors.")]
     async fn get_compressed_context(&self, Parameters(args): Parameters<GetCompressedContextArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let ctx = match engine.get_compressed_context(&args.target).await {
             Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao recuperar contexto: {}", e))])),
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error retrieving context: {}", e))])),
         };
         match ctx {
             Some(c) => {
                 let mut out = format!(
-                    "Síntese da Nota: [[{}]] (~{} tokens totais)\nResumo: {}\nTags: {:?}\nConexões no Grafo: {:?}\n\nSeções Disponíveis:\n",
+                    "Note Summary: [[{}]] (~{} total tokens)\nSummary: {}\nTags: {:?}\nGraph Connections: {:?}\n\nAvailable Sections:\n",
                     c.title, c.token_estimate, c.summary, c.tags, c.connected_notes
                 );
                 for s in c.sections {
@@ -249,12 +337,12 @@ impl GraphFinderMcpServer {
                 }
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
-            None => Ok(CallToolResult::success(vec![ContentBlock::text(format!("Nota '{}' não encontrada.", args.target))])),
+            None => Ok(CallToolResult::success(vec![ContentBlock::text(format!("Note '{}' not found.", args.target))])),
         }
     }
 
-    /// Auto-Linker: analisa um parágrafo de rascunho e sugere notas ou seções existentes com alta similaridade semântica para conexão imediata.
-    #[tool(description = "Auto-Linker: analisa um parágrafo de rascunho e sugere notas ou seções existentes com alta similaridade semântica para conexão imediata.")]
+    /// Auto-Linker: analyzes draft text and recommends conceptual wikilinks with high semantic affinity.
+    #[tool(description = "Auto-Linker: analyzes draft text and recommends conceptual wikilinks with high semantic affinity.")]
     async fn suggest_links(&self, Parameters(args): Parameters<SuggestLinksArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let current_note = args.current_note.as_deref().unwrap_or("");
@@ -262,16 +350,16 @@ impl GraphFinderMcpServer {
 
         let suggestions = match engine.suggest_links(&args.text, current_note, threshold, 4).await {
             Ok(s) => s,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao sugerir links: {}", e))])),
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error suggesting links: {}", e))])),
         };
         if suggestions.is_empty() {
-            return Ok(CallToolResult::success(vec![ContentBlock::text("Nenhuma sugestão forte de link encontrada para este trecho.")]));
+            return Ok(CallToolResult::success(vec![ContentBlock::text("No strong link recommendations found for this text.")]));
         }
 
-        let mut out = String::from("Sugestões Semânticas de Wikilinks para o Grafo:\n\n");
+        let mut out = String::from("Semantic Wikilink Suggestions for the Graph:\n\n");
         for (i, s) in suggestions.into_iter().enumerate() {
             out.push_str(&format!(
-                "{}. {} (Afinidade: {:.0}%)\n   Contexto: \"{}\"\n",
+                "{}. {} (Affinity: {:.0}%)\n   Context: \"{}\"\n",
                 i + 1,
                 s.deep_link,
                 s.similarity_score * 100.0,
@@ -281,15 +369,15 @@ impl GraphFinderMcpServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Salva ou atualiza uma nota no vault. Realiza chunking semântico por seções, gera resumo denso e calcula embeddings automaticamente.
-    #[tool(description = "Salva ou atualiza uma nota no vault. Realiza chunking semântico por seções, gera resumo denso e calcula embeddings automaticamente.")]
+    /// Saves or updates a Markdown note in the vault with CommonMark AST chunking, dense summary, and FastEmbed vectorization.
+    #[tool(description = "Saves or updates a Markdown note in the vault with CommonMark AST chunking, dense summary, and FastEmbed vectorization.")]
     async fn store_context(&self, Parameters(args): Parameters<StoreContextArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let mut content = args.content;
 
         if let Some(links) = args.links {
             if !links.is_empty() {
-                content.push_str("\n\n## Conexões Relacionadas\n");
+                content.push_str("\n\n## Related Connections\n");
                 for l in links {
                     content.push_str(&format!("- [[{}]]\n", l));
                 }
@@ -309,7 +397,7 @@ impl GraphFinderMcpServer {
 
         let note = match engine.save_note(&args.title, &content, None).await {
             Ok(n) => n,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao salvar nota: {}", e))])),
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to save note: {}", e))])),
         };
         if let Some(app) = &self.app_handle {
             let _ = app.emit("vault-sync-complete", 1);
@@ -317,29 +405,29 @@ impl GraphFinderMcpServer {
         }
         let autolinks_info = if !note.outgoing_links.is_empty() {
             format!(
-                "\nAuto-links Criados (≥65% afinidade): {:?}",
+                "\nAuto-links Created (≥65% affinity): {:?}",
                 note.outgoing_links
             )
         } else {
-            "\nAuto-links: Nenhuma nota com afinidade ≥ 65% encontrada.".to_string()
+            "\nAuto-links: No existing notes with ≥65% affinity found.".to_string()
         };
         let out = format!(
-            "Nota salva, vetorizada e autovinculada com sucesso!\nTítulo: [[{}]]\nArquivo: {}\nTags: {:?}{}",
+            "Note successfully saved, vectorized, and linked!\nTitle: [[{}]]\nFile: {}\nTags: {:?}{}",
             note.title, note.path, note.tags, autolinks_info
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Retorna o subgrafo associativo ao redor de uma nota (1 ou 2 graus de separação) com resumo conciso de cada nó vizinho.
-    #[tool(description = "Retorna o subgrafo associativo ao redor de uma nota (1 ou 2 graus de separação) com resumo conciso de cada nó vizinho.")]
+    /// Returns associative subgraph around a note (1 or 2 hops) with concise neighbor summaries.
+    #[tool(description = "Returns associative subgraph around a note (1 or 2 hops) with concise neighbor summaries.")]
     async fn get_graph_neighborhood(&self, Parameters(args): Parameters<GetGraphNeighborhoodArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let depth = args.depth.unwrap_or(1);
         let n = match engine.get_neighborhood(&args.target, depth).await {
             Ok(res) => res,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao buscar subgrafo: {}", e))])),
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to retrieve graph neighborhood: {}", e))])),
         };
-        let mut out = format!("Subgrafo ao redor de [[{}]]:\n\nNós Conectados:\n", args.target);
+        let mut out = format!("Subgraph around [[{}]]:\n\nConnected Nodes:\n", args.target);
         for node in n.nodes {
             out.push_str(&format!(
                 "- [[{}]] ({} links, tags: {:?})\n",
@@ -349,37 +437,37 @@ impl GraphFinderMcpServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Cria explicitamente uma ligação bidirecional entre duas notas ou conceitos.
-    #[tool(description = "Cria explicitamente uma ligação bidirecional entre duas notas ou conceitos.")]
+    /// Creates an explicit bidirectional wikilink between two notes or concepts.
+    #[tool(description = "Creates an explicit bidirectional wikilink between two notes or concepts.")]
     async fn link_notes(&self, Parameters(args): Parameters<LinkNotesArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let updated = match engine.link_notes(&args.from_note, &args.to_note).await {
             Ok(u) => u,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao vincular notas: {}", e))])),
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to link notes: {}", e))])),
         };
         if let Some(app) = &self.app_handle {
             let _ = app.emit("vault-sync-complete", 1);
             let _ = app.emit("mcp-node-updated", &updated.id);
         }
         let out = format!(
-            "Ligação criada com sucesso!\nOrigem: [[{}]] -> Destino: [[{}]]\nLinks atualizados: {:?}",
+            "Link created successfully!\nSource: [[{}]] -> Target: [[{}]]\nUpdated Links: {:?}",
             updated.title, args.to_note, updated.outgoing_links
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Lista as notas do cofre com seus resumos de 1 linha e estimativas de tokens.
-    #[tool(description = "Lista as notas do cofre com seus resumos de 1 linha e estimativas de tokens.")]
+    /// Lists vault notes with 1-line summaries and token estimates.
+    #[tool(description = "Lists vault notes with 1-line summaries and token estimates.")]
     async fn list_recent_notes(&self, Parameters(args): Parameters<ListRecentNotesArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let limit = args.limit.unwrap_or(10);
         let notes = match engine.list_notes().await {
             Ok(n) => n,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao listar notas: {}", e))])),
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to list notes: {}", e))])),
         };
         let display_notes = notes.into_iter().take(limit);
 
-        let mut out = String::from("Notas no cofre de conhecimento:\n");
+        let mut out = String::from("Notes in Knowledge Vault:\n");
         for n in display_notes {
             out.push_str(&format!(
                 "- [[{}]] (Tags: {:?}) - \"{}\"\n",
@@ -389,22 +477,274 @@ impl GraphFinderMcpServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Sincroniza o cofre de arquivos .md com o banco vetorial SQLite local, recalculando embeddings e expurgando notas deletadas.
-    #[tool(description = "Sincroniza o cofre de arquivos .md com o banco vetorial SQLite local, recalculando embeddings e expurgando notas deletadas.")]
+    /// Synchronizes Markdown notes and code files with local SQLite vector index, re-embedding modified files and updating AST import graph. Accepts optional 'path'.
+    #[tool(description = "Synchronizes Markdown notes and code files with local SQLite vector index, re-embedding modified files and updating AST import graph. Accepts optional 'path' to index any local folder.")]
     async fn sync_vault(&self, Parameters(args): Parameters<SyncVaultArgs>) -> Result<CallToolResult, McpError> {
-        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let (project_id, engine, is_new) = if let Some(p) = &args.path {
+            match self.manager.get_or_register_project_by_path(std::path::Path::new(p)).await {
+                Ok((id, eng, is_new)) => (id, eng, is_new),
+                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to access path '{}': {}", p, e))])),
+            }
+        } else {
+            let pid = args.project.clone().unwrap_or_else(|| "default".to_string());
+            let eng = self.manager.get_engine(args.project.as_deref()).await;
+            (pid, eng, false)
+        };
+
         let count = match engine.sync_vault().await {
             Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Erro ao sincronizar cofre: {}", e))])),
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to sync vault: {}", e))])),
         };
         if let Some(app) = &self.app_handle {
             let _ = app.emit("vault-sync-complete", count);
         }
-        let out = format!(
-            "Sincronização concluída com sucesso! {} notas ativas e indexadas no vault.",
+
+        let stats = engine.get_vault_stats().await.ok();
+        let status_desc = if is_new {
+            format!("New project '{}' registered and indexed", project_id)
+        } else {
+            format!("Project '{}' incrementally updated", project_id)
+        };
+
+        let mut out = format!(
+            "Synchronization completed successfully!\n• Status: {}\n• Directory: {}\n• Items processed in this sync: {}\n",
+            status_desc,
+            engine.vault_path().display(),
             count
         );
+        if let Some(s) = stats {
+            out.push_str(&format!(
+                "• Total Notes: {} (with {} sections/chunks)\n• Total Code Files: {} (with {} AST symbols)\n• Graph Connections: {} (wikilinks and imports)\n• Detected Languages: {:?}",
+                s.total_notes, s.total_chunks, s.total_code_files, s.total_code_chunks, s.total_links, s.languages
+            ));
+        }
+
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Surgically reads a single section (heading H2/H3) of a note, guaranteeing maximum token economy for LLMs.
+    #[tool(description = "Surgically reads a single section (heading H2/H3) of a note, guaranteeing maximum token economy for LLMs.")]
+    async fn read_section(&self, Parameters(args): Parameters<ReadSectionArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.read_section(&args.target, &args.section).await {
+            Ok(Some(chunk)) => {
+                let out = format!(
+                    "Section: {} (~{} tokens)\nDeep Link: {}\n\n{}",
+                    chunk.heading.as_deref().unwrap_or("General"),
+                    chunk.token_estimate,
+                    chunk.deep_link,
+                    chunk.content.trim()
+                );
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Ok(None) => Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+                "Section '{}' not found in note '{}'. Use get_compressed_context to view available sections.",
+                args.section, args.target
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error reading section: {}", e))])),
+        }
+    }
+
+    /// Renames a note and its file on disk, refactoring all incoming wikilinks [[Old Title]] across the entire vault to prevent broken links.
+    #[tool(description = "Renames a note and its file on disk, refactoring all incoming wikilinks [[Old Title]] across the entire vault to prevent broken links.")]
+    async fn rename_note(&self, Parameters(args): Parameters<RenameNoteArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.rename_note(&args.old_title, &args.new_title).await {
+            Ok(note) => {
+                if let Some(app) = &self.app_handle {
+                    let _ = app.emit("vault-sync-complete", 1);
+                }
+                let out = format!(
+                    "Note renamed successfully!\nPrevious Title: {}\nNew Title: [[{}]]\nFile: {}\nAll vault wikilinks were refactored automatically.",
+                    args.old_title, note.title, note.path
+                );
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to rename note: {}", e))])),
+        }
+    }
+
+    /// Deletes a note from the vault (removes .md file and purges vector records from SQLite).
+    #[tool(description = "Deletes a note from the vault (removes .md file and purges vector records from SQLite).")]
+    async fn delete_note(&self, Parameters(args): Parameters<DeleteNoteArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.delete_note(&args.target).await {
+            Ok(_) => {
+                if let Some(app) = &self.app_handle {
+                    let _ = app.emit("vault-sync-complete", 1);
+                }
+                let out = format!("Note '{}' successfully deleted from vault and vector database.", args.target);
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to delete note: {}", e))])),
+        }
+    }
+
+    /// Returns health and graph statistics: total notes, code files, vectorized chunks, graph connections, tags, and estimated tokens.
+    #[tool(description = "Returns health and graph statistics: total notes, code files, vectorized chunks, graph connections, tags, and estimated tokens.")]
+    async fn get_vault_stats(&self, Parameters(args): Parameters<GetVaultStatsArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine.get_vault_stats().await {
+            Ok(stats) => {
+                let langs_str = if stats.languages.is_empty() {
+                    "None".to_string()
+                } else {
+                    stats.languages.join(", ")
+                };
+                let out = format!(
+                    "Project and Vault Statistics:\n\n- Markdown Notes: {}\n- Code Files: {}\n- Detected Languages: {}\n- Vectorized Chunks & Sections: {}\n- Graph Connections (Wikilinks + Imports): {}\n- Unique Tags: {}\n- Total Estimated Tokens: {}",
+                    stats.total_notes,
+                    stats.total_code_files,
+                    langs_str,
+                    stats.total_chunks + stats.total_code_chunks,
+                    stats.total_links + stats.total_code_links,
+                    stats.total_tags,
+                    stats.total_tokens
+                );
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to get statistics: {}", e))])),
+        }
+    }
+
+    /// Hybrid dense vector + BM25 search across project codebase. Returns function, class, or block excerpts with relevance scores and deep links [[file#symbol]].
+    #[tool(description = "Hybrid dense vector + BM25 search across project codebase. Returns function, class, or block excerpts with relevance scores and deep links [[file#symbol]].")]
+    async fn search_code(&self, Parameters(args): Parameters<SearchCodeArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let limit = args.limit.unwrap_or(5);
+
+        let hits = match engine.search_code(&args.query, limit, args.language.as_deref()).await {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error searching code: {}", e))])),
+        };
+
+        if hits.is_empty() {
+            return Ok(CallToolResult::success(vec![ContentBlock::text("No relevant code chunks found.")]));
+        }
+
+        let mut out = String::from("Relevant Code Chunks (Neural + FTS5 Hybrid Search):\n\n");
+        for (i, h) in hits.into_iter().enumerate() {
+            out.push_str(&format!(
+                "{}. {} (Lines {}-{}, Relevance: {:.0}%, ~{} tokens)\n   Language: {}\n```{}\n{}\n```\n\n",
+                i + 1,
+                h.deep_link,
+                h.start_line,
+                h.end_line,
+                h.score * 100.0,
+                h.token_estimate,
+                h.language,
+                h.language,
+                h.content.trim()
+            ));
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Quickly finds files in project codebase by name, glob pattern, or language, including connectivity degree in the dependency graph.
+    #[tool(description = "Quickly finds files in project codebase by name, glob pattern, or language, including connectivity degree in the dependency graph.")]
+    async fn find_files(&self, Parameters(args): Parameters<FindFilesArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let limit = args.limit.unwrap_or(20);
+
+        let files = match engine.find_files(args.pattern.as_deref(), args.language.as_deref(), limit).await {
+            Ok(f) => f,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error finding files: {}", e))])),
+        };
+
+        if files.is_empty() {
+            return Ok(CallToolResult::success(vec![ContentBlock::text("No files found matching the provided filters.")]));
+        }
+
+        let mut out = format!("Files found in project (Total: {}):\n\n", files.len());
+        for f in files {
+            out.push_str(&format!(
+                "- `{}` ({}, {} bytes) | Imports: {} | Dependents: {}\n  Summary: {}\n\n",
+                f.path, f.language, f.size_bytes, f.imports_count, f.dependents_count, f.summary
+            ));
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
+
+    /// Returns compact structural summary of a code file (<80 tokens): imported files, dependents, external packages, and symbol catalog.
+    #[tool(description = "Returns compact structural summary of a code file (<80 tokens): imported files, dependents, external packages, and symbol catalog.")]
+    async fn get_file_context(&self, Parameters(args): Parameters<GetFileContextArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+
+        match engine.get_file_context(&args.file_path).await {
+            Ok(Some(ctx)) => {
+                let sym_list = if ctx.symbols.is_empty() {
+                    "No top-level symbols identified".to_string()
+                } else {
+                    ctx.symbols
+                        .iter()
+                        .map(|s| format!("{} (L{}-L{}, ~{}t)", s.name, s.start_line, s.end_line, s.token_estimate))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+
+                let out = format!(
+                    "File Structural Context:\n\n- File: `{}` ({}, ~{} tokens)\n- Summary: {}\n- Imported Files (Internal): {:?}\n- Dependent Files (Who imports this): {:?}\n- External Packages: {:?}\n- Symbols: {}",
+                    ctx.file_id, ctx.language, ctx.token_estimate, ctx.summary, ctx.imported_files, ctx.dependent_files, ctx.external_packages, sym_list
+                );
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Ok(None) => Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+                "File '{}' not found in project. Use find_files to list available files.",
+                args.file_path
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error retrieving file context: {}", e))])),
+        }
+    }
+
+    /// Surgically reads a function, class, struct, or line range from a code file without loading the entire file into context.
+    #[tool(description = "Surgically reads a function, class, struct, or line range from a code file without loading the entire file into context.")]
+    async fn read_code_chunk(&self, Parameters(args): Parameters<ReadCodeChunkArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+
+        match engine.read_code_chunk(&args.file_path, args.symbol_or_lines.as_deref()).await {
+            Ok(Some(chunk)) => {
+                let out = format!(
+                    "Code Chunk: {} (Lines {}-{}, ~{} tokens)\nDeep Link: {}\n\n```{}\n{}\n```",
+                    chunk.symbol_name.as_deref().unwrap_or("block"),
+                    chunk.start_line,
+                    chunk.end_line,
+                    chunk.token_estimate,
+                    chunk.deep_link,
+                    chunk.language,
+                    chunk.content.trim()
+                );
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Ok(None) => Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+                "Chunk or symbol not found in file '{}'. Use get_file_context to view available symbols.",
+                args.file_path
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error reading code chunk: {}", e))])),
+        }
+    }
+
+    /// Explores dependency and import graph of a code file (imports, dependents, external modules).
+    #[tool(description = "Explores dependency and import graph of a code file (imports, dependents, external modules).")]
+    async fn get_code_dependencies(&self, Parameters(args): Parameters<GetCodeDependenciesArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let direction = args.direction.as_deref().unwrap_or("both");
+
+        match engine.get_code_dependencies(&args.file_path, direction).await {
+            Ok(deps) => {
+                let out = format!(
+                    "Dependencies for `{}`:\n\n- Imported Files ({}):\n{}\n\n- Files Importing This File ({}):\n{}\n\n- External Modules/Packages ({}):\n{}",
+                    deps.file_id,
+                    deps.imports.len(),
+                    if deps.imports.is_empty() { "  (none)".to_string() } else { deps.imports.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                    deps.imported_by.len(),
+                    if deps.imported_by.is_empty() { "  (none)".to_string() } else { deps.imported_by.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                    deps.external.len(),
+                    if deps.external.is_empty() { "  (none)".to_string() } else { deps.external.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                );
+                Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error retrieving dependencies: {}", e))])),
+        }
     }
 }
 
@@ -415,15 +755,16 @@ impl ServerHandler for GraphFinderMcpServer {
             ServerCapabilities::builder().enable_tools().build(),
         )
         .with_server_info(Implementation::new("graphfinder", env!("CARGO_PKG_VERSION")))
-        .with_instructions("GraphFinder Neural Knowledge Graph & Local Semantic Vault MCP Server. Permite busca semântica atômica, compressão estrutural de contexto, sugestão de wikilinks e persistência de notas no cofre.".to_string())
+        .with_instructions("GraphFinder Neural Knowledge Graph & Local Semantic Vault MCP Server. Delivers atomic semantic search, structural context compression, wikilink recommendations, and local-first vault persistence.".to_string())
     }
 }
 
 pub async fn run_mcp_server(
-    _manager: Arc<VaultManager>,
+    manager: Arc<VaultManager>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    eprintln!(
-        "[GraphFinder MCP] ERRO: Transporte stdio descontinuado/proibido. Use exclusivamente o endpoint Streamable HTTP: http://127.0.0.1:45123/mcp"
-    );
-    Err("O transporte stdio foi proibido e descontinuado. O servidor MCP opera exclusivamente via Streamable HTTP em http://127.0.0.1:45123/mcp".into())
+    let server = GraphFinderMcpServer::new(manager, None);
+    let (read, write) = rmcp::transport::io::stdio();
+    server.serve((read, write)).await?;
+    Ok(())
 }
+
