@@ -1026,6 +1026,8 @@ impl GraphAnalyticsEngine {
       <input type="text" id="search" placeholder="Search node or file...">
       <button class="btn active" id="btn-color">Mode: Communities</button>
       <button class="btn" id="btn-gods">Highlight God Nodes</button>
+      <button class="btn" id="btn-physics">Freeze Physics</button>
+      <button class="btn" id="btn-reheat">Re-layout</button>
       <button class="btn" id="btn-reset">Reset View</button>
     </div>
   </header>
@@ -1075,13 +1077,19 @@ impl GraphAnalyticsEngine {
       legendEl.appendChild(div);
     });
 
-    // Setup node map & physics simulation
+    // Setup node map & community clustered initial layout
     const nodeMap = new Map();
+    const commCount = Math.max(1, DATA.communities.length);
     DATA.nodes.forEach((n, i) => {
-      const angle = (i / DATA.nodes.length) * Math.PI * 2;
-      const radius = 200 + Math.random() * 200;
-      n.x = width / 2 + Math.cos(angle) * radius;
-      n.y = height / 2 + Math.sin(angle) * radius;
+      const commId = n.community || 0;
+      const clusterAngle = (commId / commCount) * Math.PI * 2;
+      const clusterDist = Math.min(width, height) * 0.28;
+      const cx = width / 2 + Math.cos(clusterAngle) * clusterDist;
+      const cy = height / 2 + Math.sin(clusterAngle) * clusterDist;
+      const jitterAngle = (i * 1.618) * Math.PI * 2;
+      const jitterDist = 25 + (i % 7) * 12;
+      n.x = cx + Math.cos(jitterAngle) * jitterDist;
+      n.y = cy + Math.sin(jitterAngle) * jitterDist;
       n.vx = 0;
       n.vy = 0;
       n.radius = n.is_god_node ? 10 : Math.max(4, Math.min(8, 3 + n.degree));
@@ -1107,59 +1115,122 @@ impl GraphAnalyticsEngine {
     let searchFilter = "";
     let selectedNode = null;
 
-    // Simulation loop
-    function tick() {
-      const rep = 800;
+    // Simulation cooling state
+    let alpha = 1.0;
+    const alphaMin = 0.002;
+    const alphaDecay = 0.022; // Cools down smoothly and stops
+    let physicsEnabled = true;
 
-      // Repulsion
-      for (let i = 0; i < DATA.nodes.length; i++) {
+    function updatePhysicsBtnState() {
+      const btn = document.getElementById("btn-physics");
+      if (!btn) return;
+      if (!physicsEnabled) {
+        btn.textContent = "Resume Physics";
+        btn.classList.add("active");
+      } else if (alpha <= alphaMin) {
+        btn.textContent = "Physics: Settled (Frozen)";
+        btn.classList.remove("active");
+      } else {
+        btn.textContent = "Freeze Physics";
+        btn.classList.remove("active");
+      }
+    }
+
+    // Force simulation tick
+    function tick() {
+      if (!physicsEnabled || alpha <= alphaMin) return;
+
+      const rep = 1000;
+      const softening = 450;
+      const nodeCount = DATA.nodes.length;
+
+      // 1. Repulsion with softening and gentle collision avoidance
+      for (let i = 0; i < nodeCount; i++) {
         const a = DATA.nodes[i];
-        for (let j = i + 1; j < DATA.nodes.length; j++) {
+        for (let j = i + 1; j < nodeCount; j++) {
           const b = DATA.nodes[j];
-          let dx = b.x - a.x;
-          let dy = b.y - a.y;
-          let distSq = dx * dx + dy * dy || 1;
-          if (distSq < 40000) {
-            let dist = Math.sqrt(distSq);
-            let force = rep / distSq;
-            let fx = (dx / dist) * force;
-            let fy = (dy / dist) * force;
-            a.vx -= fx;
-            a.vy -= fy;
-            b.vx += fx;
-            b.vy += fy;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const distSq = dx * dx + dy * dy;
+          if (distSq < 100000) {
+            const dist = Math.sqrt(distSq) || 0.1;
+
+            // Direct overlap prevention (collision)
+            const minDist = a.radius + b.radius + 6;
+            if (dist < minDist) {
+              const overlap = (minDist - dist) * 0.4 * alpha;
+              const ox = (dx / dist) * overlap;
+              const oy = (dy / dist) * overlap;
+              if (a !== dragNode) { a.x -= ox; a.y -= oy; }
+              if (b !== dragNode) { b.x += ox; b.y += oy; }
+            }
+
+            const force = (rep / (distSq + softening)) * alpha;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            if (a !== dragNode) { a.vx -= fx; a.vy -= fy; }
+            if (b !== dragNode) { b.vx += fx; b.vy += fy; }
           }
         }
       }
 
-      // Spring links
+      // 2. Spring links (connected nodes pull each other gently)
       links.forEach(l => {
-        let dx = l.target.x - l.source.x;
-        let dy = l.target.y - l.source.y;
-        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        let desired = l.is_cross ? 180 : 90;
-        let force = (dist - desired) * 0.02;
-        let fx = (dx / dist) * force;
-        let fy = (dy / dist) * force;
-        l.source.vx += fx;
-        l.source.vy += fy;
-        l.target.vx -= fx;
-        l.target.vy -= fy;
+        const dx = l.target.x - l.source.x;
+        const dy = l.target.y - l.source.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+        const desired = l.is_cross ? 130 : 65;
+        const strength = (l.is_cross ? 0.015 : 0.035) * alpha;
+        const force = (dist - desired) * strength;
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        if (l.source !== dragNode) {
+          l.source.vx += fx;
+          l.source.vy += fy;
+        }
+        if (l.target !== dragNode) {
+          l.target.vx -= fx;
+          l.target.vy -= fy;
+        }
       });
 
-      // Center gravity & damping
+      // 3. Center gravity, velocity damping, and position update
       const cx = width / 2;
       const cy = height / 2;
+      const maxSpeed = 8;
+
       DATA.nodes.forEach(n => {
         if (n !== dragNode) {
-          n.vx += (cx - n.x) * 0.002;
-          n.vy += (cy - n.y) * 0.002;
-          n.vx *= 0.85;
-          n.vy *= 0.85;
+          n.vx += (cx - n.x) * 0.001 * alpha;
+          n.vy += (cy - n.y) * 0.001 * alpha;
+
+          // Strong velocity decay to prevent jitter and oscillation
+          n.vx *= 0.65;
+          n.vy *= 0.65;
+
+          const speed = Math.hypot(n.vx, n.vy);
+          if (speed > maxSpeed) {
+            n.vx = (n.vx / speed) * maxSpeed;
+            n.vy = (n.vy / speed) * maxSpeed;
+          }
+
           n.x += n.vx;
           n.y += n.vy;
         }
       });
+
+      // 4. Alpha Cooling Decay
+      alpha = Math.max(0, alpha - alphaDecay * alpha);
+      if (alpha <= alphaMin) {
+        alpha = 0;
+        DATA.nodes.forEach(n => { n.vx = 0; n.vy = 0; });
+        updatePhysicsBtnState();
+      }
+    }
+
+    // Pre-warm layout for 140 iterations so it renders already near equilibrium
+    for (let step = 0; step < 140 && alpha > 0.05; step++) {
+      tick();
     }
 
     function render() {
@@ -1261,6 +1332,12 @@ impl GraphAnalyticsEngine {
         const pos = screenToWorld(e.clientX, e.clientY - 50);
         dragNode.x = pos.x;
         dragNode.y = pos.y;
+        dragNode.vx = 0;
+        dragNode.vy = 0;
+        if (physicsEnabled && alpha < 0.12) {
+          alpha = 0.12;
+          updatePhysicsBtnState();
+        }
       } else if (isDragging) {
         panX += e.clientX - lastMouseX;
         panY += e.clientY - lastMouseY;
@@ -1291,6 +1368,20 @@ impl GraphAnalyticsEngine {
       this.classList.toggle("active", highlightGods);
     });
 
+    document.getElementById("btn-physics").addEventListener("click", function() {
+      physicsEnabled = !physicsEnabled;
+      if (physicsEnabled) {
+        alpha = 0.35;
+      }
+      updatePhysicsBtnState();
+    });
+
+    document.getElementById("btn-reheat").addEventListener("click", function() {
+      physicsEnabled = true;
+      alpha = 0.8;
+      updatePhysicsBtnState();
+    });
+
     document.getElementById("btn-reset").addEventListener("click", () => {
       zoom = 1.0;
       panX = 0;
@@ -1298,6 +1389,8 @@ impl GraphAnalyticsEngine {
       selectedNode = null;
       document.getElementById("sidebar").style.display = "none";
     });
+
+    updatePhysicsBtnState();
 
     document.getElementById("search").addEventListener("input", e => {
       searchFilter = e.target.value.toLowerCase().trim();
