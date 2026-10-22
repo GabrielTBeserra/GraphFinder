@@ -16,4 +16,10 @@ Practical workflows to maximize productivity and token efficiency in GraphFinder
 - Agents receive precise deep links like `[[Note#Section]]` consuming ~50 tokens rather than whole files.
 - Check our RAG foundations in [[AI Concepts and RAG]].
 
-Tags: #guide #tutorial #productivity #mcp
+## 4. Codebase Navigation and Code Inspector
+- Click on any code node in the graph or sidebar to open the interactive Code Inspector.
+- Inspect top-level symbols, line ranges, and navigate imported files with clickable links.
+- Filter the graph canvas using `[Todos]`, `[Notas]`, or `[Código]` to focus on specific architectural layers.
+
+Tags: #guide #tutorial #productivity #mcp #code
+

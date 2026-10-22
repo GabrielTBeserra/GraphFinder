@@ -65,6 +65,11 @@ pub fn slugify(name: &str) -> String {
         .join("-")
 }
 
+pub fn clean_path_str(p: &Path) -> String {
+    let s = p.to_string_lossy().to_string();
+    s.trim_start_matches(r"\\?\").to_string()
+}
+
 pub fn sanitize_project_id(id: &str) -> String {
     let clean = slugify(id);
     if clean.is_empty() {
@@ -146,14 +151,8 @@ impl VaultManager {
         let (vault_path, db_path) = self.resolve_project_paths(&id).await;
 
         let engine = Engine::new(&vault_path, &db_path, Arc::clone(&self.embeddings))
-            .map_err(|e| format!("Falha ao inicializar Engine do projeto '{}': {}", id, e))?;
+            .map_err(|e| format!("Failed to initialize Engine for project '{}': {}", id, e))?;
         let engine_arc = Arc::new(engine);
-
-        // Sync initial notes in background
-        let engine_clone = Arc::clone(&engine_arc);
-        tokio::spawn(async move {
-            let _ = engine_clone.sync_vault().await;
-        });
 
         // Insert into cache
         {
@@ -168,10 +167,10 @@ impl VaultManager {
         match self.try_get_or_create_engine(project_id).await {
             Ok(e) => e,
             Err(err) => {
-                eprintln!("[GraphFinder Error] {}, recorrendo ao engine default.", err);
+                eprintln!("[GraphFinder Error] {}, falling back to default engine.", err);
                 self.try_get_or_create_engine("default")
                     .await
-                    .expect("Falha crítica ao inicializar o vault padrão")
+                    .expect("Critical failure initializing default vault")
             }
         }
     }
@@ -280,24 +279,39 @@ impl VaultManager {
     }
 
     pub async fn switch_project(&self, project_id: &str) -> Result<ProjectInfo, String> {
-        let target_id = if project_id.trim().is_empty() {
-            "default"
+        let raw = project_id.trim();
+        let target_id = if raw.is_empty() || raw.eq_ignore_ascii_case("default") {
+            "default".to_string()
         } else {
-            project_id.trim()
+            // Find existing project by id (case-insensitive) or slug
+            let clean = sanitize_project_id(raw);
+            let custom_paths = self.custom_paths.read().await;
+            if let Some((id, _)) = custom_paths.iter().find(|(k, _)| k.eq_ignore_ascii_case(raw) || k.eq_ignore_ascii_case(&clean)) {
+                id.clone()
+            } else {
+                clean
+            }
         };
 
-        // Ensure engine is loaded and synchronized
-        let engine = self.get_or_create_engine(target_id).await;
-        let _ = engine.sync_vault().await;
-
+        // 1. Update active project in memory and persist immediately
         {
             let mut active = self.active_project_id.write().await;
-            *active = target_id.to_string();
+            *active = target_id.clone();
         }
 
         self.save_meta().await;
 
-        self.get_project_info(target_id).await
+        // 2. Ensure engine is cached
+        let engine = self.get_or_create_engine(&target_id).await;
+
+        // 3. Sync vault in the background so the user interface never freezes
+        let engine_clone = Arc::clone(&engine);
+        tokio::spawn(async move {
+            let _ = engine_clone.sync_vault().await;
+        });
+
+        // 4. Return project info immediately
+        self.get_project_info(&target_id).await
     }
 
     pub async fn create_project(
@@ -307,12 +321,12 @@ impl VaultManager {
     ) -> Result<ProjectInfo, String> {
         let clean_name = name.trim();
         if clean_name.is_empty() {
-            return Err("Nome do projeto não pode ser vazio".to_string());
+            return Err("Project name cannot be empty".to_string());
         }
 
         let slug = slugify(clean_name);
         if slug.is_empty() {
-            return Err("Nome do projeto inválido".to_string());
+            return Err("Invalid project name".to_string());
         }
 
         // If a custom directory path was chosen by the user
@@ -322,11 +336,11 @@ impl VaultManager {
                 let p = PathBuf::from(clean_path);
                 if !p.exists() {
                     fs::create_dir_all(&p)
-                        .map_err(|e| format!("Falha ao criar diretório: {}", e))?;
+                        .map_err(|e| format!("Failed to create directory: {}", e))?;
                 }
                 let canonical = fs::canonicalize(&p).unwrap_or(p);
                 let mut paths = self.custom_paths.write().await;
-                paths.insert(slug.clone(), canonical.to_string_lossy().to_string());
+                paths.insert(slug.clone(), clean_path_str(&canonical));
             }
         }
 
@@ -344,7 +358,7 @@ impl VaultManager {
             let starter_note = vault_path.join(format!("{}.md", clean_name));
             if !starter_note.exists() {
                 let note_body = format!(
-                    "# {}\n\nCofre de conhecimento para o projeto **{}**.\n\n## 1. Visão Geral\n- Este vault armazena notas e embeddings locais de forma independente.\n- Conecte suas ideias usando wikilinks como `[[{}#1. Visão Geral]]`.\n\nTags: #projeto #{}\n",
+                    "# {}\n\nKnowledge vault for project **{}**.\n\n## 1. Overview\n- This vault stores local notes and embeddings independently.\n- Connect your ideas using bidirectional wikilinks like `[[{}#1. Overview]]`.\n\nTags: #project #{}\n",
                     clean_name, clean_name, clean_name, slug
                 );
                 let _ = fs::write(starter_note, note_body);
@@ -355,12 +369,123 @@ impl VaultManager {
         self.switch_project(&slug).await
     }
 
+    /// Checks whether directory `target_dir` is already associated with an existing project (by canonical path).
+    /// If it already exists, returns `(project_id, engine, false /* is_new */)`.
+    /// If not, automatically registers a new project using folder name, saves metadata, and returns `(project_id, engine, true /* is_new */)`.
+    pub async fn get_or_register_project_by_path(
+        &self,
+        target_dir: &Path,
+    ) -> Result<(String, Arc<Engine>, bool), String> {
+        let abs_path = if target_dir.is_absolute() {
+            target_dir.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|e| format!("Failed to resolve current directory: {}", e))?
+                .join(target_dir)
+        };
+
+        let canonical = fs::canonicalize(&abs_path).unwrap_or(abs_path);
+        let target_norm = clean_path_str(&canonical).to_lowercase().replace('\\', "/");
+
+        // 1. Check if matches default vault
+        let (def_vault, _) = self.resolve_project_paths("default").await;
+        let def_norm = clean_path_str(&fs::canonicalize(&def_vault).unwrap_or(def_vault))
+            .to_lowercase()
+            .replace('\\', "/");
+        if def_norm == target_norm {
+            let engine = self.get_or_create_engine("default").await;
+            return Ok(("default".to_string(), engine, false));
+        }
+
+        // 2. Verifica se coincide com algum caminho customizado já registrado
+        {
+            let custom_paths = self.custom_paths.read().await;
+            for (id, p_str) in custom_paths.iter() {
+                let p_norm = p_str.trim_start_matches(r"\\?\").to_lowercase().replace('\\', "/");
+                if p_norm == target_norm {
+                    let found_id = id.clone();
+                    drop(custom_paths);
+                    let engine = self.get_or_create_engine(&found_id).await;
+                    return Ok((found_id, engine, false));
+                }
+            }
+        }
+
+        // 3. Verifica se coincide com alguma subpasta em ./vaults/<id>
+        let vaults_dir = self.base_dir.join("vaults");
+        if let Ok(entries) = fs::read_dir(&vaults_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_dir() {
+                    let folder_norm = clean_path_str(&fs::canonicalize(&path).unwrap_or(path.clone()))
+                        .to_lowercase()
+                        .replace('\\', "/");
+                    if folder_norm == target_norm {
+                        if let Some(folder_name) = path.file_name().and_then(|n| n.to_str()) {
+                            let id = folder_name.to_string();
+                            let engine = self.get_or_create_engine(&id).await;
+                            return Ok((id, engine, false));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Not found: register as new project using folder name
+        let folder_name = canonical
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("project")
+            .to_string();
+
+        let base_slug = slugify(&folder_name);
+        let slug = if base_slug.is_empty() {
+            "project".to_string()
+        } else {
+            base_slug
+        };
+
+        // Ensures unique ID in case slug already exists pointing to another path
+        let mut final_id = slug.clone();
+        {
+            let custom_paths = self.custom_paths.read().await;
+            let mut counter = 1;
+            while custom_paths.contains_key(&final_id) || final_id == "default" {
+                final_id = format!("{}-{}", slug, counter);
+                counter += 1;
+            }
+        }
+
+        let canonical_str = clean_path_str(&canonical);
+        {
+            let mut paths = self.custom_paths.write().await;
+            paths.insert(final_id.clone(), canonical_str);
+        }
+        {
+            let mut names = self.custom_names.write().await;
+            names.insert(final_id.clone(), folder_name);
+        }
+
+        self.save_meta().await;
+
+        let engine = self.get_or_create_engine(&final_id).await;
+        Ok((final_id, engine, true))
+    }
+
     pub async fn get_project_info(&self, project_id: &str) -> Result<ProjectInfo, String> {
+        let clean = sanitize_project_id(project_id);
         let projects = self.list_projects().await;
-        projects
+        if let Some(p) = projects.into_iter().find(|p| {
+            p.id.eq_ignore_ascii_case(project_id) || p.id.eq_ignore_ascii_case(&clean)
+        }) {
+            return Ok(p);
+        }
+        // Fallback to default
+        let def_list = self.list_projects().await;
+        def_list
             .into_iter()
-            .find(|p| p.id == project_id)
-            .ok_or_else(|| format!("Projeto '{}' não encontrado", project_id))
+            .find(|p| p.id == "default")
+            .ok_or_else(|| format!("Project '{}' not found", project_id))
     }
 
     async fn save_meta(&self) {

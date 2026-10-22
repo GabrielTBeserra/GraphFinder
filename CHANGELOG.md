@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-22
+
+### Added
+* Multi-Language Codebase Indexing: Scans and indexes entire software repositories across 15+ languages (Rust, TypeScript, TSX, JavaScript, Python, Go, C/C++, Java, Kotlin, C#, PHP, Ruby, Swift, CSS, Shell).
+* AST-Lite Module Import Parser & Relational Graph: Extracts module imports (`import`, `require`, `use`, `include`, `mod`) and builds bidirectional dependency edges in SQLite `code_links`.
+* 5 New Surgical MCP Code Tools (expanding suite to 20 tools):
+  - `search_code`: Hybrid vector (FastEmbed ONNX) + BM25 keyword search across functions, structs, and symbols.
+  - `find_files`: Fast glob pattern matching across indexed codebase files.
+  - `get_file_context`: High-density file summary (<80 tokens) with symbol list, line numbers, local imports, dependents, and external packages.
+  - `read_code_chunk`: Surgical retrieval of individual symbol/function bodies.
+  - `get_code_dependencies`: Relational dependency graph navigation (imports & dependents).
+* Interactive Code Inspector Drawer (`CodeInspector.tsx`): Slide-out drawer with tabs for declared symbols, import graph navigation with clickable jumps, and surgical code viewer.
+* Cybernetic Graph Canvas Visualization: Code files rendered with language-coded concentric rings (TypeScript `#38bdf8`, Rust `#f97316`, Python `#10b981`, Go `#06b6d4`, etc.).
+* Graph Filter Controls: Instant 1-click filtering between `[All]`, `[Notes]`, and `[Code]`.
+* Sidebar Code Navigation: Dedicated `Code` tab with language filters and toggle in semantic search between Markdown notes and code symbols.
+* Incremental SHA-256 Code Syncing: Filesystem scanning skips unchanged files and strictly respects `.gitignore` (ignoring `node_modules`, `target`, `dist`, `.git`, binaries, and files >1MB).
+* 6 New Unit Tests covering language detection, AST-lite import extraction (Rust, JS/TS, Python), path resolution, and SQLite code search (21/21 tests passing).
+
+---
+
 ## [0.3.0] - 2026-10-21
 
 ### Added

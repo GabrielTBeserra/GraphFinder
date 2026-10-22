@@ -1,3 +1,24 @@
+# Release Notes — GraphFinder v0.4.0
+
+**Release Date:** October 2026  
+**Target Milestone:** Multi-Language Codebase Indexing, AST Dependency Graph, 20-Tool MCP Suite & Code Inspector
+
+---
+
+## Executive Summary
+
+GraphFinder **v0.4.0** expands beyond Markdown notes to index **entire codebases across any programming language**, building a bidirectional module dependency graph and arming AI agents with surgical code retrieval tools.
+
+Key highlights include:
+1. **Multi-Language AST-Lite Engine**: Scans 15+ languages (Rust, TypeScript, TSX, JavaScript, Python, Go, C/C++, Java, Kotlin, C#, PHP, Ruby, Swift, CSS, Shell). Extracts module imports (`import`, `require`, `use`, `include`, `mod`) and maps dependencies into SQLite `code_links`.
+2. **20-Tool Unified MCP Suite**: Added 5 dedicated code retrieval tools (`search_code`, `find_files`, `get_file_context`, `read_code_chunk`, `get_code_dependencies`) preserving the **<80 token rule** for structural discovery.
+3. **Cybernetic Visual Graph Canvas**: Renders code files with language-specific palette rings (TypeScript `#38bdf8`, Rust `#f97316`, Python `#10b981`, Go `#06b6d4`, etc.) and a 1-click filter bar: `[All]`, `[Notes]`, `[Code]`.
+4. **Interactive Code Inspector Drawer (`CodeInspector.tsx`)**: Slide-out drawer with tabs for declared symbols (functions, structs, classes) with line numbers, interactive dependency jumps, and surgical code viewer.
+5. **Incremental SHA-256 Code Syncing**: Filesystem scanning skips unchanged files and strictly respects `.gitignore` (ignoring `node_modules`, `target`, `dist`, `.git`, binaries, and files >1MB).
+6. **Unified RRF Hybrid Search**: FastEmbed ONNX vectors combined with SQLite FTS5 BM25 search over code symbols, comments, and signatures.
+
+---
+
 # Release Notes — GraphFinder v0.3.0
 
 **Release Date:** October 2026  

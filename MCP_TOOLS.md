@@ -1,6 +1,6 @@
 # GraphFinder MCP Server Tools Specification
 
-All 15 tools described below are **fully implemented and active** using the official Model Context Protocol Rust SDK (`rmcp`).
+All 20 tools described below are **fully implemented and active** using the official Model Context Protocol Rust SDK (`rmcp`).
 They operate concurrently in two modes:
 1. **Desktop App Embedded Server**: Streamable HTTP/SSE at `http://127.0.0.1:45123/mcp` and `http://127.0.0.1:45123/sse` (with DNS rebinding protection and origin validation).
 2. **Headless CLI Stdio Mode**: `GraphFinder.exe --mcp` directly connecting to AI client standard IO (Claude Desktop, Cursor, Antigravity, etc.).
@@ -161,11 +161,12 @@ They operate concurrently in two modes:
 ---
 
 ## 12. `sync_vault` (Hash-Based Incremental Indexing)
-* **Purpose**: Resynchronize the `.md` files on disk with the SQLite vector database.
-* **Mechanism**: $O(1)$ timestamp and SHA-256 hash comparison; only modified files undergo ONNX embedding re-inference.
+* **Purpose**: Resynchronize markdown notes and codebase files on disk with the SQLite vector database.
+* **Mechanism**: $O(1)$ timestamp and SHA-256 hash comparison; only modified files undergo AST parsing and ONNX embedding re-inference. Automatically associates directory paths with projects.
 * **Parameters**:
   ```json
   {
+    "path": "string (optional, local folder path to index/update; automatically maps to existing project or registers new one)",
     "project": "string (optional, target specific vault id)"
   }
   ```
@@ -198,3 +199,73 @@ They operate concurrently in two modes:
     "project_id": "string (id or slug of target project)"
   }
   ```
+
+---
+
+## 16. `search_code` (Hybrid Vector + BM25 Codebase Retrieval via RRF)
+* **Purpose**: Surgical code discovery across all indexed programming languages (Rust, TS, JS, Python, Go, C/C++, Java, Kotlin, C#, PHP, Ruby, Swift, CSS, Shell).
+* **Mechanism**: Runs vector cosine similarity and SQLite FTS5 BM25 search over `code_chunks` and merges them via Reciprocal Rank Fusion ($k=60$). Returns top matching functions/structs with deep links (`[[filepath#symbol]]`), line ranges, and token estimates.
+* **Parameters**:
+  ```json
+  {
+    "query": "string (concept, feature, symbol name, or exact keyword)",
+    "language": "string (optional, e.g. 'rust', 'typescript', 'python')",
+    "limit": "integer (optional, default: 5)",
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
+
+---
+
+## 17. `find_files` (Fast Pattern / Glob Matching)
+* **Purpose**: Rapid file discovery by path pattern or extension without reading file contents.
+* **Mechanism**: Matches file paths in SQLite `code_files` using SQL LIKE / glob patterns with case-insensitive filtering.
+* **Parameters**:
+  ```json
+  {
+    "pattern": "string (glob pattern or filename substring, e.g. '*.rs', 'engine', 'Button')",
+    "limit": "integer (optional, default: 20)",
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
+
+---
+
+## 18. `get_file_context` (Structural File Overview & AST Map)
+* **Purpose**: Inspect a source file's architecture, declared symbols, and dependency footprint consuming <80 tokens.
+* **Mechanism**: Returns file summary, top-level declared symbols with line ranges, local imported files, incoming dependents (who imports this file), and third-party package dependencies.
+* **Parameters**:
+  ```json
+  {
+    "file": "string (relative file path or filename)",
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
+
+---
+
+## 19. `read_code_chunk` (Surgical Symbol & Function Reader)
+* **Purpose**: Read precisely a specific function, class, or struct body without injecting the entire file into the LLM context window.
+* **Mechanism**: Retrieves the exact AST-lite chunk matching the target symbol name from `code_chunks` with line numbers and token estimate.
+* **Parameters**:
+  ```json
+  {
+    "file": "string (relative file path or filename)",
+    "symbol": "string (function, class, struct, or interface name)",
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
+
+---
+
+## 20. `get_code_dependencies` (Relational Import & Dependent Graph)
+* **Purpose**: Inspect the directional dependency graph around an individual source code file.
+* **Mechanism**: Queries `code_links` to return all files imported by this file, external packages, and all project files that import this file (incoming dependents).
+* **Parameters**:
+  ```json
+  {
+    "file": "string (relative file path or filename)",
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
+
