@@ -55,24 +55,10 @@ Objetivo: Melhorar legibilidade de grafos complexos e fornecer ferramentas de au
 
 - [x] **Commit 12: Filtro de Ego Network (N-Hop Focus) no `GraphView`**
   - Slider dinâmico de profundidade para isolar vizinhanças imediatas de nós selecionados.
-- [ ] **Commit 13: Agrupamento visual por Comunidade LPA**
+- [x] **Commit 13: Agrupamento visual por Comunidade LPA**
   - Bounding hulls e clusters coloridos no Canvas ao redor de nós da mesma comunidade Louvain/LPA.
 - [ ] **Commit 14: Comando CLI de Auditoria Arquitetural para CI/CD**
   - Flag `--fail-on-cycles` e `--max-god-nodes` no `graphfinder audit` para validação em GitHub Actions.
 
 ---
 
-## 🔌 Bloco 5: Extensão Oficial do VS Code
-
-Objetivo: Integrar o visualizador de grafos e a inteligência do GraphFinder diretamente no VS Code.
-
-- [ ] **Commit 15: Scaffold do projeto da Extensão VS Code**
-  - Criação de `vscode-extension/` com TypeScript, manifesto `package.json` e scripts de build.
-- [ ] **Commit 16: Conexão IPC / Cliente do GraphFinder no VS Code**
-  - Cliente stdio/HTTP para comunicar com o binário `graphfinder`.
-- [ ] **Commit 17: Comandos de Busca Semântica e Pathfinding na Command Palette**
-  - Comandos rápidos nativos no VS Code (`QuickPick`).
-- [ ] **Commit 18: Webview do Grafo na Sidebar do VS Code**
-  - Painel com o Force-Graph ativo e sincronização com o arquivo aberto no editor.
-- [ ] **Commit 19: Autocomplete de `[[Wikilinks]]` no Editor Markdown**
-  - `CompletionItemProvider` para links e cabeçalhos `[[Nota#Seção]]`.

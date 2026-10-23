@@ -99,6 +99,59 @@ function hashStringToColor(str: string, isLight: boolean): string {
   return isLight ? VIBRANT_ACCENTS[index].light : VIBRANT_ACCENTS[index].dark;
 }
 
+interface Point2D {
+  x: number;
+  y: number;
+}
+
+function computeConvexHull(points: Point2D[]): Point2D[] {
+  if (points.length <= 2) return points.slice();
+  const sorted = points
+    .slice()
+    .sort((a, b) => (a.x !== b.x ? a.x - b.x : a.y - b.y));
+
+  const cross = (o: Point2D, a: Point2D, b: Point2D) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  const lower: Point2D[] = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  const upper: Point2D[] = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  upper.pop();
+  lower.pop();
+  return lower.concat(upper);
+}
+
+function drawSmoothHull(ctx: CanvasRenderingContext2D, hull: Point2D[]) {
+  if (hull.length < 3) return;
+  ctx.beginPath();
+  const len = hull.length;
+  const firstMidX = (hull[len - 1].x + hull[0].x) / 2;
+  const firstMidY = (hull[len - 1].y + hull[0].y) / 2;
+  ctx.moveTo(firstMidX, firstMidY);
+  for (let i = 0; i < len; i++) {
+    const p1 = hull[i];
+    const p2 = hull[(i + 1) % len];
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    ctx.quadraticCurveTo(p1.x, p1.y, midX, midY);
+  }
+  ctx.closePath();
+}
+
 function getNodeColor(node: any, isLight: boolean = false, colorMode: 'communities' | 'default' = 'communities'): string {
   if (colorMode === 'communities' && typeof node.community === 'number') {
     return COMMUNITY_PALETTE[node.community % COMMUNITY_PALETTE.length];
@@ -390,6 +443,72 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const connected = connectedNodeIdsRef.current;
         if (connected.has(s) && connected.has(t)) return 2.2;
         return 1.2;
+      })
+      .onRenderFramePre((ctx: CanvasRenderingContext2D, globalScale: number) => {
+        if (colorModeRef.current !== 'communities' || !graphInstanceRef.current) return;
+        const currentData = graphInstanceRef.current.graphData();
+        const nodes: any[] = currentData?.nodes || [];
+        if (nodes.length === 0) return;
+
+        const isLight = themeRef.current === 'light';
+        const connected = connectedNodeIdsRef.current;
+        const groups = new Map<number, any[]>();
+
+        for (const n of nodes) {
+          if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
+          if (!groups.has(n.community)) groups.set(n.community, []);
+          groups.get(n.community)!.push(n);
+        }
+
+        const padRadius = 26;
+        const angles = [0, Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4, Math.PI, (5 * Math.PI) / 4, (3 * Math.PI) / 2, (7 * Math.PI) / 4];
+
+        groups.forEach((commNodes, commId) => {
+          if (commNodes.length < 2) return;
+
+          const hasActiveFocus = connected.size > 0;
+          const anyConnected = hasActiveFocus && commNodes.some((n) => connected.has(n.id));
+          if (hasActiveFocus && !anyConnected) return;
+
+          const color = COMMUNITY_PALETTE[commId % COMMUNITY_PALETTE.length];
+          const paddedPoints: Point2D[] = [];
+          let minY = Infinity;
+          let sumX = 0;
+
+          for (const n of commNodes) {
+            sumX += n.x;
+            if (n.y - padRadius < minY) minY = n.y - padRadius;
+            for (const a of angles) {
+              paddedPoints.push({
+                x: n.x + Math.cos(a) * padRadius,
+                y: n.y + Math.sin(a) * padRadius,
+              });
+            }
+          }
+
+          const hull = computeConvexHull(paddedPoints);
+          if (hull.length < 3) return;
+
+          ctx.save();
+          drawSmoothHull(ctx, hull);
+          ctx.fillStyle = isLight ? `${color}14` : `${color}12`;
+          ctx.fill();
+          ctx.lineWidth = Math.max(1 / globalScale, 0.8);
+          ctx.setLineDash([5 / globalScale, 4 / globalScale]);
+          ctx.strokeStyle = isLight ? `${color}45` : `${color}38`;
+          ctx.stroke();
+
+          if (globalScale > 0.45) {
+            const centerX = sumX / commNodes.length;
+            const fontSize = Math.max(9.5 / globalScale, 8);
+            ctx.font = `600 ${fontSize}px 'Plus Jakarta Sans', monospace, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillStyle = isLight ? `${color}cc` : `${color}aa`;
+            ctx.fillText(`Cluster #${commId} (${commNodes.length})`, centerX, minY - 4 / globalScale);
+          }
+          ctx.restore();
+        });
       })
       .nodeCanvasObject((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
         if (!node || !isFinite(node.x) || !isFinite(node.y)) return;
@@ -690,6 +809,32 @@ export const GraphView: React.FC<GraphViewProps> = ({
     // Forces configuration
     graph.d3Force('charge')?.strength(-160);
     graph.d3Force('link')?.distance(65);
+    graph.d3Force('cluster', (alpha: number) => {
+      if (colorModeRef.current !== 'communities' || !graphInstanceRef.current) return;
+      const nodes: any[] = graphInstanceRef.current.graphData()?.nodes || [];
+      const centroids = new Map<number, { x: number; y: number; count: number }>();
+      for (const n of nodes) {
+        if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
+        const c = centroids.get(n.community) || { x: 0, y: 0, count: 0 };
+        c.x += n.x;
+        c.y += n.y;
+        c.count += 1;
+        centroids.set(n.community, c);
+      }
+      centroids.forEach((c) => {
+        c.x /= c.count;
+        c.y /= c.count;
+      });
+      const strength = 0.12 * alpha;
+      for (const n of nodes) {
+        if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
+        const c = centroids.get(n.community);
+        if (c && c.count > 1) {
+          n.vx = (n.vx || 0) + (c.x - n.x) * strength;
+          n.vy = (n.vy || 0) + (c.y - n.y) * strength;
+        }
+      }
+    });
 
     graphInstanceRef.current = graph;
 
@@ -792,6 +937,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
         existing.degree = n.degree;
         existing.node_type = n.node_type;
         existing.path = n.path;
+        existing.community = n.community;
+        existing.is_god_node = n.is_god_node;
+        existing.centrality = n.centrality;
         return existing;
       }
       return { ...n };
