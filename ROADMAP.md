@@ -57,7 +57,7 @@ Objetivo: Melhorar legibilidade de grafos complexos e fornecer ferramentas de au
   - Slider dinâmico de profundidade para isolar vizinhanças imediatas de nós selecionados.
 - [x] **Commit 13: Agrupamento visual por Comunidade LPA**
   - Bounding hulls e clusters coloridos no Canvas ao redor de nós da mesma comunidade Louvain/LPA.
-- [ ] **Commit 14: Comando CLI de Auditoria Arquitetural para CI/CD**
+- [x] **Commit 14: Comando CLI de Auditoria Arquitetural para CI/CD**
   - Flag `--fail-on-cycles` e `--max-god-nodes` no `graphfinder audit` para validação em GitHub Actions.
 
 ---

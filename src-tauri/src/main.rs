@@ -286,13 +286,18 @@ COMMANDS:
         --json      Returns structured JSON output (ideal for scripts/skills)
         --export    Also generates graph.json, GRAPH_REPORT.md, and graph.html
 
-  report, audit [path] [--out-dir <dir>] [--json]
+  report, audit [path] [--out-dir <dir>] [--json] [--sync]
+                [--fail-on-cycles] [--max-god-nodes <n>]
       Performs topological community clustering (Louvain/LPA), identifies
       God Nodes (central hubs), detects cross-community surprises and cycles,
       and produces standalone artifacts in graphfinder-out/:
         • GRAPH_REPORT.md  (High-density architectural audit)
         • graph.json       (Standardized schema consumed by AI agents)
         • graph.html       (Zero-dependency standalone canvas visualizer)
+      CI/CD Quality Gate Options:
+        --fail-on-cycles      Exits with code 1 if any dependency cycle is found
+        --max-god-nodes <n>   Exits with code 1 if God Nodes exceed <n>
+        --sync                Synchronizes codebase/vault before running audit
 
   path <from> <to> [--path <path>] [--json]
       Finds the shortest multi-hop dependency path connecting any two
@@ -798,14 +803,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // 7. Command: report / audit
     if cmd == "report" || cmd == "audit" {
         let is_json = args.iter().any(|a| a == "--json");
-        let target_arg = args
-            .iter()
-            .skip(2)
-            .find(|a| !a.starts_with("--"))
-            .map(|s| s.as_str())
-            .unwrap_or(".");
+        let fail_on_cycles = args.iter().any(|a| a == "--fail-on-cycles");
+        let force_sync = args.iter().any(|a| a == "--sync");
 
-        let target_dir = Path::new(target_arg);
+        let mut max_god_nodes: Option<usize> = None;
+        let mut custom_out_dir: Option<PathBuf> = None;
+        let mut target_arg: Option<String> = None;
+
+        let mut i = 2;
+        while i < args.len() {
+            let arg = &args[i];
+            if arg == "--out-dir" {
+                if let Some(val) = args.get(i + 1) {
+                    custom_out_dir = Some(PathBuf::from(val));
+                    i += 2;
+                    continue;
+                }
+            } else if let Some(val) = arg.strip_prefix("--out-dir=") {
+                custom_out_dir = Some(PathBuf::from(val));
+            } else if arg == "--max-god-nodes" {
+                if let Some(val) = args.get(i + 1) {
+                    max_god_nodes = val.parse::<usize>().ok();
+                    i += 2;
+                    continue;
+                }
+            } else if let Some(val) = arg.strip_prefix("--max-god-nodes=") {
+                max_god_nodes = val.parse::<usize>().ok();
+            } else if !arg.starts_with("--") && target_arg.is_none() {
+                target_arg = Some(arg.clone());
+            }
+            i += 1;
+        }
+
+        let target_str = target_arg.as_deref().unwrap_or(".");
+        let target_dir = Path::new(target_str);
         let abs_path = if target_dir.is_absolute() {
             target_dir.to_path_buf()
         } else {
@@ -813,22 +844,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         };
         let canonical = std::fs::canonicalize(&abs_path).unwrap_or(abs_path);
 
-        let custom_out_dir = args
-            .iter()
-            .position(|a| a == "--out-dir")
-            .and_then(|i| args.get(i + 1))
-            .map(PathBuf::from);
-
         let embeddings = Arc::new(EmbeddingEngine::new_lazy());
         let manager = Arc::new(VaultManager::new(embeddings)?);
-        let (project_id, engine, _) = manager.get_or_register_project_by_path(&canonical).await?;
+        let (project_id, engine, is_new) = manager.get_or_register_project_by_path(&canonical).await?;
 
-        let report = engine.analyze_graph().await?;
+        if force_sync || is_new {
+            let _ = engine.sync_vault().await;
+        }
+
+        let mut report = engine.analyze_graph().await?;
+        if report.total_nodes == 0 && !force_sync {
+            let _ = engine.sync_vault().await;
+            report = engine.analyze_graph().await?;
+        }
+
         let export_summary = engine.export_artifacts(custom_out_dir.as_deref()).await?;
+
+        let mut violations: Vec<String> = Vec::new();
+        if fail_on_cycles && !report.cycles.is_empty() {
+            violations.push(format!(
+                "Dependency cycles detected: {} cycle(s) found (--fail-on-cycles)",
+                report.cycles.len()
+            ));
+        }
+        if let Some(max_gods) = max_god_nodes {
+            if report.god_nodes.len() > max_gods {
+                violations.push(format!(
+                    "God Nodes count ({}) exceeds threshold of {} (--max-god-nodes)",
+                    report.god_nodes.len(),
+                    max_gods
+                ));
+            }
+        }
+        let ci_passed = violations.is_empty();
 
         if is_json {
             let out = serde_json::json!({
                 "project_id": project_id,
+                "ci_passed": ci_passed,
+                "violations": violations,
                 "report": report,
                 "artifacts": export_summary,
             });
@@ -857,7 +911,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             println!("  • Audit Report : {}", export_summary.report_markdown_path);
             println!("  • Graph Schema : {}", export_summary.graph_json_path);
             println!("  • Visual Canvas: {}", export_summary.standalone_html_path);
+
+            if fail_on_cycles || max_god_nodes.is_some() {
+                println!("\nCI/CD Architectural Quality Gate:");
+                if ci_passed {
+                    println!("  ✓ [PASS] All architectural quality checks passed.");
+                } else {
+                    for v in &violations {
+                        println!("  ✗ [FAIL] {}", v);
+                    }
+                }
+            }
             println!("────────────────────────────────────────────────────────────\n");
+        }
+
+        if !ci_passed {
+            std::process::exit(1);
         }
         return Ok(());
     }
