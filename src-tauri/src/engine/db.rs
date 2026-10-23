@@ -2,7 +2,8 @@ use super::code::ParsedCodeFile;
 use super::parser::ParsedChunk;
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 fn default_node_type() -> String {
     "note".to_string()
@@ -111,6 +112,26 @@ pub struct CompressedContext {
     pub token_estimate: usize,
     pub connected_notes: Vec<String>,
     pub sections: Vec<SectionSummary>,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct ScoredCandidate {
+    pub score: f32,
+    pub id: String,
+}
+
+impl Eq for ScoredCandidate {}
+
+impl PartialOrd for ScoredCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.score.partial_cmp(&other.score)
+    }
+}
+
+impl Ord for ScoredCandidate {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1004,25 +1025,42 @@ impl DbManager {
             }
             let query_is_unit = (q_norm_sq - 1.0).abs() < 1e-3;
 
-            let mut stmt = self.conn.prepare("SELECT c.id, c.vector FROM note_chunks c")?;
-            let rows = stmt.query_map([], |row| {
+            let top_k = (limit * 4).max(50);
+            let mut heap: BinaryHeap<Reverse<ScoredCandidate>> =
+                BinaryHeap::with_capacity(top_k + 1);
+
+            let mut stmt = self
+                .conn
+                .prepare("SELECT c.id, c.vector FROM note_chunks c WHERE LENGTH(c.vector) > 0")?;
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
                 let id: String = row.get(0)?;
                 let blob_ref = row.get_ref(1)?;
                 let blob = blob_ref.as_blob()?;
                 let score = dot_product_bytes(query_vector, blob, query_is_unit);
-                Ok((id, score))
-            })?;
+                if score <= 0.05 {
+                    continue;
+                }
 
-            let mut scored: Vec<(String, f32)> = Vec::new();
-            for r in rows {
-                scored.push(r?);
+                if heap.len() < top_k {
+                    heap.push(Reverse(ScoredCandidate { score, id }));
+                } else if let Some(min_top) = heap.peek() {
+                    if score > min_top.0.score {
+                        heap.pop();
+                        heap.push(Reverse(ScoredCandidate { score, id }));
+                    }
+                }
             }
-            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            scored.truncate(50);
 
-            for (rank, (id, score)) in scored.into_iter().enumerate() {
-                vec_scores.insert(id.clone(), score);
-                vec_ranks.insert(id, rank + 1);
+            let mut scored = Vec::with_capacity(heap.len());
+            while let Some(Reverse(item)) = heap.pop() {
+                scored.push(item);
+            }
+            scored.reverse();
+
+            for (rank, item) in scored.into_iter().enumerate() {
+                vec_scores.insert(item.id.clone(), item.score);
+                vec_ranks.insert(item.id, rank + 1);
             }
         }
 
@@ -1072,32 +1110,49 @@ impl DbManager {
 
         let max_rrf = (1.0 / 61.0) + (1.0 / 61.0);
 
-        // 4. Fetch full content and metadata for winning chunks
-        let mut chunk_stmt = self.conn.prepare(
-            r#"
-            SELECT c.id, c.note_id, n.title, c.heading, c.content, c.token_estimate
-            FROM note_chunks c
-            JOIN notes n ON n.id = c.note_id
-            WHERE c.id = ?1
-            "#,
-        )?;
-
-        let mut hits = Vec::with_capacity(rrf_scored.len());
-        for (chunk_id, rrf_score) in rrf_scored {
-            if let Ok(hit) = chunk_stmt.query_row(params![chunk_id], |row| {
+        // 4. Batch fetch full content and metadata for winning chunks (avoids N+1 query loop)
+        let mut hit_map: HashMap<String, (String, String, Option<String>, String, usize)> =
+            HashMap::new();
+        for batch in rrf_scored.chunks(100) {
+            let placeholders = (1..=batch.len())
+                .map(|i| format!("?{}", i))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                r#"
+                SELECT c.id, c.note_id, n.title, c.heading, c.content, c.token_estimate
+                FROM note_chunks c
+                JOIN notes n ON n.id = c.note_id
+                WHERE c.id IN ({})
+                "#,
+                placeholders
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let params_vec: Vec<&dyn rusqlite::ToSql> =
+                batch.iter().map(|(id, _)| id as &dyn rusqlite::ToSql).collect();
+            let mut rows = stmt.query(params_vec.as_slice())?;
+            while let Some(row) = rows.next()? {
                 let id: String = row.get(0)?;
                 let note_id: String = row.get(1)?;
                 let note_title: String = row.get(2)?;
                 let heading: Option<String> = row.get(3)?;
                 let content: String = row.get(4)?;
                 let token_estimate = row.get::<_, i64>(5)? as usize;
+                hit_map.insert(id, (note_id, note_title, heading, content, token_estimate));
+            }
+        }
 
+        let mut hits = Vec::with_capacity(rrf_scored.len());
+        for (chunk_id, rrf_score) in rrf_scored {
+            if let Some((note_id, note_title, heading, content, token_estimate)) =
+                hit_map.remove(&chunk_id)
+            {
                 let deep_link = match &heading {
                     Some(h) if !h.trim().is_empty() => format!("[[{}#{}]]", note_title, h),
                     _ => format!("[[{}]]", note_title),
                 };
 
-                let raw_vec_score = vec_scores.get(&id).copied().unwrap_or(0.0);
+                let raw_vec_score = vec_scores.get(&chunk_id).copied().unwrap_or(0.0);
                 let normalized_rrf = (rrf_score / max_rrf).clamp(0.0, 1.0);
                 let display_score = if raw_vec_score > 0.0 {
                     (raw_vec_score * 0.6 + normalized_rrf * 0.4).clamp(0.0, 1.0)
@@ -1105,8 +1160,8 @@ impl DbManager {
                     normalized_rrf
                 };
 
-                Ok(ChunkHit {
-                    chunk_id: id,
+                hits.push(ChunkHit {
+                    chunk_id,
                     note_id,
                     note_title,
                     heading,
@@ -1114,9 +1169,7 @@ impl DbManager {
                     content,
                     token_estimate,
                     score: display_score,
-                })
-            }) {
-                hits.push(hit);
+                });
             }
         }
 
@@ -1549,36 +1602,49 @@ impl DbManager {
             }
             let query_is_unit = (q_norm_sq - 1.0).abs() < 1e-3;
 
+            let top_k = (limit * 4).max(50);
+            let mut heap: BinaryHeap<Reverse<ScoredCandidate>> =
+                BinaryHeap::with_capacity(top_k + 1);
+
             let query_sql = if let Some(lang) = lang_filter {
                 format!(
-                    "SELECT c.id, c.vector FROM code_chunks c JOIN code_files f ON f.id = c.file_id WHERE f.language = '{}'",
+                    "SELECT c.id, c.vector FROM code_chunks c JOIN code_files f ON f.id = c.file_id WHERE f.language = '{}' AND LENGTH(c.vector) > 0",
                     lang.replace('\'', "''")
                 )
             } else {
-                "SELECT c.id, c.vector FROM code_chunks c".to_string()
+                "SELECT c.id, c.vector FROM code_chunks c WHERE LENGTH(c.vector) > 0".to_string()
             };
 
             let mut stmt = self.conn.prepare(&query_sql)?;
-            let rows = stmt.query_map([], |row| {
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
                 let id: String = row.get(0)?;
                 let blob_ref = row.get_ref(1)?;
                 let blob = blob_ref.as_blob()?;
                 let sim = dot_product_bytes(query_vector, blob, query_is_unit);
-                Ok((id, sim))
-            })?;
+                if sim <= 0.05 {
+                    continue;
+                }
 
-            let mut scored: Vec<(String, f32)> = Vec::new();
-            for r in rows {
-                let (id, sim) = r?;
-                if sim > 0.05 {
-                    scored.push((id, sim));
+                if heap.len() < top_k {
+                    heap.push(Reverse(ScoredCandidate { score: sim, id }));
+                } else if let Some(min_top) = heap.peek() {
+                    if sim > min_top.0.score {
+                        heap.pop();
+                        heap.push(Reverse(ScoredCandidate { score: sim, id }));
+                    }
                 }
             }
 
-            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            for (rank, (id, score)) in scored.into_iter().take(limit * 4).enumerate() {
-                vec_ranks.insert(id.clone(), rank + 1);
-                vec_scores.insert(id, score);
+            let mut scored = Vec::with_capacity(heap.len());
+            while let Some(Reverse(item)) = heap.pop() {
+                scored.push(item);
+            }
+            scored.reverse();
+
+            for (rank, item) in scored.into_iter().enumerate() {
+                vec_ranks.insert(item.id.clone(), rank + 1);
+                vec_scores.insert(item.id, item.score);
             }
         }
 
@@ -1632,19 +1698,30 @@ impl DbManager {
 
         let max_rrf = (1.0 / 61.0) + (1.0 / 61.0);
 
-        // 4. Hydrate top hits
-        let mut chunk_stmt = self.conn.prepare(
-            r#"
-            SELECT c.id, c.file_id, f.name, f.language, c.symbol_name, c.start_line, c.end_line, c.content, c.token_estimate
-            FROM code_chunks c
-            JOIN code_files f ON f.id = c.file_id
-            WHERE c.id = ?1
-            "#,
-        )?;
-
-        let mut hits = Vec::with_capacity(rrf_scored.len());
-        for (chunk_id, rrf_score) in rrf_scored {
-            if let Ok(hit) = chunk_stmt.query_row(params![chunk_id], |row| {
+        // 4. Batch hydrate top hits (avoids N+1 query loop)
+        let mut hit_map: HashMap<
+            String,
+            (String, String, String, Option<String>, usize, usize, String, usize),
+        > = HashMap::new();
+        for batch in rrf_scored.chunks(100) {
+            let placeholders = (1..=batch.len())
+                .map(|i| format!("?{}", i))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                r#"
+                SELECT c.id, c.file_id, f.name, f.language, c.symbol_name, c.start_line, c.end_line, c.content, c.token_estimate
+                FROM code_chunks c
+                JOIN code_files f ON f.id = c.file_id
+                WHERE c.id IN ({})
+                "#,
+                placeholders
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let params_vec: Vec<&dyn rusqlite::ToSql> =
+                batch.iter().map(|(id, _)| id as &dyn rusqlite::ToSql).collect();
+            let mut rows = stmt.query(params_vec.as_slice())?;
+            while let Some(row) = rows.next()? {
                 let id: String = row.get(0)?;
                 let file_id: String = row.get(1)?;
                 let file_name: String = row.get(2)?;
@@ -1654,13 +1731,41 @@ impl DbManager {
                 let end_line = row.get::<_, i64>(6)? as usize;
                 let content: String = row.get(7)?;
                 let token_estimate = row.get::<_, i64>(8)? as usize;
+                hit_map.insert(
+                    id,
+                    (
+                        file_id,
+                        file_name,
+                        language,
+                        symbol_name,
+                        start_line,
+                        end_line,
+                        content,
+                        token_estimate,
+                    ),
+                );
+            }
+        }
 
+        let mut hits = Vec::with_capacity(rrf_scored.len());
+        for (chunk_id, rrf_score) in rrf_scored {
+            if let Some((
+                file_id,
+                file_name,
+                language,
+                symbol_name,
+                start_line,
+                end_line,
+                content,
+                token_estimate,
+            )) = hit_map.remove(&chunk_id)
+            {
                 let deep_link = match &symbol_name {
                     Some(s) if !s.trim().is_empty() => format!("[[{}#{}]]", file_id, s),
                     _ => format!("[[{}#L{}-L{}]]", file_id, start_line, end_line),
                 };
 
-                let raw_vec_score = vec_scores.get(&id).copied().unwrap_or(0.0);
+                let raw_vec_score = vec_scores.get(&chunk_id).copied().unwrap_or(0.0);
                 let normalized_rrf = (rrf_score / max_rrf).clamp(0.0, 1.0);
                 let display_score = if raw_vec_score > 0.0 {
                     (raw_vec_score * 0.6 + normalized_rrf * 0.4).clamp(0.0, 1.0)
@@ -1668,8 +1773,8 @@ impl DbManager {
                     normalized_rrf
                 };
 
-                Ok(CodeChunkHit {
-                    chunk_id: id,
+                hits.push(CodeChunkHit {
+                    chunk_id,
                     file_id,
                     file_name,
                     language,
@@ -1680,9 +1785,7 @@ impl DbManager {
                     content,
                     token_estimate,
                     score: display_score,
-                })
-            }) {
-                hits.push(hit);
+                });
             }
         }
 
@@ -1980,6 +2083,31 @@ pub fn dot_product_bytes(query: &[f32], bytes: &[u8], query_is_unit: bool) -> f3
         return 0.0;
     }
 
+    // Fast path: if bytes is 4-byte aligned, view directly as &[f32] for autovectorized SIMD
+    let (prefix, f32_slice, suffix) = unsafe { bytes.align_to::<f32>() };
+    if prefix.is_empty() && suffix.is_empty() && f32_slice.len() == query.len() {
+        let mut dot = 0.0f32;
+        let mut norm_b = 0.0f32;
+
+        for i in 0..query.len() {
+            let val = f32_slice[i];
+            dot += query[i] * val;
+            norm_b += val * val;
+        }
+
+        if query_is_unit && (norm_b - 1.0).abs() < 1e-3 {
+            return dot;
+        }
+
+        let denom = norm_b.sqrt();
+        return if denom <= f32::EPSILON {
+            0.0
+        } else {
+            dot / denom
+        };
+    }
+
+    // Fallback unaligned path
     let mut dot = 0.0f32;
     let mut norm_b = 0.0f32;
 

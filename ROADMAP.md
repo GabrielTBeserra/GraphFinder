@@ -28,7 +28,7 @@ Objetivo: Eliminar a lentidão na abertura do app (carregar projetos, notas e gr
 
 Objetivo: Escalar a busca semântica para dezenas de milhares de chunks com latência sub-milissegundo.
 
-- [ ] **Commit 5: Otimização de Busca Vetorial por Pré-filtragem no SQLite**
+- [x] **Commit 5: Otimização de Busca Vetorial por Pré-filtragem no SQLite**
   - Em `src-tauri/src/engine/db.rs`, filtrar candidatos via FTS5 antes do cálculo de produto escalar em memória.
 - [ ] **Commit 6: Quantização Escalar de Vetores (f32 -> int8)**
   - Implementar quantização de vetores de 384 dimensões para `int8`, reduzindo uso de memória e acelerando comparações SIMD.
