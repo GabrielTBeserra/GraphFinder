@@ -183,17 +183,15 @@ export const App: React.FC = () => {
 
   const loadData = useCallback(async () => {
     try {
-      let gData: GraphData = { nodes: [], links: [] };
-      let nData: NoteSummary[] = [];
-      let cFiles: CodeFileRecord[] = [];
+      const [gRes, nRes, cRes] = await Promise.allSettled([
+        fetchGraph(),
+        fetchNotes(),
+        listCodeFiles(),
+      ]);
 
-      try { gData = await fetchGraph(); } catch (e) { console.warn('fetchGraph failed in loadData:', e); }
-      try { nData = await fetchNotes(); } catch (e) { console.warn('fetchNotes failed in loadData:', e); }
-      try { cFiles = await listCodeFiles(); } catch (e) { console.warn('listCodeFiles failed in loadData:', e); }
-
-      setGraphData(gData);
-      setNotes(nData);
-      setCodeFiles(cFiles);
+      if (gRes.status === 'fulfilled') setGraphData(gRes.value);
+      if (nRes.status === 'fulfilled') setNotes(nRes.value);
+      if (cRes.status === 'fulfilled') setCodeFiles(cRes.value);
     } catch (err) {
       console.error('Error loading GraphFinder data:', err);
     }
@@ -204,43 +202,87 @@ export const App: React.FC = () => {
 
     async function initApp() {
       try {
-        const engineInfo = await fetchEngineStatus();
-        if (engineInfo.is_ready) {
-          setEngineReady(true);
-        }
-
-        // Fetch data independently so one failure never blocks the others
-        let gData: GraphData = { nodes: [], links: [] };
-        let nData: NoteSummary[] = [];
-        let cFiles: CodeFileRecord[] = [];
-        let pList: ProjectInfo[] = [];
-
-        try { gData = await fetchGraph(); } catch (e) { console.warn('fetchGraph failed:', e); }
-        try { nData = await fetchNotes(); } catch (e) { console.warn('fetchNotes failed:', e); }
-        try { cFiles = await listCodeFiles(); } catch (e) { console.warn('listCodeFiles failed:', e); }
-        try { pList = await fetchProjects(); } catch (e) { console.warn('fetchProjects failed:', e); }
-
-        if (isCancelled) return;
-        setGraphData(gData);
-        setNotes(nData);
-        setCodeFiles(cFiles);
-        setProjects(pList);
-
-        const active = pList.find((p) => p.is_active) || pList[0] || null;
-        setActiveProject(active);
-
-        if (nData.length > 0) {
-          setSelectedNoteId(nData[0].id);
-          setIsEditorOpen(false);
-          try {
-            const firstNote = await fetchNote(nData[0].id);
-            if (!isCancelled && firstNote) {
-              setActiveNote(firstNote);
+        // Check engine status asynchronously without blocking UI data fetch
+        fetchEngineStatus()
+          .then((engineInfo) => {
+            if (!isCancelled && engineInfo.is_ready) {
+              setEngineReady(true);
             }
-          } catch (e) {
-            console.warn('fetchNote failed:', e);
-          }
-        }
+          })
+          .catch(() => {});
+
+        // 1. Fetch projects in parallel and update active project as soon as ready
+        const projectsPromise = fetchProjects()
+          .then((pList) => {
+            if (!isCancelled) {
+              setProjects(pList);
+              const active = pList.find((p) => p.is_active) || pList[0] || null;
+              setActiveProject(active);
+            }
+            return pList;
+          })
+          .catch((e) => {
+            console.warn('fetchProjects failed:', e);
+            return [];
+          });
+
+        // 2. Fetch notes in parallel and set initial active note
+        const notesPromise = fetchNotes()
+          .then(async (nData) => {
+            if (!isCancelled) {
+              setNotes(nData);
+              if (nData.length > 0) {
+                setSelectedNoteId(nData[0].id);
+                setIsEditorOpen(false);
+                try {
+                  const firstNote = await fetchNote(nData[0].id);
+                  if (!isCancelled && firstNote) {
+                    setActiveNote(firstNote);
+                  }
+                } catch (e) {
+                  console.warn('fetchNote failed:', e);
+                }
+              }
+            }
+            return nData;
+          })
+          .catch((e) => {
+            console.warn('fetchNotes failed:', e);
+            return [];
+          });
+
+        // 3. Fetch graph topology in parallel
+        const graphPromise = fetchGraph()
+          .then((gData) => {
+            if (!isCancelled) {
+              setGraphData(gData);
+            }
+            return gData;
+          })
+          .catch((e) => {
+            console.warn('fetchGraph failed:', e);
+            return { nodes: [], links: [] };
+          });
+
+        // 4. Fetch code files in parallel
+        const codeFilesPromise = listCodeFiles()
+          .then((cFiles) => {
+            if (!isCancelled) {
+              setCodeFiles(cFiles);
+            }
+            return cFiles;
+          })
+          .catch((e) => {
+            console.warn('listCodeFiles failed:', e);
+            return [];
+          });
+
+        await Promise.allSettled([
+          projectsPromise,
+          notesPromise,
+          graphPromise,
+          codeFilesPromise,
+        ]);
       } catch (err) {
         console.error('Initialization error:', err);
       }
