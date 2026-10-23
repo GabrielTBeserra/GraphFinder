@@ -25,6 +25,30 @@
       "skillPath": "skills/soft-skill/SKILL.md",
       "computedHash": "f730e4132775f13eea19e3dc39afc6bb453cfc0498872b127ad8f0d47cfd802d"
     },
+    "ios-design-guidelines": {
+      "source": "ehmo/platform-design-skills",
+      "sourceType": "github",
+      "skillPath": "skills/ios/SKILL.md",
+      "computedHash": "7b00786cd29d773c9b02b0d8a75729b86926c01fe5feca67c375dea5924f58af"
+    },
+    "ios-hig-design": {
+      "source": "wondelai/skills",
+      "sourceType": "github",
+      "skillPath": "ios-hig-design/SKILL.md",
+      "computedHash": "21049394e5852a37cd547cd60428a7b1ed1a74f8bf476d4cc61f12923fadeccf"
+    },
+    "mobile-ios-design": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/ui-design/skills/mobile-ios-design/SKILL.md",
+      "computedHash": "30f9f969f4fa664addff529ca3f62352f951cd672e6f10b8a9ea26fb5c55b9b5"
+    },
+    "swiftui-ui-patterns": {
+      "source": "dimillian/skills",
+      "sourceType": "github",
+      "skillPath": "swiftui-ui-patterns/SKILL.md",
+      "computedHash": "3343dd5160256b1d4d746ca75006a263fb96bc10010ee928a1a33679838f8f2c"
+    },
     "tauri-development": {
       "source": "mindrally/skills",
       "sourceType": "github",

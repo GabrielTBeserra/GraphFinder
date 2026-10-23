@@ -19,29 +19,46 @@
   /* ---------------- Nav state + back to top ---------------- */
   const nav = document.querySelector(".nav");
   const toTop = document.querySelector(".to-top");
-  const onScroll = () => {
+  let scrollTicking = false;
+  const updateScrollState = () => {
     const y = window.scrollY;
     nav && nav.classList.toggle("scrolled", y > 12);
     toTop && toTop.classList.toggle("show", y > 900);
+    scrollTicking = false;
+  };
+  const onScroll = () => {
+    if (!scrollTicking) {
+      window.requestAnimationFrame(updateScrollState);
+      scrollTicking = true;
+    }
   };
   window.addEventListener("scroll", onScroll, { passive: true });
-  onScroll();
+  updateScrollState();
   toTop && toTop.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
 
   /* ---------------- Mobile menu ---------------- */
   const menuBtn = document.querySelector(".menu-toggle");
   const links = document.querySelector(".nav-links");
+  const closeMenu = () => {
+    if (!links || !menuBtn) return;
+    links.classList.remove("open");
+    menuBtn.setAttribute("aria-expanded", "false");
+    document.body.classList.remove("menu-open");
+  };
   if (menuBtn && links) {
     menuBtn.addEventListener("click", () => {
       const open = links.classList.toggle("open");
       menuBtn.setAttribute("aria-expanded", String(open));
+      document.body.classList.toggle("menu-open", open);
     });
     links.querySelectorAll("a").forEach((a) =>
-      a.addEventListener("click", () => {
-        links.classList.remove("open");
-        menuBtn.setAttribute("aria-expanded", "false");
-      })
+      a.addEventListener("click", closeMenu)
     );
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && links.classList.contains("open")) {
+        closeMenu();
+      }
+    });
   }
 
   /* ---------------- Code blocks: syntax tint + copy ---------------- */
@@ -170,9 +187,15 @@
   /* ---------------- Card spotlight ---------------- */
   document.querySelectorAll(".card").forEach((card) => {
     card.addEventListener("pointermove", (e) => {
+      if (e.pointerType !== "mouse") return;
       const r = card.getBoundingClientRect();
       card.style.setProperty("--mx", `${e.clientX - r.left}px`);
       card.style.setProperty("--my", `${e.clientY - r.top}px`);
+    });
+    card.addEventListener("pointerleave", (e) => {
+      if (e.pointerType !== "mouse") return;
+      card.style.removeProperty("--mx");
+      card.style.removeProperty("--my");
     });
   });
 
@@ -274,6 +297,7 @@
   let rt;
   window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(build, 150); });
   canvas.parentElement.addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse") return;
     const r = canvas.getBoundingClientRect();
     mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
   });
