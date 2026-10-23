@@ -45,7 +45,7 @@ Objetivo: Evoluir de expressões regulares (AST-lite) para parsing sintático pr
   - Parser sintático exato para TS/JS, suportando imports multiline, tipos dinâmicos e re-exports.
 - [x] **Commit 9: Migração de Regex para AST em Rust e Python**
   - Extração precisa de módulos, `mod`, `use` e `from ... import` para Rust e Python com aliases.
-- [ ] **Commit 10: Call Graph inicial a nível de Funções/Métodos**
+- [x] **Commit 10: Call Graph inicial a nível de Funções/Métodos**
   - Mapear chamadas entre funções e métodos internos no grafo de código.
 - [ ] **Commit 11: Detecção de Acoplamento Temporal via Git (`co-change`)**
   - Identificar arquivos que sofrem commit juntos com frequência para revelar dependências ocultas.

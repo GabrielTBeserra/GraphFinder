@@ -24,6 +24,7 @@ pub struct CodeChunk {
     pub end_line: usize,
     pub content: String,
     pub token_estimate: usize,
+    pub calls: Vec<String>,
 }
 
 /// Parsed metadata and chunks of a source code file.
@@ -1295,27 +1296,62 @@ fn normalize_and_match(path: &Path, project_files_set: &HashSet<String>) -> Opti
 
 /// Regular expressions for identifying symbol definitions across languages.
 static SYMBOL_DEF_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^\s*(?:(?:export|pub|async|static|default|final|public|private|protected)\s+)*(?:(?:function|fn|def|func|class|struct|interface|type|enum|trait|impl)\s+([a-zA-Z0-9_]+)|(?:const|let|var)\s+([a-zA-Z0-9_]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z0-9_]+)\s*=>)"#)
+    Regex::new(r#"(?m)^\s*(?:(?:export|pub(?:\([^)]*\))?|async|static|default|final|public|private|protected)\s+)*(?:(?:function|fn|def|func|class|struct|interface|type|enum|trait|impl)\s+([a-zA-Z0-9_]+)|(?:const|let|var)\s+([a-zA-Z0-9_]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z0-9_]+)\s*=>)"#)
         .expect("valid regex for symbol def")
 });
+
+static FUNC_CALL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\("#)
+        .expect("valid regex for function calls")
+});
+
+const CALL_IGNORE_KEYWORDS: &[&str] = &[
+    "if", "else", "for", "while", "loop", "match", "switch", "case", "return", "catch",
+    "try", "typeof", "sizeof", "alignof", "new", "delete", "super", "this", "self", "Self",
+    "function", "fn", "def", "func", "class", "struct", "enum", "trait", "impl", "where",
+    "pub", "import", "export", "require", "from", "await", "yield", "async",
+    "Some", "None", "Ok", "Err", "Box", "Arc", "Rc", "Mutex", "RwLock", "Vec", "String",
+    "HashMap", "HashSet", "Option", "Result", "println", "eprintln", "format", "write",
+    "writeln", "vec", "panic", "assert", "assert_eq", "assert_ne", "cfg", "derive",
+    "allow", "warn", "deny", "test", "console", "log", "warn", "error", "len", "is_empty",
+    "clone", "to_string", "as_str", "unwrap", "expect", "unwrap_or", "unwrap_or_default",
+    "unwrap_or_else", "map", "and_then", "filter", "collect", "into", "from", "iter",
+    "into_iter", "push", "insert", "get", "set", "ok", "err", "default",
+];
+
+/// Extracts unique function/method call names invoked within a code block.
+pub fn extract_function_calls(content: &str, self_symbol: Option<&str>) -> Vec<String> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut calls = Vec::new();
+    let mut seen = HashSet::new();
+
+    for cap in FUNC_CALL_RE.captures_iter(&cleaned) {
+        if let Some(m) = cap.get(1) {
+            let name = m.as_str();
+            if name.len() < 2 {
+                continue;
+            }
+            if let Some(self_sym) = self_symbol {
+                if name == self_sym {
+                    continue;
+                }
+            }
+            if CALL_IGNORE_KEYWORDS.contains(&name) {
+                continue;
+            }
+            if seen.insert(name.to_string()) {
+                calls.push(name.to_string());
+            }
+        }
+    }
+
+    calls
+}
 
 pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
     let lines: Vec<&str> = content.lines().collect();
     if lines.is_empty() {
         return Vec::new();
-    }
-
-    // If small file (< 80 lines), return as single atomic chunk
-    if lines.len() <= 80 {
-        let token_estimate = estimate_code_tokens(content);
-        return vec![CodeChunk {
-            chunk_index: 0,
-            symbol_name: None,
-            start_line: 1,
-            end_line: lines.len(),
-            content: content.to_string(),
-            token_estimate,
-        }];
     }
 
     // Find symbol definition boundary lines
@@ -1329,6 +1365,22 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
         }
     }
 
+    // If small file (<= 80 lines) and has at most 1 symbol, return as single atomic chunk
+    if lines.len() <= 80 && symbol_boundaries.len() <= 1 {
+        let token_estimate = estimate_code_tokens(content);
+        let sym = symbol_boundaries.into_iter().next().map(|(_, s)| s);
+        let calls = extract_function_calls(content, sym.as_deref());
+        return vec![CodeChunk {
+            chunk_index: 0,
+            symbol_name: sym,
+            start_line: 1,
+            end_line: lines.len(),
+            content: content.to_string(),
+            token_estimate,
+            calls,
+        }];
+    }
+
     let mut chunks = Vec::new();
 
     // If we detected structured symbol boundaries
@@ -1337,9 +1389,11 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
         let mut prev_sym: Option<String> = None;
 
         for (sym_idx, sym_name) in symbol_boundaries {
-            if sym_idx > prev_idx && sym_idx - prev_idx >= 15 {
+            let min_gap = if prev_sym.is_some() { 3 } else { 15 };
+            if sym_idx > prev_idx && sym_idx - prev_idx >= min_gap {
                 let slice = lines[prev_idx..sym_idx].join("\n");
                 let token_estimate = estimate_code_tokens(&slice);
+                let calls = extract_function_calls(&slice, prev_sym.as_deref());
                 chunks.push(CodeChunk {
                     chunk_index: chunks.len(),
                     symbol_name: prev_sym.clone(),
@@ -1347,6 +1401,7 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
                     end_line: sym_idx,
                     content: slice,
                     token_estimate,
+                    calls,
                 });
                 prev_idx = sym_idx;
                 prev_sym = Some(sym_name);
@@ -1359,6 +1414,7 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
         if prev_idx < lines.len() {
             let slice = lines[prev_idx..lines.len()].join("\n");
             let token_estimate = estimate_code_tokens(&slice);
+            let calls = extract_function_calls(&slice, prev_sym.as_deref());
             chunks.push(CodeChunk {
                 chunk_index: chunks.len(),
                 symbol_name: prev_sym,
@@ -1366,6 +1422,7 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
                 end_line: lines.len(),
                 content: slice,
                 token_estimate,
+                calls,
             });
         }
     } else {
@@ -1378,6 +1435,7 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
             let end = (start + window_size).min(lines.len());
             let slice = lines[start..end].join("\n");
             let token_estimate = estimate_code_tokens(&slice);
+            let calls = extract_function_calls(&slice, None);
             chunks.push(CodeChunk {
                 chunk_index: chunks.len(),
                 symbol_name: None,
@@ -1385,6 +1443,7 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
                 end_line: end,
                 content: slice,
                 token_estimate,
+                calls,
             });
             if end == lines.len() {
                 break;
@@ -1395,6 +1454,7 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
 
     // If no chunks generated, fallback to 1 chunk
     if chunks.is_empty() {
+        let calls = extract_function_calls(content, None);
         chunks.push(CodeChunk {
             chunk_index: 0,
             symbol_name: None,
@@ -1402,6 +1462,7 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
             end_line: lines.len(),
             content: content.to_string(),
             token_estimate: estimate_code_tokens(content),
+            calls,
         });
     }
 

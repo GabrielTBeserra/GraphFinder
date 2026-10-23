@@ -150,6 +150,8 @@ export interface SymbolInfo {
   start_line: number;
   end_line: number;
   token_estimate: number;
+  calls?: string[];
+  called_by?: string[];
 }
 
 export interface FileContext {

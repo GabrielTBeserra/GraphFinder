@@ -176,6 +176,10 @@ pub struct SymbolInfo {
     pub start_line: usize,
     pub end_line: usize,
     pub token_estimate: usize,
+    #[serde(default)]
+    pub calls: Vec<String>,
+    #[serde(default)]
+    pub called_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -401,6 +405,16 @@ impl DbManager {
                 is_external INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (source_id, target_id, raw_import)
             );
+
+            CREATE TABLE IF NOT EXISTS code_calls (
+                caller_file_id TEXT NOT NULL,
+                caller_symbol TEXT NOT NULL DEFAULT '',
+                callee_name TEXT NOT NULL,
+                callee_file_id TEXT,
+                PRIMARY KEY (caller_file_id, caller_symbol, callee_name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_code_calls_caller ON code_calls(caller_file_id);
+            CREATE INDEX IF NOT EXISTS idx_code_calls_callee ON code_calls(callee_name);
 
             CREATE VIRTUAL TABLE IF NOT EXISTS code_fts USING fts5(
                 file_id UNINDEXED,
@@ -1553,8 +1567,53 @@ impl DbManager {
             )?;
         }
 
+        // 6. Update code_calls (Function/Method Call Graph)
+        tx.execute("DELETE FROM code_calls WHERE caller_file_id = ?1", params![file.path])?;
+        for chunk in &file.chunks {
+            let caller_sym = chunk.symbol_name.as_deref().unwrap_or("");
+            for callee in &chunk.calls {
+                tx.execute(
+                    r#"
+                    INSERT OR IGNORE INTO code_calls (caller_file_id, caller_symbol, callee_name, callee_file_id)
+                    VALUES (?1, ?2, ?3, NULL)
+                    "#,
+                    params![file.path, caller_sym, callee],
+                )?;
+            }
+        }
+
         tx.commit()?;
         Ok(())
+    }
+
+    /// Resolves `callee_file_id` across the indexed codebase by matching `callee_name`
+    /// against declared `symbol_name`s in `code_chunks`, prioritizing imported files first.
+    pub fn resolve_call_graph(&mut self) -> Result<usize> {
+        let tx = self.conn.transaction()?;
+        let updated = tx.execute(
+            r#"
+            UPDATE code_calls
+            SET callee_file_id = COALESCE(
+                (
+                    SELECT cc.file_id
+                    FROM code_chunks cc
+                    JOIN code_links cl ON cl.source_id = code_calls.caller_file_id AND cl.target_id = cc.file_id
+                    WHERE cc.symbol_name = code_calls.callee_name
+                    LIMIT 1
+                ),
+                (
+                    SELECT cc.file_id
+                    FROM code_chunks cc
+                    WHERE cc.symbol_name = code_calls.callee_name
+                    LIMIT 1
+                )
+            )
+            WHERE callee_file_id IS NULL
+            "#,
+            [],
+        )?;
+        tx.commit()?;
+        Ok(updated)
     }
 
     pub fn delete_missing_code_files(&mut self, current_ids: &HashSet<String>) -> Result<usize> {
@@ -1573,6 +1632,7 @@ impl DbManager {
                 tx.execute("DELETE FROM code_chunks WHERE file_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_chunks_fts WHERE file_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_links WHERE source_id = ?1 OR target_id = ?1", params![id])?;
+                tx.execute("DELETE FROM code_calls WHERE caller_file_id = ?1 OR callee_file_id = ?1", params![id])?;
                 deleted += 1;
             }
         }
@@ -1894,11 +1954,37 @@ impl DbManager {
             let (sym_opt, start_line, end_line, token_estimate) = r?;
             total_tokens += token_estimate;
             if let Some(s) = sym_opt {
+                // Outgoing calls from this symbol
+                let mut calls = Vec::new();
+                if let Ok(mut c_stmt) = self.conn.prepare(
+                    "SELECT callee_name FROM code_calls WHERE caller_file_id = ?1 AND caller_symbol = ?2 ORDER BY callee_name ASC LIMIT 25",
+                ) {
+                    if let Ok(c_rows) = c_stmt.query_map(params![file_id, s], |cr| cr.get::<_, String>(0)) {
+                        for c_item in c_rows.flatten() {
+                            calls.push(c_item);
+                        }
+                    }
+                }
+
+                // Incoming callers to this symbol across the codebase
+                let mut called_by = Vec::new();
+                if let Ok(mut cb_stmt) = self.conn.prepare(
+                    "SELECT DISTINCT CASE WHEN caller_symbol != '' THEN caller_file_id || '#' || caller_symbol ELSE caller_file_id END FROM code_calls WHERE callee_name = ?1 ORDER BY caller_file_id ASC LIMIT 25",
+                ) {
+                    if let Ok(cb_rows) = cb_stmt.query_map(params![s], |cbr| cbr.get::<_, String>(0)) {
+                        for cb_item in cb_rows.flatten() {
+                            called_by.push(cb_item);
+                        }
+                    }
+                }
+
                 symbols.push(SymbolInfo {
                     name: s,
                     start_line,
                     end_line,
                     token_estimate,
+                    calls,
+                    called_by,
                 });
             }
         }
@@ -2271,6 +2357,7 @@ mod tests {
             end_line: 25,
             content: "export async function fetchUserData(id: string) { return api.get(`/user/${id}`); }".to_string(),
             token_estimate: 20,
+            calls: vec!["requestJson".to_string()],
         };
 
         let parsed = ParsedCodeFile {

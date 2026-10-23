@@ -337,10 +337,11 @@ impl Engine {
             count += 1;
         }
 
-        // Clean up deleted code files
+        // Clean up deleted code files and resolve function/method call graph
         {
             let mut db = self.db.lock().await;
             let _ = db.delete_missing_code_files(&found_code_ids)?;
+            let _ = db.resolve_call_graph();
         }
 
         Ok(count)
