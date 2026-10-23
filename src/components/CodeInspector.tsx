@@ -362,7 +362,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                         <div
                           key={sym.name}
                           onClick={() => handleSelectSymbol(sym)}
-                          className={`p-2.5 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
+                          className={`p-2.5 rounded-lg border transition-all cursor-pointer flex flex-col gap-1.5 ${
                             isCurrent
                               ? isLight
                                 ? 'bg-indigo-50 border-indigo-300 text-indigo-950 font-medium shadow-xs'
@@ -372,34 +372,67 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                               : 'bg-[#12151f] border-[#1f2434] hover:bg-[#161a26] text-[#cbd5e1]'
                           }`}
                         >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                isLight ? 'bg-indigo-600' : 'bg-indigo-400'
-                              }`}
-                            />
-                            <span className="text-xs font-mono font-medium truncate">
-                              {sym.name}
-                            </span>
-                          </div>
-                          <div
-                            className={`flex items-center gap-2 shrink-0 text-[10px] font-mono ${
-                              isLight ? 'text-slate-500' : 'text-[#64748b]'
-                            }`}
-                          >
-                            <span>
-                              L{sym.start_line}–{sym.end_line}
-                            </span>
-                            <span
-                              className={`px-1.5 py-0.5 rounded border ${
-                                isLight
-                                  ? 'bg-white border-slate-200 text-slate-600 shadow-2xs'
-                                  : 'bg-[#1a1f2c] border-[#262c3e] text-[#64748b]'
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                  isLight ? 'bg-indigo-600' : 'bg-indigo-400'
+                                }`}
+                              />
+                              <span className="text-xs font-mono font-medium truncate">
+                                {sym.name}
+                              </span>
+                            </div>
+                            <div
+                              className={`flex items-center gap-2 shrink-0 text-[10px] font-mono ${
+                                isLight ? 'text-slate-500' : 'text-[#64748b]'
                               }`}
                             >
-                              ~{sym.token_estimate} tok
-                            </span>
+                              <span>
+                                L{sym.start_line}–{sym.end_line}
+                              </span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded border ${
+                                  isLight
+                                    ? 'bg-white border-slate-200 text-slate-600 shadow-2xs'
+                                    : 'bg-[#1a1f2c] border-[#262c3e] text-[#64748b]'
+                                }`}
+                              >
+                                ~{sym.token_estimate} tok
+                              </span>
+                            </div>
                           </div>
+                          {((sym.calls && sym.calls.length > 0) ||
+                            (sym.called_by && sym.called_by.length > 0)) && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[10px] font-mono">
+                              {sym.calls && sym.calls.length > 0 && (
+                                <span
+                                  className={`px-1.5 py-0.5 rounded ${
+                                    isLight
+                                      ? 'bg-sky-100/80 text-sky-800'
+                                      : 'bg-sky-500/10 text-sky-400'
+                                  }`}
+                                  title={`Calls: ${sym.calls.join(', ')}`}
+                                >
+                                  → calls {sym.calls.slice(0, 3).join(', ')}
+                                  {sym.calls.length > 3 ? ` +${sym.calls.length - 3}` : ''}
+                                </span>
+                              )}
+                              {sym.called_by && sym.called_by.length > 0 && (
+                                <span
+                                  className={`px-1.5 py-0.5 rounded ${
+                                    isLight
+                                      ? 'bg-violet-100/80 text-violet-800'
+                                      : 'bg-violet-500/10 text-violet-400'
+                                  }`}
+                                  title={`Called by: ${sym.called_by.join(', ')}`}
+                                >
+                                  ← called by {sym.called_by.slice(0, 2).join(', ')}
+                                  {sym.called_by.length > 2 ? ` +${sym.called_by.length - 2}` : ''}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

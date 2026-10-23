@@ -811,7 +811,7 @@ impl GraphFinderMcpServer {
         match engine.get_code_dependencies(&args.file_path, direction).await {
             Ok(deps) => {
                 let out = format!(
-                    "Dependencies for `{}`:\n\n- Imported Files ({}):\n{}\n\n- Files Importing This File ({}):\n{}\n\n- External Modules/Packages ({}):\n{}",
+                    "Dependencies for `{}`:\n\n- Imported Files ({}):\n{}\n\n- Files Importing This File ({}):\n{}\n\n- External Modules/Packages ({}):\n{}\n\n- Outgoing Function Calls ({}):\n{}\n\n- Incoming Callers ({}):\n{}",
                     deps.file_id,
                     deps.imports.len(),
                     if deps.imports.is_empty() { "  (none)".to_string() } else { deps.imports.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
@@ -819,6 +819,10 @@ impl GraphFinderMcpServer {
                     if deps.imported_by.is_empty() { "  (none)".to_string() } else { deps.imported_by.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
                     deps.external.len(),
                     if deps.external.is_empty() { "  (none)".to_string() } else { deps.external.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                    deps.outgoing_calls.len(),
+                    if deps.outgoing_calls.is_empty() { "  (none)".to_string() } else { deps.outgoing_calls.iter().map(|c| format!("  - `{}`", c)).collect::<Vec<_>>().join("\n") },
+                    deps.incoming_callers.len(),
+                    if deps.incoming_callers.is_empty() { "  (none)".to_string() } else { deps.incoming_callers.iter().map(|c| format!("  - `{}`", c)).collect::<Vec<_>>().join("\n") },
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }

@@ -172,6 +172,8 @@ export interface CodeDependencies {
   imports: string[];
   imported_by: string[];
   external: string[];
+  outgoing_calls?: string[];
+  incoming_callers?: string[];
 }
 
 export interface CommunityInfo {

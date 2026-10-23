@@ -202,6 +202,10 @@ pub struct CodeDependencies {
     pub imports: Vec<String>,
     pub imported_by: Vec<String>,
     pub external: Vec<String>,
+    #[serde(default)]
+    pub outgoing_calls: Vec<String>,
+    #[serde(default)]
+    pub incoming_callers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2214,6 +2218,8 @@ impl DbManager {
         let mut imports = Vec::new();
         let mut imported_by = Vec::new();
         let mut external = Vec::new();
+        let mut outgoing_calls = Vec::new();
+        let mut incoming_callers = Vec::new();
 
         if direction == "imports" || direction == "both" {
             let mut stmt = self.conn.prepare(
@@ -2228,6 +2234,16 @@ impl DbManager {
                     imports.push(target);
                 }
             }
+
+            if let Ok(mut call_stmt) = self.conn.prepare(
+                "SELECT DISTINCT CASE WHEN callee_file_id IS NOT NULL AND callee_file_id != '' THEN callee_file_id || '#' || callee_name ELSE callee_name END FROM code_calls WHERE (caller_file_id = ?1 OR caller_file_id LIKE '%' || ?1) ORDER BY callee_name ASC LIMIT 30",
+            ) {
+                if let Ok(call_rows) = call_stmt.query_map(params![clean], |r| r.get::<_, String>(0)) {
+                    for c in call_rows.flatten() {
+                        outgoing_calls.push(c);
+                    }
+                }
+            }
         }
 
         if direction == "imported_by" || direction == "both" {
@@ -2238,6 +2254,30 @@ impl DbManager {
             for r in rows.flatten() {
                 imported_by.push(r);
             }
+
+            if let Ok(mut caller_stmt) = self.conn.prepare(
+                r#"
+                SELECT DISTINCT CASE WHEN caller_symbol != '' THEN caller_file_id || '#' || caller_symbol ELSE caller_file_id END
+                FROM code_calls
+                WHERE (
+                    callee_file_id = ?1
+                    OR callee_file_id LIKE '%' || ?1
+                    OR callee_name IN (
+                        SELECT symbol_name FROM code_chunks
+                        WHERE (file_id = ?1 OR file_id LIKE '%' || ?1) AND symbol_name IS NOT NULL
+                    )
+                )
+                AND caller_file_id != ?1
+                ORDER BY caller_file_id ASC
+                LIMIT 30
+                "#,
+            ) {
+                if let Ok(caller_rows) = caller_stmt.query_map(params![clean], |r| r.get::<_, String>(0)) {
+                    for c in caller_rows.flatten() {
+                        incoming_callers.push(c);
+                    }
+                }
+            }
         }
 
         Ok(CodeDependencies {
@@ -2245,6 +2285,8 @@ impl DbManager {
             imports,
             imported_by,
             external,
+            outgoing_calls,
+            incoming_callers,
         })
     }
 
