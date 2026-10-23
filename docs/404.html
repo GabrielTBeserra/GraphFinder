@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>404 — Page Not Found · GraphFinder</title>
+  <meta name="theme-color" content="#07080b" />
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/style.css" />
+  <style>
+    .not-found-box {
+      min-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 40px 20px;
+    }
+    .not-found-code {
+      font-family: var(--mono);
+      font-size: clamp(64px, 12vw, 120px);
+      font-weight: 700;
+      line-height: 1;
+      margin: 0 0 16px;
+      background: linear-gradient(135deg, #fff 20%, #818cf8 60%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .not-found-desc {
+      font-size: 18px;
+      color: var(--text-2);
+      max-width: 520px;
+      margin: 0 auto 32px;
+    }
+    .not-found-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="./">
+        <img src="assets/logo.svg" alt="" width="28" height="28" />
+        GraphFinder
+      </a>
+      <div class="nav-actions">
+        <div class="lang-switch" role="group" aria-label="Language">
+          <a href="./" class="active">EN</a>
+          <a href="pt/">PT</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container not-found-box">
+    <div class="not-found-code">404</div>
+    <h1 style="font-size: 28px; margin: 0 0 12px; font-weight: 600;">Node not found in graph</h1>
+    <p class="not-found-desc">
+      The requested node or page does not exist in this knowledge graph.<br />
+      <em>A página solicitada não foi encontrada neste grafo.</em>
+    </p>
+    <div class="not-found-actions">
+      <a class="btn btn-primary" href="./">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Documentation (English)
+      </a>
+      <a class="btn btn-ghost" href="pt/">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Documentação (Português)
+      </a>
+    </div>
+  </main>
+</body>
+</html>

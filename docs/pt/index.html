@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GraphFinder — Grafo de Conhecimento Local-First e Servidor MCP para Agentes de IA</title>
+  <meta name="description" content="GraphFinder transforma vaults Markdown e bases de código em um grafo de conhecimento com indexação semântica. Busca híbrida vetorial + BM25, indexação AST de código, análise de grafos e servidor MCP nativo com 24 ferramentas. 100% local." />
+  <meta name="theme-color" content="#07080b" />
+  <link rel="canonical" href="https://gabrieltbeserra.github.io/GraphFinder/pt/" />
+  <link rel="alternate" hreflang="en" href="https://gabrieltbeserra.github.io/GraphFinder/" />
+  <link rel="alternate" hreflang="pt-BR" href="https://gabrieltbeserra.github.io/GraphFinder/pt/" />
+  <link rel="alternate" hreflang="x-default" href="https://gabrieltbeserra.github.io/GraphFinder/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="pt_BR" />
+  <meta property="og:title" content="GraphFinder — Grafo de Conhecimento Neural para Humanos e Agentes de IA" />
+  <meta property="og:description" content="Vault Markdown local-first + grafo de código com busca semântica híbrida e servidor MCP nativo." />
+  <meta property="og:url" content="https://gabrieltbeserra.github.io/GraphFinder/pt/" />
+  <meta property="og:image" content="https://gabrieltbeserra.github.io/GraphFinder/assets/banner.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" type="image/svg+xml" href="../assets/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+
+<!-- ================= NAV ================= -->
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="#top" aria-label="Início do GraphFinder">
+      <img src="../assets/logo.svg" alt="" width="28" height="28" />
+      GraphFinder <span class="ver" data-version>v0.10.0</span>
+    </a>
+    <nav class="nav-links" id="nav-links" aria-label="Principal">
+      <a href="#features">Recursos</a>
+      <a href="#docs">Documentação</a>
+      <a href="#cli">CLI</a>
+      <a href="#tools">Ferramentas MCP</a>
+      <a href="#changelog">Changelog</a>
+    </nav>
+    <div class="nav-actions">
+      <div class="lang-switch" role="group" aria-label="Idioma">
+        <a href="../" data-lang-link="en" hreflang="en">EN</a>
+        <a href="./" class="active" aria-current="true" data-lang-link="pt">PT</a>
+      </div>
+      <a class="icon-btn" id="nav-github" href="https://github.com/GabrielTBeserra/GraphFinder" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.880-1.37-3.88-1.37-.52-1.33-1.28-1.690-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a10.9 10.9 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.83 1.18 3.09 0 4.41-2.7 5.38-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+        <span class="gh-label">GitHub</span>
+      </a>
+      <button class="icon-btn menu-toggle" id="menu-toggle" aria-label="Abrir menu" aria-expanded="false" aria-controls="nav-links">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ================= HERO ================= -->
+<section class="hero" aria-labelledby="hero-title">
+  <canvas id="graph-canvas" aria-hidden="true"></canvas>
+  <div class="container hero-content">
+    <span class="eyebrow"><span class="pill" data-version>v0.10.0</span> Local-first · Markdown puro · MCP nativo</span>
+    <h1 id="hero-title">Seu conhecimento,<br /><span class="grad">conectado como grafo.</span></h1>
+    <p class="lead">O GraphFinder transforma vaults Markdown e bases de código inteiras em um grafo de conhecimento com indexação semântica — um lugar bonito para humanos pensarem e recuperação cirúrgica de ~50 tokens para agentes de IA via servidor MCP nativo.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" id="hero-download" href="https://github.com/GabrielTBeserra/GraphFinder/releases/latest" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>
+        Baixar <span data-version>v0.10.0</span>
+      </a>
+      <a class="btn btn-ghost" id="hero-docs" href="#docs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5Z"/><path d="M4 19a2 2 0 0 1 2-2h13"/></svg>
+        Ler a documentação
+      </a>
+    </div>
+
+    <div class="terminal hero-terminal">
+      <div class="terminal-bar"><span class="dots"><i></i><i></i><i></i></span>terminal</div>
+<pre data-lang="bash"># Indexa qualquer pasta (notas + código) e exporta artefatos do grafo
+$ graphfinder sync ./meu-repo --export
+# Registra o GraphFinder em todos os editores de IA desta máquina
+$ graphfinder config --install
+# Pergunte ao grafo
+$ graphfinder search "como a autenticação é tratada?"</pre>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><b>24</b><span>ferramentas MCP</span></div>
+      <div class="stat"><b>20+</b><span>linguagens indexadas</span></div>
+      <div class="stat"><b>~50</b><span>tokens por consulta</span></div>
+      <div class="stat"><b>0</b><span>chamadas à nuvem / API keys</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FEATURES ================= -->
+<section class="block" id="features" aria-labelledby="features-title">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker">Recursos</span>
+      <h2 id="features-title">Um motor para notas, código e agentes.</h2>
+      <p>Tudo roda na sua máquina: um núcleo em Rust com modelo ONNX embarcado, SQLite com FTS5, uma interface de grafo force-directed e um servidor MCP com o qual qualquer editor de IA conversa.</p>
+    </div>
+
+    <div class="bento">
+      <article class="card span-4 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+        <h3>Busca semântica híbrida</h3>
+        <p>Vetores densos FastEmbed de 384 dimensões combinados com BM25 do SQLite FTS5 via Reciprocal Rank Fusion (k = 60). As notas são divididas por títulos <code>##</code>/<code>###</code>, então cada resposta é uma seção atômica com deep link, como <code>[[Nota#Seção]]</code>.</p>
+        <div class="tagrow"><span class="tag">FastEmbed ONNX</span><span class="tag">SQLite FTS5</span><span class="tag">RRF k=60</span><span class="tag">AST pulldown-cmark</span></div>
+      </article>
+      <article class="card span-2 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/><circle cx="12" cy="12" r="3"/></svg></div>
+        <h3>100% local</h3>
+        <p>Sem API keys, sem telemetria. Seu Markdown continua como arquivos simples no disco.</p>
+      </article>
+      <article class="card span-2 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="9" cy="18" r="2.5"/><path d="M8.2 7.2 15.7 7.7M7 8.4l1.4 7.2M16.4 10l-5.6 6.4"/></svg></div>
+        <h3>Grafo interativo</h3>
+        <p>Canvas force-directed com destaque de vizinhança de 1/2 saltos, clusters por tag e anéis coloridos por linguagem.</p>
+      </article>
+      <article class="card span-4 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 7 4 12l5 5M15 7l5 5-5 5"/></svg></div>
+        <h3>Inteligência de código</h3>
+        <p>Varredura AST-lite de repositórios inteiros: símbolos (funções, classes, structs), grafo de imports locais e pacotes externos — respeitando o <code>.gitignore</code> e sincronizando de forma incremental por SHA-256.</p>
+        <div class="tagrow">
+          <span class="tag"><i style="background:#38bdf8"></i>TypeScript</span>
+          <span class="tag"><i style="background:#f97316"></i>Rust</span>
+          <span class="tag"><i style="background:#10b981"></i>Python</span>
+          <span class="tag"><i style="background:#06b6d4"></i>Go</span>
+          <span class="tag"><i style="background:#facc15"></i>JavaScript</span>
+          <span class="tag"><i style="background:#f472b6"></i>C / C++</span>
+          <span class="tag"><i style="background:#a78bfa"></i>Java · Kotlin · C#</span>
+          <span class="tag"><i style="background:#94a3b8"></i>+ outras</span>
+        </div>
+      </article>
+      <article class="card span-3 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg></div>
+        <h3>Servidor MCP nativo</h3>
+        <p>24 ferramentas via Streamable HTTP/SSE (<code>127.0.0.1:45123</code>) com o app aberto, ou stdio headless com <code>graphfinder mcp</code>. Funciona com Cursor, Claude Desktop, Antigravity, Windsurf, Cline, Roo Code e Zed.</p>
+      </article>
+      <article class="card span-3 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg></div>
+        <h3>Análise de grafos</h3>
+        <p>Detecção de comunidades, centralidade de grau, God Nodes, acoplamentos surpresa, ciclos e caminhos mínimos — exportados como <code>graph.json</code>, <code>GRAPH_REPORT.md</code> e um <code>graph.html</code> offline.</p>
+      </article>
+      <article class="card span-2 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></div>
+        <h3>Monitoramento ao vivo</h3>
+        <p>Edite no Obsidian, VS Code ou Neovim — as mudanças são reindexadas em 500 ms.</p>
+      </article>
+      <article class="card span-2 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 2 10 5-10 5L2 7l10-5Z"/><path d="m2 12 10 5 10-5M2 17l10 5 10-5"/></svg></div>
+        <h3>Múltiplos projetos</h3>
+        <p>Vaults isolados, cada um com seu índice. Renomear atualiza todos os wikilinks de entrada.</p>
+      </article>
+      <article class="card span-2 reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z"/></svg></div>
+        <h3>Seguro por padrão</h3>
+        <p>Defesa contra DNS rebinding, validação de Origin, CSP estrita e sanitização com DOMPurify.</p>
+      </article>
+    </div>
+
+    <div class="flow reveal" style="margin-top:48px">
+      <div class="flow-step"><span class="num">01 · INGESTÃO</span><h4>Aponte para uma pasta</h4><p>Notas Markdown e arquivos de código são analisados, divididos e vetorizados localmente.</p></div>
+      <div class="flow-step"><span class="num">02 · CONEXÃO</span><h4>Veja o grafo se formar</h4><p>Wikilinks, tags e imports viram arestas que você pode explorar e analisar.</p></div>
+      <div class="flow-step"><span class="num">03 · RECUPERAÇÃO</span><h4>Agentes perguntam com precisão</h4><p>As ferramentas MCP retornam só a seção ou símbolo necessário — não arquivos inteiros.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DOCS ================= -->
+<section class="block" id="docs" aria-labelledby="docs-title" style="padding-top:40px">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker">Documentação</span>
+      <h2 id="docs-title">Tudo sobre o GraphFinder.</h2>
+      <p>Da instalação aos detalhes internos do motor de busca. Versão atual: <strong data-version>v0.10.0</strong>.</p>
+    </div>
+
+    <div class="docs-wrap">
+      <aside class="toc" aria-label="Sumário">
+        <p class="toc-title">Nesta página</p>
+        <ol>
+          <li><a href="#overview">Visão geral</a></li>
+          <li><a href="#install">Instalação</a></li>
+          <li><a href="#quickstart">Início rápido</a></li>
+          <li><a href="#desktop">Aplicativo desktop</a></li>
+          <li><a href="#notes">Escrevendo notas</a></li>
+          <li><a href="#search">Motor de busca</a></li>
+          <li><a href="#code">Indexação de código</a></li>
+          <li><a href="#analytics">Análise de grafos</a></li>
+          <li><a href="#cli">Referência da CLI</a></li>
+          <li><a href="#mcp">Configurando o MCP</a></li>
+          <li><a href="#tools">Ferramentas MCP (24)</a></li>
+          <li><a href="#agents">Agentes de IA e skills</a></li>
+          <li><a href="#projects">Projetos e vaults</a></li>
+          <li><a href="#config">Configuração</a></li>
+          <li><a href="#architecture">Arquitetura</a></li>
+          <li><a href="#security">Segurança</a></li>
+          <li><a href="#development">Desenvolvimento</a></li>
+          <li><a href="#faq">Problemas e FAQ</a></li>
+          <li><a href="#changelog">Changelog</a></li>
+        </ol>
+      </aside>
+
+      <article class="doc">
+
+        <!-- 1. VISÃO GERAL -->
+        <section id="overview">
+          <h2><span class="idx">01</span>Visão geral<a class="anchor" href="#overview" aria-label="Link para Visão geral">#</a></h2>
+          <p class="lead-p">O <strong>GraphFinder</strong> é um aplicativo desktop multiplataforma (Tauri v2 + Rust + React 19) e uma ferramenta de linha de comando que indexa vaults de conhecimento em Markdown e repositórios de código em um único grafo pesquisável semanticamente.</p>
+          <p>Pipelines de RAG tradicionais cortam documentos em janelas fixas arbitrárias ou jogam arquivos inteiros no contexto do LLM, desperdiçando milhares de tokens. Já as ferramentas de notas raramente oferecem busca vetorial local ou uma API utilizável por agentes. O GraphFinder resolve os dois lados:</p>
+          <ul>
+            <li><strong>Para humanos</strong> — um ambiente local-first e sem distrações para escrever Markdown puro com <code>[[wikilinks]]</code>, explorar conexões em um grafo 2D interativo e manter total posse dos seus arquivos.</li>
+            <li><strong>Para agentes de IA</strong> — um servidor Model Context Protocol (MCP) embarcado que retorna resultados no nível de subseção (<code>[[Nota#Seção]]</code>) e símbolos de código individuais, tipicamente com cerca de <strong>50 tokens por resultado</strong>.</li>
+          </ul>
+          <h3>Conceitos principais</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Conceito</th><th>Significado</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Vault</strong></td><td>Uma pasta de arquivos <code>.md</code> (e opcionalmente código) indexada pelo GraphFinder.</td></tr>
+              <tr><td><strong>Projeto</strong></td><td>Um vault registrado com seu próprio índice SQLite isolado. Identificado por um slug (ex.: <code>minha-api</code>).</td></tr>
+              <tr><td><strong>Chunk</strong></td><td>Uma seção atômica de uma nota delimitada por títulos <code>##</code> / <code>###</code>, vetorizada de forma independente.</td></tr>
+              <tr><td><strong>Deep link</strong></td><td>Referência a uma seção específica: <code>[[Título da Nota#Título da Seção]]</code>, ou a um símbolo: <code>[[caminho/arquivo.rs#funcao]]</code>.</td></tr>
+              <tr><td><strong>Nó / Aresta</strong></td><td>Notas e arquivos de código são nós; wikilinks e imports são arestas.</td></tr>
+              <tr><td><strong>God Node</strong></td><td>Um hub altamente central no grafo, detectado por centralidade de grau.</td></tr>
+            </tbody>
+          </table></div>
+        </section>
+
+        <!-- 2. INSTALAÇÃO -->
+        <section id="install">
+          <h2><span class="idx">02</span>Instalação<a class="anchor" href="#install" aria-label="Link para Instalação">#</a></h2>
+          <h3>Opção A — Instaladores prontos (recomendado)</h3>
+          <p>Cada release com tag é compilada pelo GitHub Actions para as três plataformas desktop. Baixe a mais recente na <a href="https://github.com/GabrielTBeserra/GraphFinder/releases/latest" target="_blank" rel="noopener">página de Releases</a>:</p>
+          <div class="downloads">
+            <a class="dl" id="dl-windows" href="https://github.com/GabrielTBeserra/GraphFinder/releases/latest" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10.5 4.5v7H3v-6Zm8.5-1.1L21 3v8.5h-9.5V4.4ZM3 12.5h7.5v7L3 18.5v-6Zm8.5 0H21V21l-9.5-1.4v-7.1Z"/></svg>
+              <b>Windows</b><span>.exe (NSIS) · .msi (WiX)</span>
+            </a>
+            <a class="dl" id="dl-macos" href="https://github.com/GabrielTBeserra/GraphFinder/releases/latest" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.6c0-2.5 2-3.7 2.1-3.8a4.6 4.6 0 0 0-3.6-2c-1.5-.2-3 .9-3.7.9-.8 0-2-.9-3.2-.9a4.8 4.8 0 0 0-4 2.5c-1.7 3-.4 7.4 1.2 9.8.8 1.200 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.1-1.2 2.9-2.4.9-1.3 1.3-2.6 1.3-2.7 0 0-2.4-.9-2.3-3.8ZM14.1 5.3A4.4 4.4 0 0 0 15.1 2a4.5 4.5 0 0 0-2.9 1.5 4.2 4.2 0 0 0-1 3.1 3.7 3.7 0 0 0 2.9-1.3Z"/></svg>
+              <b>macOS</b><span>.dmg (Apple Silicon)</span>
+            </a>
+            <a class="dl" id="dl-linux" href="https://github.com/GabrielTBeserra/GraphFinder/releases/latest" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="m7 9 3 2.5L7 14M12 14h5"/></svg>
+              <b>Linux</b><span>.deb · .AppImage</span>
+            </a>
+          </div>
+          <p>Após instalar, habilite o comando de terminal para que <code>graphfinder</code> funcione em qualquer shell:</p>
+          <div class="code"><div class="code-bar">bash</div>
+<pre data-lang="bash"># Windows: adiciona a pasta de instalação ao PATH do usuário + cria atalhos graphfinder.cmd
+# macOS/Linux: cria um symlink em ~/.local/bin/graphfinder
+graphfinder install-cli</pre></div>
+          <div class="callout info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+            <p>Se <code>graphfinder</code> ainda não estiver no PATH, execute o binário diretamente, ex.: <code>"C:\Program Files\GraphFinder\GraphFinder.exe" install-cli</code>. Depois abra um novo terminal.</p>
+          </div>
+
+          <h3>Opção B — Compilar a partir do código-fonte</h3>
+          <h4>Pré-requisitos</h4>
+          <ul>
+            <li><strong>Node.js 20+</strong> e npm</li>
+            <li><strong>Rust 1.75+</strong> via <a href="https://rustup.rs" target="_blank" rel="noopener">rustup</a></li>
+            <li>Windows: Visual Studio C++ Build Tools · Linux: <code>libwebkit2gtk-4.1-dev</code>, <code>build-essential</code>, <code>libssl-dev</code>, <code>libayatana-appindicator3-dev</code>, <code>librsvg2-dev</code></li>
+          </ul>
+          <div class="code"><div class="code-bar">bash</div>
+<pre data-lang="bash">git clone https://github.com/GabrielTBeserra/GraphFinder.git
+cd GraphFinder
+npm install
+
+# Roda o app desktop em modo de desenvolvimento (Vite na :1420 + Tauri)
+npm run app
+
+# Gera instaladores em src-tauri/target/release/bundle/
+npm run tauri build</pre></div>
+          <div class="callout tip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2Z"/></svg>
+            <p>Na primeira execução o modelo de embeddings (all-MiniLM-L6-v2, ~90 MB) é baixado uma única vez para <code>.fastembed_cache</code>. Depois disso o GraphFinder funciona totalmente offline.</p>
+          </div>
+        </section>
+
+        <!-- 3. INÍCIO RÁPIDO -->
+        <section id="quickstart">
+          <h2><span class="idx">03</span>Início rápido<a class="anchor" href="#quickstart" aria-label="Link para Início rápido">#</a></h2>
+          <ol class="steps">
+            <li><strong>Abra o app</strong>Inicie o GraphFinder (ou rode <code>graphfinder</code> sem argumentos). Um vault padrão é criado e o grafo aparece.</li>
+            <li><strong>Crie ou abra um projeto</strong>Use o seletor de projetos na barra superior → <em>Novo projeto</em>, dê um nome e, opcionalmente, escolha uma pasta existente (de notas ou um repositório de código).</li>
+            <li><strong>Escreva uma nota</strong>Crie uma nota começando com <code># Título</code>, um resumo curto e depois seções <code>##</code>. Conecte conceitos com <code>[[Outra Nota]]</code> e termine com tags como <code>#arquitetura</code>. Salve com <kbd>Ctrl</kbd>+<kbd>S</kbd>.</li>
+            <li><strong>Pesquise</strong>Pressione <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> para abrir o Omnisearch — busca semântica híbrida em notas e símbolos de código.</li>
+            <li><strong>Conecte seu editor de IA</strong>Rode <code>graphfinder config --install</code> ou copie um snippet do modal MCP no app. Seu agente passa a ter 24 ferramentas do GraphFinder.</li>
+          </ol>
+          <p>Prefere o terminal? O mesmo fluxo, sem interface:</p>
+          <div class="code"><div class="code-bar">bash</div>
+<pre data-lang="bash">cd ~/code/meu-projeto
+graphfinder sync            # registra a pasta como projeto e a indexa
+graphfinder status          # notas, arquivos de código, arestas, tamanho do banco
+graphfinder search "middleware de rate limiting"
+graphfinder report          # auditoria de arquitetura + artefatos do grafo</pre></div>
+        </section>
+
+        <!-- 4. DESKTOP -->
+        <section id="desktop">
+          <h2><span class="idx">04</span>Aplicativo desktop<a class="anchor" href="#desktop" aria-label="Link para Aplicativo desktop">#</a></h2>
+          <p>A interface é organizada em uma barra lateral, o canvas central do grafo e painéis contextuais.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Área</th><th>O que faz</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Barra superior</strong></td><td>Seletor de projetos, novo projeto, Omnisearch, relatório arquitetural, modal de integração MCP e alternância de tema claro/escuro (salva no <code>localStorage</code>).</td></tr>
+              <tr><td><strong>Barra lateral</strong></td><td>Abas <em>Notes</em> e <em>Code</em> (com filtros de linguagem), além de busca semântica com alternância entre notas Markdown e símbolos de código. Mostrar/ocultar com <kbd>Ctrl</kbd>+<kbd>B</kbd>.</td></tr>
+              <tr><td><strong>Visão de grafo</strong></td><td>Canvas force-directed. Clique em um nó para focá-lo e destacar sua vizinhança de 1 e 2 saltos. Filtre com <code>[All]</code>, <code>[Notes]</code>, <code>[Code]</code>. Notas são coloridas por cluster de tag; arquivos de código ganham anéis por linguagem; hubs brilham proporcionalmente ao grau.</td></tr>
+              <tr><td><strong>Editor de notas</strong></td><td>Editor Markdown com preview ao vivo (sanitizado pelo DOMPurify), autocomplete de wikilinks (digite <code>[[</code>, navegue com <kbd>↑</kbd><kbd>↓</kbd>, aceite com <kbd>Enter</kbd>/<kbd>Tab</kbd>, feche com <kbd>Esc</kbd>) e <kbd>Ctrl</kbd>+<kbd>S</kbd> para salvar.</td></tr>
+              <tr><td><strong>Code Inspector</strong></td><td>Painel deslizante para um nó de código: símbolos declarados com intervalos de linha, grafo de imports com navegação clicável, pacotes externos e visualizador de código cirúrgico.</td></tr>
+              <tr><td><strong>Omnisearch</strong></td><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>. Busca híbrida no projeto ativo, navegável pelo teclado.</td></tr>
+              <tr><td><strong>Relatório arquitetural</strong></td><td>Comunidades, God Nodes, acoplamentos surpresa e ciclos do projeto ativo, com exportação em um clique.</td></tr>
+              <tr><td><strong>Modal MCP</strong></td><td>Snippets de configuração prontos para cada editor de IA, além das regras de agente (<code>AGENTS.md</code>) e da skill curadora.</td></tr>
+            </tbody>
+          </table></div>
+          <h3>Atalhos de teclado</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Atalho</th><th>Ação</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd></td><td>Abrir/fechar Omnisearch</td></tr>
+              <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>B</kbd></td><td>Mostrar/ocultar barra lateral</td></tr>
+              <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>S</kbd></td><td>Salvar a nota atual</td></tr>
+              <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd> <kbd>Esc</kbd></td><td>Navegar em resultados de busca e sugestões de wikilink</td></tr>
+            </tbody>
+          </table></div>
+          <div class="callout info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+            <p>Enquanto o app desktop está aberto ele também hospeda o servidor MCP em <code>http://127.0.0.1:45123</code>, então notas criadas pelo seu agente aparecem no grafo em tempo real.</p>
+          </div>
+        </section>
+
+        <!-- 5. NOTAS -->
+        <section id="notes">
+          <h2><span class="idx">05</span>Escrevendo notas<a class="anchor" href="#notes" aria-label="Link para Escrevendo notas">#</a></h2>
+          <p>O GraphFinder funciona com qualquer Markdown, mas a recuperação fica mais precisa quando as notas seguem esta estrutura:</p>
+          <ol>
+            <li><strong>Um único título H1</strong> (<code># Título da Nota</code>) seguido de um resumo executivo de 2–3 linhas.</li>
+            <li><strong>Seções <code>##</code>/<code>###</code> autocontidas</strong> de aproximadamente 40–150 tokens, com títulos descritivos (<code>## 2. Configuração do SQLite WAL</code> em vez de <code>## Config</code>). Cada título vira um embedding próprio e um alvo de deep link.</li>
+            <li><strong>Wikilinks</strong> — <code>[[Nota]]</code> ou <code>[[Nota#Seção]]</code>. Mire em 1–3 links por nota para evitar órfãos.</li>
+            <li><strong>Hashtags em minúsculas</strong> — <code>#arquitetura #sqlite #mcp</code> no fim das seções ou da nota. Elas geram os clusters coloridos no grafo.</li>
+          </ol>
+          <div class="code"><div class="code-bar">vault/Auth JWT.md</div>
+<pre data-lang="markdown"># Auth JWT
+
+Como a API emite e valida JSON Web Tokens. Cobre chaves de assinatura,
+política de expiração e rotação de refresh.
+
+## 1. Assinatura de Tokens
+Os tokens são assinados com RS256. As chaves giram a cada 30 dias e são
+carregadas do cofre de segredos na inicialização. Veja [[Arquitetura do Sistema#2. Segredos]].
+
+## 2. Rotação de Refresh
+Cada refresh invalida a família de tokens anterior para impedir ataques de replay.
+
+#auth #seguranca #arquitetura</pre></div>
+          <h3>Como as notas são processadas</h3>
+          <ul>
+            <li>O parsing usa uma AST CommonMark real (<code>pulldown-cmark</code>). O conteúdo dentro de blocos de código é isolado, então um <code>#</code> em código nunca é tratado como título ou tag.</li>
+            <li>Seções com mais de <strong>320 tokens</strong> são divididas em janelas com <strong>sobreposição de 40 tokens</strong> para não perder contexto nas bordas.</li>
+            <li>Renomear uma nota (pela interface ou <code>rename_note</code>) reescreve todos os <code>[[Título Antigo]]</code> no vault.</li>
+            <li>Notas editadas fora do GraphFinder (Obsidian, VS Code, Neovim…) são detectadas pelo file watcher (debounce de 500 ms).</li>
+          </ul>
+        </section>
+
+        <!-- 6. BUSCA -->
+        <section id="search">
+          <h2><span class="idx">06</span>Motor de busca<a class="anchor" href="#search" aria-label="Link para Motor de busca">#</a></h2>
+          <p>Cada consulta executa dois mecanismos de recuperação em paralelo e os combina:</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Etapa</th><th>Detalhes</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Vetores densos</strong></td><td>FastEmbed sobre ONNX Runtime. Modelo padrão <code>all-MiniLM-L6-v2</code> (384 dimensões). Opcional <code>MultilingualE5Small</code> para vaults em outros idiomas. Similaridade de cosseno sobre <code>note_chunks</code> / <code>code_chunks</code>.</td></tr>
+              <tr><td><strong>Palavra-chave (BM25)</strong></td><td>Índice full-text SQLite FTS5 — encontra identificadores exatos, códigos de erro e termos raros que embeddings deixam passar.</td></tr>
+              <tr><td><strong>Fusão</strong></td><td>Reciprocal Rank Fusion: <code>score = Σ 1 / (60 + rank)</code>. Robusto sem normalização de scores.</td></tr>
+              <tr><td><strong>Saída</strong></td><td>Top-N chunks com título, seção, deep link, score de afinidade e estimativa de tokens.</td></tr>
+            </tbody>
+          </table></div>
+          <p>O armazenamento é um único banco SQLite por projeto em <strong>modo WAL</strong>, permitindo indexação e consultas concorrentes. A reindexação é incremental: arquivos são comparados por timestamp e hash SHA-256, e apenas os alterados são reprocessados e revetorizados.</p>
+        </section>
+
+        <!-- 7. CÓDIGO -->
+        <section id="code">
+          <h2><span class="idx">07</span>Indexação de código<a class="anchor" href="#code" aria-label="Link para Indexação de código">#</a></h2>
+          <p>Aponte o GraphFinder para um repositório e ele constrói um índice de símbolos e um grafo de dependências sem precisar de compilador ou language server.</p>
+          <h3>Tipos de arquivo suportados</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Linguagem</th><th>Extensões</th><th>Imports analisados</th></tr></thead>
+            <tbody>
+              <tr><td>TypeScript / TSX</td><td><code>.ts .mts .cts .tsx</code></td><td><code>import</code>, <code>require</code></td></tr>
+              <tr><td>JavaScript / JSX</td><td><code>.js .mjs .cjs .jsx</code></td><td><code>import</code>, <code>require</code></td></tr>
+              <tr><td>Python</td><td><code>.py .pyi</code></td><td><code>import</code>, <code>from … import</code></td></tr>
+              <tr><td>Rust</td><td><code>.rs</code></td><td><code>use</code>, <code>mod</code></td></tr>
+              <tr><td>Go</td><td><code>.go</code></td><td><code>import</code></td></tr>
+              <tr><td>C / C++</td><td><code>.c .h .cpp .hpp .cc .cxx .hh</code></td><td><code>#include</code></td></tr>
+              <tr><td>Java / Kotlin</td><td><code>.java .kt .kts</code></td><td><code>import</code></td></tr>
+              <tr><td>C# / F#</td><td><code>.cs .fs</code></td><td><code>using</code></td></tr>
+              <tr><td>PHP · Ruby · Swift</td><td><code>.php .rb .swift</code></td><td><code>use</code>/<code>require</code>/<code>import</code></td></tr>
+              <tr><td>Web e configuração</td><td><code>.html .css .scss .sass .less .json .yaml .toml .sql</code></td><td>indexados como arquivos</td></tr>
+              <tr><td>Shell</td><td><code>.sh .bash .zsh</code></td><td><code>source</code></td></tr>
+            </tbody>
+          </table></div>
+          <h3>O que é extraído</h3>
+          <ul>
+            <li><strong>Símbolos</strong> — funções, classes, structs, interfaces e enums de nível superior, com intervalos de linha e estimativa de tokens. Cada símbolo é um chunk pesquisável.</li>
+            <li><strong>Imports locais</strong> — resolvidos para arquivos do projeto e salvos como arestas bidirecionais (<code>code_links</code>): <em>imports</em> e <em>dependentes</em>.</li>
+            <li><strong>Pacotes externos</strong> — módulos de terceiros (ex.: <code>rusqlite</code>, <code>react</code>) listados por arquivo.</li>
+          </ul>
+          <h3>O que é ignorado</h3>
+          <p>Tudo que está no <code>.gitignore</code>, além de <code>node_modules</code>, <code>target</code>, <code>dist</code>, <code>.git</code>, arquivos binários e arquivos maiores que <strong>1 MB</strong>.</p>
+        </section>
+
+        <!-- 8. ANÁLISE -->
+        <section id="analytics">
+          <h2><span class="idx">08</span>Análise de grafos<a class="anchor" href="#analytics" aria-label="Link para Análise de grafos">#</a></h2>
+          <p>Um motor de análise escrito em Rust puro trata notas e arquivos de código como um grafo unificado e responde perguntas de arquitetura.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Análise</th><th>Descrição</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Comunidades</strong></td><td>Clustering por propagação de rótulos / estilo Louvain revela subsistemas modulares.</td></tr>
+              <tr><td><strong>Centralidade e God Nodes</strong></td><td>A centralidade de grau ranqueia os nós; os hubs mais conectados são marcados como God Nodes — refatore ou documente-os primeiro.</td></tr>
+              <tr><td><strong>Acoplamentos surpresa</strong></td><td>Arestas que acoplam subsistemas distantes — frequentemente dívida arquitetural oculta.</td></tr>
+              <tr><td><strong>Ciclos</strong></td><td>Cadeias de dependência circular entre arquivos.</td></tr>
+              <tr><td><strong>Caminho mínimo</strong></td><td>BFS por imports e wikilinks entre dois nós quaisquer (<code>graphfinder path</code>, <code>find_path</code>).</td></tr>
+              <tr><td><strong>Explicação de nó</strong></td><td>Cartão 360°: comunidade, ranking de centralidade, quem chama, quem é chamado, irmãos (<code>graphfinder explain</code>, <code>explain_node</code>).</td></tr>
+            </tbody>
+          </table></div>
+          <h3>Artefatos exportados</h3>
+          <p><code>graphfinder report</code>, <code>graphfinder export</code>, <code>sync --export</code> ou a ferramenta <code>export_graph</code> gravam em <code>./graphfinder-out/</code>:</p>
+          <ul>
+            <li><code>graph.json</code> — nós (comunidade, grau, centralidade, flag de god-node) e arestas (origem, destino, rótulo, peso). Ideal para agentes e scripts.</li>
+            <li><code>GRAPH_REPORT.md</code> — resumo executivo, métricas, tabela de God Nodes, lista de subsistemas, acoplamentos surpresa e ciclos.</li>
+            <li><code>graph.html</code> — visualizador offline sem dependências, com busca, cores por comunidade e halos nos hubs. Abra em qualquer navegador.</li>
+          </ul>
+        </section>
+
+        <!-- 9. CLI -->
+        <section id="cli">
+          <h2><span class="idx">09</span>Referência da CLI<a class="anchor" href="#cli" aria-label="Link para Referência da CLI">#</a></h2>
+          <p>O mesmo binário é o app desktop e a CLI. Executado <strong>sem argumentos</strong>, abre a interface gráfica; com um comando, roda no terminal.</p>
+          <div class="code"><div class="code-bar">uso</div>
+<pre data-lang="bash">graphfinder [COMANDO] [OPÇÕES]</pre></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Comando (aliases)</th><th>Opções</th><th>Descrição</th></tr></thead>
+            <tbody>
+              <tr><td><code>sync</code> (<code>syn</code>, <code>index</code>) <code>[caminho]</code></td><td><code>--json</code> <code>--export</code></td><td>Indexa notas e código em <code>caminho</code> (padrão: diretório atual). Registra um novo projeto se for desconhecido; caso contrário, atualiza incrementalmente via SHA-256. <code>--export</code> também gera os artefatos do grafo.</td></tr>
+              <tr><td><code>status</code> (<code>info</code>) <code>[caminho]</code></td><td>—</td><td>Mostra notas, arquivos de código, arestas e estatísticas do banco.</td></tr>
+              <tr><td><code>projects</code> (<code>list</code>)</td><td>—</td><td>Lista todos os projetos registrados e seus caminhos.</td></tr>
+              <tr><td><code>search &lt;consulta&gt;</code></td><td><code>--path</code> <code>--limit &lt;n&gt;</code></td><td>Busca semântica híbrida (BM25 + embeddings) em um projeto.</td></tr>
+              <tr><td><code>report</code> (<code>audit</code>) <code>[caminho]</code></td><td><code>--out-dir</code> <code>--json</code></td><td>Comunidades, God Nodes, surpresas e ciclos, além dos três artefatos.</td></tr>
+              <tr><td><code>path &lt;de&gt; &lt;para&gt;</code></td><td><code>--path</code> <code>--json</code></td><td>Caminho mínimo multi-salto entre dois arquivos, símbolos ou notas.</td></tr>
+              <tr><td><code>explain &lt;nó&gt;</code></td><td><code>--path</code> <code>--json</code></td><td>Cartão de contexto arquitetural de um nó.</td></tr>
+              <tr><td><code>export [caminho]</code></td><td><code>--out-dir</code></td><td>Gera <code>graph.json</code>, <code>GRAPH_REPORT.md</code> e <code>graph.html</code> sem relatório no terminal.</td></tr>
+              <tr><td><code>config</code> (<code>mcp-config</code>, <code>setup</code>)</td><td><code>--install</code> / <code>-i</code> <code>--json</code></td><td>Imprime a configuração MCP para editores de IA. <code>--install</code> detecta os editores instalados, registra o GraphFinder neles e adiciona a CLI ao PATH.</td></tr>
+              <tr><td><code>tools</code> (<code>schemas</code>, <code>mcp-tools</code>, <code>export-schemas</code>) <code>[pasta]</code></td><td>—</td><td>Exporta os schemas JSON das 24 ferramentas, um manifesto <code>tools.json</code> e <code>instructions.md</code> para <code>./mcp-tools</code>.</td></tr>
+              <tr><td><code>install-cli</code> (<code>install-path</code>)</td><td>—</td><td>Adiciona <code>graphfinder</code> ao PATH do sistema.</td></tr>
+              <tr><td><code>mcp</code> (<code>--mcp</code>)</td><td>—</td><td>Inicia o servidor MCP stdio headless.</td></tr>
+              <tr><td><code>help</code> (<code>--help</code>, <code>-h</code>)</td><td>—</td><td>Mostra a ajuda.</td></tr>
+            </tbody>
+          </table></div>
+          <h3>Exemplos</h3>
+          <div class="code"><div class="code-bar">bash</div>
+<pre data-lang="bash"># Sync com saída legível por máquina para CI ou scripts
+graphfinder sync ./services/api --json
+
+# Como a interface chega até a camada de banco?
+graphfinder path "GraphView.tsx" "db.rs"
+
+# Por que este arquivo é importante?
+graphfinder explain "src-tauri/src/engine/db.rs"
+
+# Auditoria em uma pasta personalizada
+graphfinder report --out-dir ./docs/arquitetura
+
+# Apenas 3 resultados em um projeto específico
+graphfinder search "debounce do file watcher" --path ./GraphFinder --limit 3</pre></div>
+          <p>A partir do código-fonte, scripts npm encapsulam a CLI: <code>npm run sync</code>, <code>npm run status</code>, <code>npm run search</code>, <code>npm run projects</code>, <code>npm run mcp</code>.</p>
+        </section>
+
+        <!-- 10. MCP -->
+        <section id="mcp">
+          <h2><span class="idx">10</span>Configurando o MCP<a class="anchor" href="#mcp" aria-label="Link para Configurando o MCP">#</a></h2>
+          <p>O GraphFinder implementa o Model Context Protocol com o SDK oficial em Rust (<code>rmcp</code>) em dois modos:</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Modo</th><th>Endpoint</th><th>Ideal para</th></tr></thead>
+            <tbody>
+              <tr><td><strong>A · HTTP/SSE embarcado</strong> (app aberto)</td><td><code>http://127.0.0.1:45123/mcp</code> (Streamable HTTP)<br /><code>http://127.0.0.1:45123/sse</code> (SSE)</td><td>Atualizações ao vivo: notas criadas pelo agente aparecem no grafo na hora.</td></tr>
+              <tr><td><strong>B · stdio headless</strong></td><td><code>graphfinder mcp</code> / <code>GraphFinder.exe --mcp</code></td><td>Terminais, servidores, CI, ou quando você não quer a interface aberta.</td></tr>
+            </tbody>
+          </table></div>
+          <p>O caminho mais rápido é o registro automático:</p>
+          <div class="code"><div class="code-bar">bash</div>
+<pre data-lang="bash">graphfinder config --install   # Cursor, Claude Desktop, Windsurf, Cline, Roo Code…
+graphfinder config --json      # apenas imprime o snippet JSON</pre></div>
+          <p>Ou configure manualmente:</p>
+          <div class="tabs">
+            <div class="tab-list" role="tablist" aria-label="Cliente MCP">
+              <button role="tab" aria-selected="true" id="tab-cursor">Cursor</button>
+              <button role="tab" aria-selected="false" id="tab-claude">Claude Desktop</button>
+              <button role="tab" aria-selected="false" id="tab-antigravity">Antigravity</button>
+              <button role="tab" aria-selected="false" id="tab-windsurf">Windsurf / Cline / Roo</button>
+              <button role="tab" aria-selected="false" id="tab-stdio">stdio genérico</button>
+            </div>
+            <div class="tab-panel active" role="tabpanel" aria-labelledby="tab-cursor">
+              <p>Arquivo: <code>.cursor/mcp.json</code> (workspace) ou <code>~/.cursor/mcp.json</code> (global).</p>
+              <div class="code"><div class="code-bar">mcp.json</div>
+<pre data-lang="json">{
+  "mcpServers": {
+    "graphfinder": {
+      "url": "http://127.0.0.1:45123/sse"
+    }
+  }
+}</pre></div>
+            </div>
+            <div class="tab-panel" role="tabpanel" aria-labelledby="tab-claude">
+              <p>Arquivo: <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows) ou <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS).</p>
+              <div class="code"><div class="code-bar">claude_desktop_config.json</div>
+<pre data-lang="json">{
+  "mcpServers": {
+    "graphfinder": {
+      "command": "C:\\Program Files\\GraphFinder\\GraphFinder.exe",
+      "args": ["--mcp"]
+    }
+  }
+}</pre></div>
+            </div>
+            <div class="tab-panel" role="tabpanel" aria-labelledby="tab-antigravity">
+              <p>Arquivo: <code>~/.gemini/antigravity-ide/mcp_config.json</code>.</p>
+              <div class="code"><div class="code-bar">mcp_config.json</div>
+<pre data-lang="json">{
+  "mcpServers": {
+    "graphfinder": {
+      "type": "sse",
+      "url": "http://127.0.0.1:45123/sse"
+    }
+  }
+}</pre></div>
+            </div>
+            <div class="tab-panel" role="tabpanel" aria-labelledby="tab-windsurf">
+              <p>Windsurf: <code>~/.codeium/windsurf/mcp_config.json</code>. Cline / Roo Code: <code>cline_mcp_settings.json</code> no armazenamento global da extensão.</p>
+              <div class="code"><div class="code-bar">mcp_config.json</div>
+<pre data-lang="json">{
+  "mcpServers": {
+    "graphfinder": {
+      "url": "http://127.0.0.1:45123/sse"
+    }
+  }
+}</pre></div>
+            </div>
+            <div class="tab-panel" role="tabpanel" aria-labelledby="tab-stdio">
+              <p>Qualquer cliente MCP que inicia um processo (sem interface gráfica):</p>
+              <div class="code"><div class="code-bar">json</div>
+<pre data-lang="json">{
+  "mcpServers": {
+    "graphfinder": {
+      "command": "graphfinder",
+      "args": ["--mcp"]
+    }
+  }
+}</pre></div>
+            </div>
+          </div>
+          <div class="callout tip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2Z"/></svg>
+            <p>No modo stdio o handshake MCP responde em menos de 50 ms — o modelo de embeddings carrega e o vault sincroniza em segundo plano.</p>
+          </div>
+        </section>
+
+        <!-- 11. FERRAMENTAS -->
+        <section id="tools">
+          <h2><span class="idx">11</span>Ferramentas MCP (24)<a class="anchor" href="#tools" aria-label="Link para Ferramentas MCP">#</a></h2>
+          <p>Todas as ferramentas aceitam o parâmetro opcional <code>project</code> para mirar um vault específico sem contaminação entre projetos. Parâmetros tracejados são opcionais.</p>
+
+          <p class="tool-group">Recuperação de conhecimento</p>
+          <div class="tools">
+            <div class="tool"><h4>search_semantic</h4><p>Busca híbrida vetor + BM25 sobre chunks de notas com RRF. Retorna deep links e estimativa de tokens.</p><div class="params"><span>query</span><span class="opt">limit=5</span><span class="opt">format: dense_chunks | summaries</span></div></div>
+            <div class="tool"><h4>read_section</h4><p>Lê exatamente uma seção pelo título ou fragmento de deep link.</p><div class="params"><span>target</span><span>section</span></div></div>
+            <div class="tool"><h4>get_compressed_context</h4><p>Resumo, links, tags e mapa de títulos com custo de tokens por seção — menos de 80 tokens.</p><div class="params"><span>target</span></div></div>
+            <div class="tool"><h4>list_recent_notes</h4><p>Notas modificadas recentemente com resumos de uma linha e tags.</p><div class="params"><span class="opt">limit=10</span></div></div>
+          </div>
+
+          <p class="tool-group">Autoria e conexões</p>
+          <div class="tools">
+            <div class="tool"><h4>suggest_links</h4><p>Vetoriza um rascunho e recomenda notas/seções existentes para linkar (evita órfãos).</p><div class="params"><span>text</span><span class="opt">current_note</span><span class="opt">threshold=0.60</span></div></div>
+            <div class="tool"><h4>store_context</h4><p>Cria ou atualiza uma nota, faz o parsing e a indexa imediatamente.</p><div class="params"><span>title</span><span>content</span><span class="opt">tags[]</span><span class="opt">links[]</span></div></div>
+            <div class="tool"><h4>link_notes</h4><p>Adiciona um <code>[[wikilink]]</code> de uma nota para outra e atualiza o grafo.</p><div class="params"><span>from_note</span><span>to_note</span></div></div>
+            <div class="tool"><h4>rename_note</h4><p>Renomeia uma nota e refatora todos os wikilinks de entrada no vault.</p><div class="params"><span>old_title</span><span>new_title</span></div></div>
+            <div class="tool"><h4>delete_note</h4><p>Apaga o arquivo e limpa chunks, embeddings, links e tags.</p><div class="params"><span>target</span></div></div>
+          </div>
+
+          <p class="tool-group">Grafo e arquitetura</p>
+          <div class="tools">
+            <div class="tool"><h4>get_graph_neighborhood</h4><p>Nós conectados em 1 ou 2 saltos, sem ler o conteúdo.</p><div class="params"><span>target</span><span class="opt">depth=1</span></div></div>
+            <div class="tool"><h4>find_path</h4><p>Caminho mínimo (BFS) por wikilinks e imports entre dois nós.</p><div class="params"><span>source</span><span>target</span><span class="opt">directed=false</span></div></div>
+            <div class="tool"><h4>explain_node</h4><p>Centralidade, comunidade, status de God Node, dependentes, dependências e irmãos.</p><div class="params"><span>target</span></div></div>
+            <div class="tool"><h4>get_community_report</h4><p>Auditoria do sistema: comunidades, God Nodes, surpresas e ciclos.</p><div class="params"><span class="opt">project</span></div></div>
+            <div class="tool"><h4>export_graph</h4><p>Gera <code>graph.json</code>, <code>GRAPH_REPORT.md</code> e <code>graph.html</code>.</p><div class="params"><span class="opt">out_dir=./graphfinder-out</span></div></div>
+            <div class="tool"><h4>get_vault_stats</h4><p>Notas, chunks, links, tags e estimativa total de tokens.</p><div class="params"><span class="opt">project</span></div></div>
+          </div>
+
+          <p class="tool-group">Base de código</p>
+          <div class="tools">
+            <div class="tool"><h4>search_code</h4><p>Busca híbrida em símbolos, assinaturas e comentários. Retorna <code>[[arquivo#simbolo]]</code> com intervalos de linha.</p><div class="params"><span>query</span><span class="opt">language</span><span class="opt">limit=5</span></div></div>
+            <div class="tool"><h4>find_files</h4><p>Busca por glob / substring nos caminhos indexados.</p><div class="params"><span>pattern</span><span class="opt">limit=20</span></div></div>
+            <div class="tool"><h4>get_file_context</h4><p>Símbolos com linhas, imports locais, dependentes e pacotes — menos de 80 tokens.</p><div class="params"><span>file</span></div></div>
+            <div class="tool"><h4>read_code_chunk</h4><p>Retorna apenas o corpo de uma função, classe ou struct.</p><div class="params"><span>file</span><span>symbol</span></div></div>
+            <div class="tool"><h4>get_code_dependencies</h4><p>O que um arquivo importa e quem o importa.</p><div class="params"><span>file</span></div></div>
+          </div>
+
+          <p class="tool-group">Projetos e sincronização</p>
+          <div class="tools">
+            <div class="tool"><h4>list_projects</h4><p>Todos os vaults registrados com caminhos e contagem de notas.</p><div class="params"><span class="opt">—</span></div></div>
+            <div class="tool"><h4>create_project</h4><p>Cria um vault isolado (opcionalmente em qualquer caminho do disco).</p><div class="params"><span>name</span><span class="opt">path</span></div></div>
+            <div class="tool"><h4>switch_project</h4><p>Troca o vault padrão ativo.</p><div class="params"><span>project_id</span></div></div>
+            <div class="tool"><h4>sync_vault</h4><p>Reindexação incremental por hash; um <code>path</code> é mapeado (ou registrado) automaticamente como projeto.</p><div class="params"><span class="opt">path</span><span class="opt">project</span></div></div>
+          </div>
+          <p style="margin-top:20px">Rode <code>graphfinder tools</code> para exportar os schemas JSON de todas as ferramentas e usá-los com qualquer framework de agentes.</p>
+        </section>
+
+        <!-- 12. AGENTES -->
+        <section id="agents">
+          <h2><span class="idx">12</span>Agentes de IA e skills<a class="anchor" href="#agents" aria-label="Link para Agentes de IA">#</a></h2>
+          <p>O GraphFinder traz três camadas que trabalham juntas: <strong>o agente</strong> (Cursor, Claude, Antigravity…) raciocina e planeja, <strong>a skill</strong> impõe economia de tokens e qualidade das notas, e <strong>o servidor MCP</strong> executa buscas e escritas.</p>
+          <h3>Skills e regras incluídas</h3>
+          <ul>
+            <li><code>AGENTS.md</code> — regras do repositório para agentes (economia de tokens, schema de notas, pipelines de decisão). O Antigravity carrega automaticamente; no Cursor adicione às Project Rules; no Claude cole no prompt do projeto.</li>
+            <li><code>.agents/skills/graphfinder-curator</code> — fluxo de autoria e curadoria (resumos, seções atômicas, <code>suggest_links</code> antes de <code>store_context</code>, tags).</li>
+            <li><code>.agents/skills/graphfinder</code> — fluxo de auditoria de arquitetura (relatórios, caminhos, explain, exportações).</li>
+          </ul>
+          <h3>Fluxos recomendados</h3>
+          <h4>Respondendo uma pergunta</h4>
+          <div class="code"><div class="code-bar">fluxo</div>
+<pre>search_semantic("sqlite wal mode")        → top 5 chunks (~50 tokens cada)
+  └─ precisa da estrutura?  get_compressed_context("Arquitetura do Sistema")
+  └─ precisa de uma seção?  read_section("Arquitetura do Sistema", "1. Armazenamento Local")</pre></div>
+          <h4>Salvando conhecimento</h4>
+          <div class="code"><div class="code-bar">fluxo</div>
+<pre>rascunho (# Título + resumo + seções ##)
+  → suggest_links(rascunho)                → ex.: "Arquitetura do Sistema: 85%"
+  → inserir [[Arquitetura do Sistema]] no rascunho
+  → store_context(title, content, tags)    → arquivo gravado, indexado, grafo atualizado</pre></div>
+          <h4>Inspecionando código</h4>
+          <div class="code"><div class="code-bar">fluxo</div>
+<pre>search_code("hybrid_search", language="rust")
+  → get_file_context("src-tauri/src/engine/db.rs")       # mapa de símbolos, &lt;80 tokens
+  → read_code_chunk("src-tauri/src/engine/db.rs", "hybrid_search")
+  → get_code_dependencies("src-tauri/src/engine/db.rs")  # análise de impacto</pre></div>
+          <h4>Auditando a arquitetura</h4>
+          <div class="code"><div class="code-bar">fluxo</div>
+<pre>get_community_report()      → subsistemas, God Nodes, surpresas, ciclos
+  → explain_node("db.rs")   → por que importa
+  → find_path("App.tsx", "db.rs")</pre></div>
+          <h3>Exemplos de prompts</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Objetivo</th><th>Prompt</th></tr></thead>
+            <tbody>
+              <tr><td>Busca cirúrgica</td><td><em>"Consulte o vault do GraphFinder e explique como funciona a indexação de código sem ler arquivos inteiros."</em></td></tr>
+              <tr><td>Nota conectada</td><td><em>"Documente nosso fluxo OAuth2 como uma nota no GraphFinder. Chame suggest_links antes e adicione tags relevantes."</em></td></tr>
+              <tr><td>Inspeção de código</td><td><em>"Encontre onde o parsing de imports é implementado e leia só essa função com read_code_chunk."</em></td></tr>
+              <tr><td>Análise de impacto</td><td><em>"Quais arquivos importam GraphView.tsx? Resuma o impacto arquitetural de alterá-lo."</em></td></tr>
+              <tr><td>Auditoria</td><td><em>"Gere um community report do GraphFinder e liste os God Nodes que devemos documentar primeiro."</em></td></tr>
+            </tbody>
+          </table></div>
+        </section>
+
+        <!-- 13. PROJETOS -->
+        <section id="projects">
+          <h2><span class="idx">13</span>Projetos e vaults<a class="anchor" href="#projects" aria-label="Link para Projetos">#</a></h2>
+          <p>Cada projeto é um workspace isolado com seu próprio diretório Markdown e seu próprio banco vetorial SQLite, então as buscas nunca vazam entre projetos.</p>
+          <ul>
+            <li><strong>Vault padrão</strong> — <code>&lt;pasta de dados&gt;/vault</code> com índice em <code>&lt;pasta de dados&gt;/index.db</code>.</li>
+            <li><strong>Vaults gerenciados</strong> — <code>&lt;pasta de dados&gt;/vaults/&lt;project_id&gt;/</code>, criados pela interface ou por <code>create_project</code>.</li>
+            <li><strong>Pastas externas</strong> — qualquer caminho do disco (ex.: um repositório) registrado pela interface, por <code>graphfinder sync &lt;caminho&gt;</code> ou <code>create_project(name, path)</code>.</li>
+            <li><strong>Registro</strong> — <code>vaults/projects.json</code> guarda o projeto ativo, nomes e caminhos personalizados.</li>
+          </ul>
+          <div class="code"><div class="code-bar">vaults/projects.json</div>
+<pre data-lang="json">{
+  "active_project": "default",
+  "custom_names": { "minha-api": "Minha API" },
+  "custom_paths": { "minha-api": "C:/Repos/MinhaAPI" }
+}</pre></div>
+          <h3>Onde fica a pasta de dados?</h3>
+          <ol>
+            <li><code>GRAPHFINDER_DATA_DIR</code>, se definida.</li>
+            <li>O diretório atual, se contiver <code>package.json</code> (código-fonte / modo dev).</li>
+            <li>Caso contrário, a pasta de dados do sistema: <code>%APPDATA%\GraphFinder</code> (Windows), <code>~/Library/Application Support/GraphFinder</code> (macOS), <code>~/.local/share/GraphFinder</code> (Linux).</li>
+          </ol>
+        </section>
+
+        <!-- 14. CONFIGURAÇÃO -->
+        <section id="config">
+          <h2><span class="idx">14</span>Configuração<a class="anchor" href="#config" aria-label="Link para Configuração">#</a></h2>
+          <p>O GraphFinder é configurado por variáveis de ambiente — nenhum arquivo de configuração é necessário.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Variável</th><th>Padrão</th><th>Efeito</th></tr></thead>
+            <tbody>
+              <tr><td><code>GRAPHFINDER_DATA_DIR</code></td><td>ver acima</td><td>Diretório base para vaults, registro e bancos.</td></tr>
+              <tr><td><code>GRAPHFINDER_VAULT</code></td><td><code>&lt;dados&gt;/vault</code></td><td>Substitui a pasta do vault padrão.</td></tr>
+              <tr><td><code>GRAPHFINDER_DB</code></td><td><code>&lt;dados&gt;/index.db</code></td><td>Substitui o caminho do banco SQLite padrão.</td></tr>
+              <tr><td><code>GRAPHFINDER_MODEL</code> / <code>GRAPHFINDER_EMBEDDING_MODEL</code></td><td><code>auto</code></td><td><code>multilingual</code>, <code>multilingual-e5-small</code> ou <code>e5</code> carregam o MultilingualE5Small; caso contrário, all-MiniLM-L6-v2.</td></tr>
+              <tr><td><code>GRAPHFINDER_MODELS</code></td><td>—</td><td>Pasta com <code>model.onnx</code> + <code>tokenizer.json</code> locais para uso totalmente offline (também detectado em <code>models/all-MiniLM-L6-v2</code>).</td></tr>
+              <tr><td><code>GRAPHFINDER_MCP_PORT</code></td><td><code>45123</code></td><td>Porta do servidor MCP HTTP/SSE embarcado.</td></tr>
+              <tr><td><code>GRAPHFINDER_AUTO_APPEND_LINKS</code></td><td><code>false</code></td><td><code>1</code>/<code>true</code> adiciona automaticamente os wikilinks sugeridos ao salvar notas.</td></tr>
+            </tbody>
+          </table></div>
+          <div class="code"><div class="code-bar">bash</div>
+<pre data-lang="bash"># Vault em português / multilíngue em uma porta personalizada
+export GRAPHFINDER_MODEL=multilingual
+export GRAPHFINDER_MCP_PORT=47000
+graphfinder</pre></div>
+          <div class="code"><div class="code-bar">powershell</div>
+<pre data-lang="powershell">$env:GRAPHFINDER_MODEL = "multilingual"
+graphfinder sync</pre></div>
+          <div class="callout warn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <p>Trocar o modelo de embeddings muda a semântica dos vetores. Reindexe seus projetos (apague o <code>index.db</code> do projeto e rode <code>graphfinder sync</code>) após a troca.</p>
+          </div>
+        </section>
+
+        <!-- 15. ARQUITETURA -->
+        <section id="architecture">
+          <h2><span class="idx">15</span>Arquitetura<a class="anchor" href="#architecture" aria-label="Link para Arquitetura">#</a></h2>
+          <div class="arch">
+            <div class="arch-col fe"><h5>Frontend · React 19</h5><ul><li>GraphView (force-graph)</li><li>NoteEditor + preview</li><li>CodeInspector</li><li>Sidebar · Omnisearch</li><li>ProjectSwitcher · Modais</li></ul></div>
+            <div class="arch-arrow"><span>Tauri IPC</span></div>
+            <div class="arch-col be"><h5>Núcleo Rust · Tauri v2</h5><ul><li>Comandos IPC (lib.rs)</li><li>Servidor MCP (rmcp, axum)</li><li>Parser · Chunker</li><li>Motor de código (AST-lite)</li><li>FastEmbed · Análise de grafos</li></ul></div>
+            <div class="arch-arrow"><span>I/O</span></div>
+            <div class="arch-col st"><h5>Armazenamento local</h5><ul><li>Vaults Markdown</li><li>Repositórios de código</li><li>index.db (SQLite WAL + FTS5)</li><li>projects.json</li><li>.fastembed_cache</li></ul></div>
+          </div>
+          <h3>Estrutura do repositório</h3>
+          <div class="code"><div class="code-bar">árvore</div>
+<pre>GraphFinder/
+├── src/                      # Frontend React 19 + TypeScript
+│   ├── components/           # GraphView, NoteEditor, CodeInspector, Sidebar,
+│   │                         # OmnisearchModal, McpModal, ArchitecturalReportModal…
+│   ├── services/             # Bindings IPC do Tauri
+│   └── types.ts
+├── src-tauri/                # Backend Rust
+│   ├── src/main.rs           # Ponto de entrada da CLI (GUI sem argumentos)
+│   ├── src/lib.rs            # Setup do Tauri, comandos IPC, servidor MCP HTTP
+│   ├── src/engine/
+│   │   ├── parser.rs         # AST CommonMark, chunking, wikilinks, tags
+│   │   ├── embeddings.rs     # Carregamento e inferência do FastEmbed
+│   │   ├── db.rs             # Schema SQLite, FTS5, busca híbrida RRF
+│   │   ├── vault.rs          # Engine: sync, watcher, ciclo de vida das notas
+│   │   ├── code.rs           # Detecção de linguagem, símbolos, imports
+│   │   ├── graph_analytics.rs# Comunidades, centralidade, caminhos, exportação
+│   │   └── project.rs        # Gerenciador multi-vault e registro
+│   └── src/mcp/              # Definição das ferramentas (mod.rs) e transportes (server.rs)
+├── .agents/skills/           # Skills graphfinder e graphfinder-curator
+├── mcp-tools/                # Schemas exportados das ferramentas
+├── docs/                     # Este site (GitHub Pages)
+└── AGENTS.md · MCP_TOOLS.md · CHANGELOG.md</pre></div>
+          <h3>Stack tecnológica</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Camada</th><th>Tecnologia</th></tr></thead>
+            <tbody>
+              <tr><td>Runtime desktop</td><td>Tauri 2.12</td></tr>
+              <tr><td>Backend</td><td>Rust 2021 · Tokio · Axum 0.7 · rmcp 3.5</td></tr>
+              <tr><td>Embeddings</td><td>fastembed 4 (ONNX Runtime)</td></tr>
+              <tr><td>Armazenamento</td><td>rusqlite 0.32 (SQLite embutido, WAL, FTS5)</td></tr>
+              <tr><td>Parsing</td><td>pulldown-cmark 0.13 · regex · walkdir</td></tr>
+              <tr><td>Monitoramento</td><td>notify-debouncer-mini 0.6</td></tr>
+              <tr><td>Frontend</td><td>React 19.2 · TypeScript 6 · Vite 8 · Tailwind CSS 4</td></tr>
+              <tr><td>UI</td><td>Radix UI · Phosphor Icons · force-graph · marked · DOMPurify</td></tr>
+            </tbody>
+          </table></div>
+        </section>
+
+        <!-- 16. SEGURANÇA -->
+        <section id="security">
+          <h2><span class="idx">16</span>Segurança<a class="anchor" href="#security" aria-label="Link para Segurança">#</a></h2>
+          <ul>
+            <li><strong>Somente loopback</strong> — o servidor MCP HTTP escuta apenas em <code>127.0.0.1</code>.</li>
+            <li><strong>Defesa contra DNS rebinding</strong> — o cabeçalho <code>Host</code> é validado em cada requisição.</li>
+            <li><strong>Validação de Origin</strong> — middleware estrito em vez de CORS permissivo.</li>
+            <li><strong>Content Security Policy</strong> — aplicada no <code>tauri.conf.json</code>.</li>
+            <li><strong>Proteção contra XSS</strong> — previews Markdown são sanitizados com DOMPurify.</li>
+            <li><strong>Proteção contra path traversal</strong> — ids de projeto são sanitizados antes de tocar o sistema de arquivos.</li>
+          </ul>
+          <p>Reporte vulnerabilidades de forma privada conforme o <a href="https://github.com/GabrielTBeserra/GraphFinder/blob/main/SECURITY.md" target="_blank" rel="noopener">SECURITY.md</a>.</p>
+        </section>
+
+        <!-- 17. DESENVOLVIMENTO -->
+        <section id="development">
+          <h2><span class="idx">17</span>Desenvolvimento<a class="anchor" href="#development" aria-label="Link para Desenvolvimento">#</a></h2>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Script</th><th>Finalidade</th></tr></thead>
+            <tbody>
+              <tr><td><code>npm run dev</code></td><td>Servidor Vite apenas do frontend (porta 1420).</td></tr>
+              <tr><td><code>npm run app</code></td><td>App desktop completo em modo dev (<code>tauri dev</code>).</td></tr>
+              <tr><td><code>npm run build</code></td><td>Checagem de tipos e build do frontend em <code>dist/</code>.</td></tr>
+              <tr><td><code>npm run tauri build</code></td><td>Binários e instaladores de release.</td></tr>
+              <tr><td><code>npm run lint</code></td><td>Lint com oxlint.</td></tr>
+              <tr><td><code>cargo test --manifest-path src-tauri/Cargo.toml</code></td><td>Testes unitários Rust (parser, FTS5, matemática de embeddings, detecção de linguagem, imports, busca de código).</td></tr>
+              <tr><td><code>npm run sync | status | search | projects | mcp</code></td><td>Executa comandos da CLI via <code>cargo run</code>.</td></tr>
+            </tbody>
+          </table></div>
+          <h3>Releases</h3>
+          <p>Enviar uma tag no formato <code>v*</code> (ou rodar o workflow <em>Release</em> manualmente) dispara o <code>.github/workflows/release.yml</code>: o <code>scripts/sync-version.js</code> aplica a versão da tag em <code>package.json</code>, <code>Cargo.toml</code> e <code>tauri.conf.json</code>, e então o <code>tauri-action</code> compila e publica instaladores para Windows, macOS e Linux.</p>
+          <div class="code"><div class="code-bar">bash</div>
+<pre data-lang="bash">git tag v0.11.0
+git push origin v0.11.0</pre></div>
+          <h3>Contribuindo</h3>
+          <p>Relatos de bugs, sugestões, documentação e PRs são bem-vindos. Leia o <a href="https://github.com/GabrielTBeserra/GraphFinder/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">CONTRIBUTING.md</a> e o <a href="https://github.com/GabrielTBeserra/GraphFinder/blob/main/CODE_OF_CONDUCT.md" target="_blank" rel="noopener">Código de Conduta</a>.</p>
+        </section>
+
+        <!-- 18. FAQ -->
+        <section id="faq">
+          <h2><span class="idx">18</span>Problemas e FAQ<a class="anchor" href="#faq" aria-label="Link para FAQ">#</a></h2>
+          <h4>Meu agente não conecta em <code>127.0.0.1:45123</code>.</h4>
+          <p>O endpoint HTTP/SSE só existe enquanto o app desktop está aberto. Abra o app ou mude o cliente para o modo stdio (<code>"command": "graphfinder", "args": ["--mcp"]</code>). Se alterou <code>GRAPHFINDER_MCP_PORT</code>, atualize a URL.</p>
+          <h4><code>graphfinder</code> não é reconhecido no terminal.</h4>
+          <p>Rode <code>GraphFinder.exe install-cli</code> (ou <code>graphfinder config --install</code>) e abra um novo terminal para carregar o PATH atualizado.</p>
+          <h4>Os resultados são ruins para português / outros idiomas.</h4>
+          <p>Defina <code>GRAPHFINDER_MODEL=multilingual</code> e reindexe.</p>
+          <h4>A primeira inicialização é lenta.</h4>
+          <p>O modelo de embeddings é baixado uma vez. Nas próximas execuções ele é carregado de <code>.fastembed_cache</code>; aponte <code>GRAPHFINDER_MODELS</code> para uma cópia local em máquinas sem internet.</p>
+          <h4>Alguns arquivos não aparecem no grafo de código.</h4>
+          <p>Verifique se estão no <code>.gitignore</code>, se são binários, se passam de 1 MB ou se têm extensão não suportada. Rode <code>graphfinder sync</code> para forçar uma atualização incremental.</p>
+          <h4>Algum dado sai da minha máquina?</h4>
+          <p>Não. Embeddings, busca e análises rodam localmente. O único acesso à rede é o download único do modelo (e este site consultando a release mais recente no GitHub).</p>
+        </section>
+
+        <!-- 19. CHANGELOG -->
+        <section id="changelog">
+          <h2><span class="idx">19</span>Changelog<a class="anchor" href="#changelog" aria-label="Link para Changelog">#</a></h2>
+          <p>Histórico completo no <a href="https://github.com/GabrielTBeserra/GraphFinder/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md</a> e na <a href="https://github.com/GabrielTBeserra/GraphFinder/releases" target="_blank" rel="noopener">página de Releases</a>.</p>
+          <div class="timeline">
+            <div class="release current">
+              <div class="release-head"><b>v0.10.0</b><span class="badge latest">atual</span><span class="date">Outubro de 2026</span></div>
+              <ul>
+                <li>Motor de análise de grafos: comunidades, God Nodes, acoplamentos surpresa, ciclos.</li>
+                <li>Novas ferramentas MCP <code>find_path</code>, <code>explain_node</code>, <code>get_community_report</code>, <code>export_graph</code> (24 no total).</li>
+                <li>Comandos de CLI <code>report</code>, <code>path</code>, <code>explain</code>, <code>export</code>, <code>config --install</code>, <code>tools</code>, <code>install-cli</code>.</li>
+                <li>Artefatos <code>graph.json</code>, <code>GRAPH_REPORT.md</code>, <code>graph.html</code> offline; modal de relatório arquitetural no app.</li>
+              </ul>
+            </div>
+            <div class="release">
+              <div class="release-head"><b>v0.4.0</b><span class="date">22/10/2026</span></div>
+              <ul>
+                <li>Indexação de código multilinguagem e grafo de imports AST-lite.</li>
+                <li>Ferramentas de código: <code>search_code</code>, <code>find_files</code>, <code>get_file_context</code>, <code>read_code_chunk</code>, <code>get_code_dependencies</code>.</li>
+                <li>Painel Code Inspector, anéis por linguagem no grafo, filtros <code>[All]/[Notes]/[Code]</code>, sync incremental de código por SHA-256.</li>
+              </ul>
+            </div>
+            <div class="release">
+              <div class="release-head"><b>v0.3.0</b><span class="date">21/10/2026</span></div>
+              <ul>
+                <li>Busca híbrida (vetores + BM25 FTS5 via RRF), parser AST CommonMark, janelas de 320 tokens.</li>
+                <li>MCP em dois modos (HTTP/SSE + stdio), file watcher, renomeação com refatoração de links, modelo multilíngue.</li>
+                <li>Canvas sem flicker; reforço de segurança (Host/Origin, CSP, DOMPurify, sanitização de caminhos).</li>
+              </ul>
+            </div>
+            <div class="release">
+              <div class="release-head"><b>v0.2.0</b><span class="date">19/10/2026</span></div>
+              <ul>
+                <li>Suporte multi-vault com bancos isolados; MCP embutido no binário principal (<code>--mcp</code>).</li>
+                <li>Primeiras 7 ferramentas MCP, modal de integração, seletor de projetos, design system minimalista suíço.</li>
+              </ul>
+            </div>
+            <div class="release">
+              <div class="release-head"><b>v0.1.0</b><span class="date">01/10/2026</span></div>
+              <ul>
+                <li>Versão inicial: vault único, chunking por títulos, FastEmbed local, grafo 2D, editor Markdown com wikilinks.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CTA ================= -->
+<section class="block" style="padding-top:0" aria-labelledby="cta-title">
+  <div class="container">
+    <div class="cta-band reveal">
+      <h2 id="cta-title">Dê aos seus agentes uma memória<br />que não desperdiça tokens.</h2>
+      <p>Gratuito e open source sob a licença MIT. Roda inteiramente na sua máquina.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" id="cta-download" href="https://github.com/GabrielTBeserra/GraphFinder/releases/latest" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>
+          Baixar <span data-version>v0.10.0</span>
+        </a>
+        <a class="btn btn-ghost" id="cta-star" href="https://github.com/GabrielTBeserra/GraphFinder" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2Z"/></svg>
+          Dar estrela no GitHub
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="container foot">
+    <a class="brand" href="#top"><img src="../assets/logo.svg" alt="" width="24" height="24" />GraphFinder</a>
+    <nav aria-label="Rodapé">
+      <a href="https://github.com/GabrielTBeserra/GraphFinder" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/GabrielTBeserra/GraphFinder/releases" target="_blank" rel="noopener">Releases</a>
+      <a href="https://github.com/GabrielTBeserra/GraphFinder/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/GabrielTBeserra/GraphFinder/blob/main/LICENSE" target="_blank" rel="noopener">Licença MIT</a>
+      <a href="../" hreflang="en" data-lang-link="en">English</a>
+    </nav>
+    <span>© 2026 Contribuidores do GraphFinder</span>
+  </div>
+</footer>
+
+<button class="to-top" aria-label="Voltar ao topo">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<script src="../assets/app.js" defer></script>
+</body>
+</html>

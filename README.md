@@ -12,16 +12,19 @@
   <b>Local-First • Plain Markdown • Atomic Semantic Chunking • Native MCP Server • Zero Cloud Lock-in</b>
 </p>
 
-[![Release](https://img.shields.io/badge/release-v0.2.0-18181b?style=flat-square)](https://github.com)
+[![Release](https://img.shields.io/badge/release-v0.10.0-18181b?style=flat-square)](https://github.com/GabrielTBeserra/GraphFinder/releases)
+[![Docs](https://img.shields.io/badge/docs-GitHub_Pages-6366f1?style=flat-square&logo=githubpages&logoColor=white)](https://gabrieltbeserra.github.io/GraphFinder/)
 [![Tauri](https://img.shields.io/badge/Tauri-v2.12-18181b?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-2021-18181b?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/React-19.2-18181b?style=flat-square&logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-18181b?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![MCP](https://img.shields.io/badge/MCP-Server_Native-18181b?style=flat-square)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-24_Tools_Native-18181b?style=flat-square)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/License-MIT-18181b?style=flat-square)](LICENSE)
 
 <br/>
 
+<a href="https://gabrieltbeserra.github.io/GraphFinder/"><b>📖 Live Docs (EN)</b></a> •
+<a href="https://gabrieltbeserra.github.io/GraphFinder/pt/"><b>🇧🇷 Documentação (PT)</b></a> •
 <a href="#overview">Overview</a> •
 <a href="#key-features">Key Features</a> •
 <a href="#ai-agents-skills--mcp-hands-on-tutorial">AI Agents & MCP Tutorial</a> •
