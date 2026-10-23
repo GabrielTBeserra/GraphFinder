@@ -1,7 +1,8 @@
 use fastembed::{
     EmbeddingModel, InitOptions, InitOptionsUserDefined, TextEmbedding, TokenizerFiles,
-    UserDefinedEmbeddingModel,
+    UserDefinedEmbeddingModel, TextRerank, RerankerModel, RerankInitOptions,
 };
+use super::db::{ChunkHit, CodeChunkHit};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
@@ -9,6 +10,7 @@ use tauri::Emitter;
 #[derive(Clone)]
 pub struct EmbeddingEngine {
     model: Arc<Mutex<Option<TextEmbedding>>>,
+    reranker: Arc<Mutex<Option<TextRerank>>>,
     status: Arc<Mutex<String>>,
 }
 
@@ -16,6 +18,7 @@ impl EmbeddingEngine {
     pub fn new_lazy() -> Self {
         Self {
             model: Arc::new(Mutex::new(None)),
+            reranker: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new("initializing".to_string())),
         }
     }
@@ -24,6 +27,7 @@ impl EmbeddingEngine {
         let model = Self::load_model_internal()?;
         Ok(Self {
             model: Arc::new(Mutex::new(Some(model))),
+            reranker: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new("ready".to_string())),
         })
     }
@@ -173,6 +177,13 @@ impl EmbeddingEngine {
             *st = "ready".to_string();
         }
 
+        if std::env::var("GRAPHFINDER_RERANKER")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            let _ = self.init_reranker();
+        }
+
         if let Some(app) = &app_handle {
             let _ = app.emit(
                 "engine-status",
@@ -218,6 +229,120 @@ impl EmbeddingEngine {
         })
         .await?
     }
+
+    pub fn is_reranker_ready(&self) -> bool {
+        self.reranker.lock().map(|r| r.is_some()).unwrap_or(false)
+    }
+
+    pub fn init_reranker(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut opt = RerankInitOptions::default();
+        opt.model_name = RerankerModel::BGERerankerBase;
+        opt.show_download_progress = false;
+        let reranker = TextRerank::try_new(opt)?;
+        if let Ok(mut lock) = self.reranker.lock() {
+            *lock = Some(reranker);
+        }
+        Ok(())
+    }
+
+    pub fn rerank_chunks(&self, query: &str, hits: &mut Vec<ChunkHit>, limit: usize) {
+        if hits.len() <= 1 {
+            hits.truncate(limit);
+            return;
+        }
+
+        let reranker_guard = match self.reranker.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                hits.truncate(limit);
+                return;
+            }
+        };
+
+        let reranker = match reranker_guard.as_ref() {
+            Some(r) => r,
+            None => {
+                hits.truncate(limit);
+                return;
+            }
+        };
+
+        let docs: Vec<String> = hits
+            .iter()
+            .map(|h| {
+                format!(
+                    "{} - {}\n{}",
+                    h.note_title,
+                    h.heading.as_deref().unwrap_or(""),
+                    h.content
+                )
+            })
+            .collect();
+
+        let doc_refs: Vec<&str> = docs.iter().map(|s| s.as_str()).collect();
+        if let Ok(rerank_results) = reranker.rerank(query, doc_refs, false, Some(hits.len())) {
+            let old_hits = std::mem::take(hits);
+            let mut reordered = Vec::with_capacity(rerank_results.len());
+            for r in rerank_results {
+                if let Some(mut hit) = old_hits.get(r.index).cloned() {
+                    hit.score = r.score;
+                    reordered.push(hit);
+                }
+            }
+            reordered.truncate(limit);
+            *hits = reordered;
+        }
+    }
+
+    pub fn rerank_code_chunks(&self, query: &str, hits: &mut Vec<CodeChunkHit>, limit: usize) {
+        if hits.len() <= 1 {
+            hits.truncate(limit);
+            return;
+        }
+
+        let reranker_guard = match self.reranker.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                hits.truncate(limit);
+                return;
+            }
+        };
+
+        let reranker = match reranker_guard.as_ref() {
+            Some(r) => r,
+            None => {
+                hits.truncate(limit);
+                return;
+            }
+        };
+
+        let docs: Vec<String> = hits
+            .iter()
+            .map(|h| {
+                format!(
+                    "{} ({}) - {}\n{}",
+                    h.file_name,
+                    h.language,
+                    h.symbol_name.as_deref().unwrap_or("block"),
+                    h.content
+                )
+            })
+            .collect();
+
+        let doc_refs: Vec<&str> = docs.iter().map(|s| s.as_str()).collect();
+        if let Ok(rerank_results) = reranker.rerank(query, doc_refs, false, Some(hits.len())) {
+            let old_hits = std::mem::take(hits);
+            let mut reordered = Vec::with_capacity(rerank_results.len());
+            for r in rerank_results {
+                if let Some(mut hit) = old_hits.get(r.index).cloned() {
+                    hit.score = r.score;
+                    reordered.push(hit);
+                }
+            }
+            reordered.truncate(limit);
+            *hits = reordered;
+        }
+    }
 }
 
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
@@ -255,5 +380,11 @@ mod tests {
         let v3 = vec![0.0, 1.0, 0.0];
         assert!((cosine_similarity(&v1, &v2) - 1.0).abs() < 1e-6);
         assert!((cosine_similarity(&v1, &v3) - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_reranker_configuration() {
+        let engine = EmbeddingEngine::new_lazy();
+        assert!(!engine.is_reranker_ready());
     }
 }

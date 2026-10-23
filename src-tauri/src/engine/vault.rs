@@ -742,15 +742,24 @@ impl Engine {
         Ok(db.semantic_search(&query_emb, limit)?)
     }
 
-    /// Hybrid search: combines dense vector similarity and BM25 FTS5 using Reciprocal Rank Fusion
+    /// Hybrid search: combines dense vector similarity and BM25 FTS5 using Reciprocal Rank Fusion, with optional neural Reranker
     pub async fn search_chunks(
         &self,
         query: &str,
         limit: usize,
     ) -> Result<Vec<ChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
         let query_emb = self.embeddings.embed_text(query).await.unwrap_or_default();
-        let db = self.db.lock().await;
-        Ok(db.search_chunks_hybrid(query, &query_emb, limit)?)
+        let candidate_limit = if self.embeddings.is_reranker_ready() {
+            (limit * 2).max(20)
+        } else {
+            limit
+        };
+        let mut hits = {
+            let db = self.db.lock().await;
+            db.search_chunks_hybrid(query, &query_emb, candidate_limit)?
+        };
+        self.embeddings.rerank_chunks(query, &mut hits, limit);
+        Ok(hits)
     }
 
     /// Recommends existing notes/sections to link to while writing
@@ -817,8 +826,17 @@ impl Engine {
         lang_filter: Option<&str>,
     ) -> Result<Vec<CodeChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
         let query_emb = self.embeddings.embed_text(query).await.unwrap_or_default();
-        let db = self.db.lock().await;
-        Ok(db.search_code_hybrid(query, &query_emb, limit, lang_filter)?)
+        let candidate_limit = if self.embeddings.is_reranker_ready() {
+            (limit * 2).max(20)
+        } else {
+            limit
+        };
+        let mut hits = {
+            let db = self.db.lock().await;
+            db.search_code_hybrid(query, &query_emb, candidate_limit, lang_filter)?
+        };
+        self.embeddings.rerank_code_chunks(query, &mut hits, limit);
+        Ok(hits)
     }
 
     pub async fn find_files(
