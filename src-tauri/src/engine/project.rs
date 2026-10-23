@@ -513,6 +513,16 @@ fn count_notes_in_dir(dir: &Path) -> usize {
     }
     walkdir::WalkDir::new(dir)
         .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !name.starts_with('.')
+                && name != "node_modules"
+                && name != "target"
+                && name != "dist"
+                && name != "build"
+                && name != ".fastembed_cache"
+                && name != "vendor"
+        })
         .filter_map(|e| e.ok())
         .filter(|e| {
             e.path().is_file() && e.path().extension().and_then(|s| s.to_str()) == Some("md")

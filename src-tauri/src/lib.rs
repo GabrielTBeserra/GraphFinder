@@ -493,6 +493,8 @@ pub fn run() {
                         "message": format!("Error loading neural model: {}", e)
                     }));
                 } else {
+                    // Cooperative delay: allow frontend initial queries (notes, projects, graph) to read DB without lock contention
+                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
                     let engine = manager_for_sync.active_engine().await;
                     if let Ok(count) = engine.sync_vault().await {
                         println!("[GraphFinder Tauri] {} notes synchronized in active vault.", count);
@@ -501,7 +503,7 @@ pub fn run() {
                 }
             });
 
-            // File Watcher with Debounce (500ms) for automatic synchronization when files are edited externally (Obsidian, VS Code, etc)
+            // File Watcher with Debounce (500ms) for automatic synchronization when files are edited externally (VS Code, Cursor, etc)
             let app_handle_for_watch = app.handle().clone();
             let manager_for_watch = Arc::clone(&manager);
             tauri::async_runtime::spawn_blocking(move || {
