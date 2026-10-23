@@ -645,7 +645,7 @@ impl DbManager {
 
             let tags = self.get_tags_for_note(&id)?;
             let outgoing_links = self.get_outgoing_links_for_note(&id)?;
-            let backlinks = self.get_backlinks_for_title(&title)?;
+            let backlinks = self.get_backlinks_for_note(&id, &title)?;
 
             Ok(Some(NoteRecord {
                 id,
@@ -665,10 +665,26 @@ impl DbManager {
     }
 
     pub fn get_note_by_title(&self, title: &str) -> Result<Option<NoteRecord>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id FROM notes WHERE LOWER(title) = LOWER(?1) LIMIT 1")?;
-        let mut rows = stmt.query(params![title])?;
+        let clean = title.trim().trim_end_matches(".md");
+        let with_ext = format!("{}.md", clean);
+        let suffix_with_ext = format!("/{}", with_ext);
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id FROM notes
+            WHERE LOWER(title) = LOWER(?1)
+               OR LOWER(id) = LOWER(?1)
+               OR LOWER(id) = LOWER(?2)
+               OR LOWER(id) LIKE '%' || LOWER(?3)
+            ORDER BY
+               CASE
+                   WHEN LOWER(title) = LOWER(?1) THEN 0
+                   WHEN LOWER(id) = LOWER(?2) THEN 1
+                   ELSE 2
+               END
+            LIMIT 1
+            "#,
+        )?;
+        let mut rows = stmt.query(params![clean, with_ext, suffix_with_ext])?;
         if let Some(row) = rows.next()? {
             let id: String = row.get(0)?;
             self.get_note_by_id(&id)
@@ -793,6 +809,22 @@ impl DbManager {
 
         for r in title_rows {
             let (id, path, title) = r?;
+            let id_no_ext = id
+                .strip_suffix(".md")
+                .or_else(|| id.strip_suffix(".MD"))
+                .unwrap_or(&id)
+                .to_lowercase();
+            title_to_id
+                .entry(id_no_ext)
+                .or_insert_with(|| id.clone());
+            if let Some(stem) = std::path::Path::new(&id)
+                .file_stem()
+                .and_then(|s| s.to_str())
+            {
+                title_to_id
+                    .entry(stem.to_lowercase())
+                    .or_insert_with(|| id.clone());
+            }
             title_to_id.insert(title.to_lowercase(), id.clone());
             title_to_id.insert(id.to_lowercase(), id.clone());
             id_to_title.insert(id.clone(), title);
@@ -1419,17 +1451,30 @@ impl DbManager {
         Ok(links)
     }
 
-    fn get_backlinks_for_title(&self, title: &str) -> Result<Vec<String>> {
+    fn get_backlinks_for_note(&self, note_id: &str, title: &str) -> Result<Vec<String>> {
+        let id_no_ext = note_id
+            .strip_suffix(".md")
+            .or_else(|| note_id.strip_suffix(".MD"))
+            .unwrap_or(note_id);
+        let stem = std::path::Path::new(note_id)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(id_no_ext);
         let mut stmt = self.conn.prepare(
             r#"
             SELECT DISTINCT n.title 
             FROM links l
             JOIN notes n ON n.id = l.source_id
-            WHERE LOWER(l.target_title) = LOWER(?1) OR LOWER(l.target_title) LIKE LOWER(?1 || '#%')
+            WHERE LOWER(l.target_title) = LOWER(?1)
+               OR LOWER(l.target_title) LIKE LOWER(?1 || '#%')
+               OR LOWER(l.target_title) = LOWER(?2)
+               OR LOWER(l.target_title) LIKE LOWER(?2 || '#%')
+               OR LOWER(l.target_title) = LOWER(?3)
+               OR LOWER(l.target_title) LIKE LOWER(?3 || '#%')
             ORDER BY n.title ASC
             "#,
         )?;
-        let rows = stmt.query_map(params![title], |row| row.get(0))?;
+        let rows = stmt.query_map(params![title, id_no_ext, stem], |row| row.get(0))?;
         let mut backlinks = Vec::new();
         for b in rows {
             backlinks.push(b?);
@@ -2496,5 +2541,90 @@ mod tests {
         let deq = dequantize_i8_to_f32(&quantized);
         assert_eq!(deq.len(), 3);
         assert!((deq[0] - 0.7071).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_wikilink_file_stem_resolution() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+
+        let arch_chunk = ParsedChunk {
+            chunk_index: 0,
+            heading: Some("2. Rust Semantic Engine".to_string()),
+            content: "FastEmbed and SQLite.".to_string(),
+            token_estimate: 10,
+            links: vec![],
+            tags: vec!["rust".to_string()],
+        };
+        db.upsert_note(
+            "Architecture.md",
+            "Architecture.md",
+            "System Architecture",
+            "Core architecture note.",
+            "# System Architecture\n\nCore architecture note.\n\n## 2. Rust Semantic Engine\nFastEmbed and SQLite.",
+            "hash_arch",
+            100,
+            &[],
+            &["rust".to_string()],
+            Some(&dummy_vec),
+            &[(arch_chunk, dummy_vec.clone())],
+        )
+        .expect("upsert arch");
+
+        let guide_chunk = ParsedChunk {
+            chunk_index: 0,
+            heading: Some("Overview".to_string()),
+            content: "See [[Architecture#2. Rust Semantic Engine]] and [[Architecture]] for details.".to_string(),
+            token_estimate: 15,
+            links: vec![
+                "Architecture#2. Rust Semantic Engine".to_string(),
+                "Architecture".to_string(),
+            ],
+            tags: vec!["guide".to_string()],
+        };
+        db.upsert_note(
+            "Usage Guide.md",
+            "Usage Guide.md",
+            "Usage Guide",
+            "Guide summary.",
+            "# Usage Guide\n\nSee [[Architecture#2. Rust Semantic Engine]] and [[Architecture]] for details.",
+            "hash_guide",
+            101,
+            &[
+                "Architecture#2. Rust Semantic Engine".to_string(),
+                "Architecture".to_string(),
+            ],
+            &["guide".to_string()],
+            Some(&dummy_vec),
+            &[(guide_chunk, dummy_vec.clone())],
+        )
+        .expect("upsert guide");
+
+        let graph = db.get_graph_data().expect("graph data");
+        assert!(
+            !graph.nodes.iter().any(|n| n.node_type == "unresolved"),
+            "Expected no unresolved nodes when linking by file stem, got: {:?}",
+            graph.nodes
+        );
+        assert!(
+            graph
+                .links
+                .iter()
+                .any(|l| l.source == "Usage Guide.md" && l.target == "Architecture.md"),
+            "Expected link from Usage Guide.md to Architecture.md"
+        );
+
+        let by_stem = db
+            .get_note_by_title("Architecture")
+            .expect("query ok")
+            .expect("should resolve note by file stem");
+        assert_eq!(by_stem.id, "Architecture.md");
+        assert_eq!(by_stem.backlinks, vec!["Usage Guide"]);
+
+        let section = db
+            .get_section("Architecture", "2. Rust Semantic Engine")
+            .expect("section query ok")
+            .expect("should resolve section by file stem");
+        assert_eq!(section.note_id, "Architecture.md");
     }
 }
