@@ -13,7 +13,7 @@
 </p>
 
 [![Release](https://img.shields.io/badge/release-v0.10.0-18181b?style=flat-square)](https://github.com/GabrielTBeserra/GraphFinder/releases)
-[![Docs](https://img.shields.io/badge/docs-GitHub_Pages-6366f1?style=flat-square&logo=githubpages&logoColor=white)](https://gabrieltbeserra.github.io/GraphFinder/)
+[![Docs](https://img.shields.io/badge/docs-graphfinder.gteles.dev-6366f1?style=flat-square&logo=githubpages&logoColor=white)](https://graphfinder.gteles.dev/)
 [![Tauri](https://img.shields.io/badge/Tauri-v2.12-18181b?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-2021-18181b?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/React-19.2-18181b?style=flat-square&logo=react&logoColor=white)](https://react.dev)
@@ -23,8 +23,8 @@
 
 <br/>
 
-<a href="https://gabrieltbeserra.github.io/GraphFinder/"><b>📖 Live Docs (EN)</b></a> •
-<a href="https://gabrieltbeserra.github.io/GraphFinder/pt/"><b>🇧🇷 Documentação (PT)</b></a> •
+<a href="https://graphfinder.gteles.dev/"><b>📖 Live Docs (EN)</b></a> •
+<a href="https://graphfinder.gteles.dev/pt/"><b>🇧🇷 Documentação (PT)</b></a> •
 <a href="#overview">Overview</a> •
 <a href="#key-features">Key Features</a> •
 <a href="#ai-agents-skills--mcp-hands-on-tutorial">AI Agents & MCP Tutorial</a> •
