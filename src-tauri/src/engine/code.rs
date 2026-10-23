@@ -410,22 +410,513 @@ pub fn extract_js_ts_imports_ast(content: &str) -> Vec<ExtractedImport> {
     results
 }
 
-// Python: from foo.bar import ...; import foo.bar
-static PY_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^\s*(?:from\s+([.\w]+)\s+import|import\s+([.\w]+))"#)
-        .expect("valid regex for python imports")
-});
+// ==========================================
+// AST-Aware Lexical & Syntactic Parser for Rust & Python
+// ==========================================
 
-// Rust: mod foo; pub mod foo; use crate::foo::bar; use super::foo;
-static RS_MOD_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^\s*(?:pub\s+)?mod\s+([a-zA-Z0-9_]+)\s*;"#)
-        .expect("valid regex for rust mod")
-});
+fn strip_rust_comments_and_strings(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    let mut out = String::with_capacity(source.len());
 
-static RS_USE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^\s*(?:pub\s+)?use\s+([a-zA-Z0-9_:]+)"#)
-        .expect("valid regex for rust use")
-});
+    while i < n {
+        let c = chars[i];
+
+        // Line comment //
+        if c == '/' && i + 1 < n && chars[i + 1] == '/' {
+            i += 2;
+            while i < n && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        // Nested block comment /* ... */
+        if c == '/' && i + 1 < n && chars[i + 1] == '*' {
+            i += 2;
+            let mut depth = 1usize;
+            while i + 1 < n && depth > 0 {
+                if chars[i] == '/' && chars[i + 1] == '*' {
+                    depth += 1;
+                    i += 2;
+                } else if chars[i] == '*' && chars[i + 1] == '/' {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    if chars[i] == '\n' {
+                        out.push('\n');
+                    }
+                    i += 1;
+                }
+            }
+            out.push(' ');
+            continue;
+        }
+
+        // Raw string r#"..."# or r"..."
+        if c == 'r' && i + 1 < n && (chars[i + 1] == '#' || chars[i + 1] == '"') {
+            let mut j = i + 1;
+            let mut hashes = 0usize;
+            while j < n && chars[j] == '#' {
+                hashes += 1;
+                j += 1;
+            }
+            if j < n && chars[j] == '"' {
+                j += 1;
+                while j < n {
+                    if chars[j] == '\n' {
+                        out.push('\n');
+                    }
+                    if chars[j] == '"' {
+                        let mut k = j + 1;
+                        let mut matched_hashes = 0usize;
+                        while k < n && matched_hashes < hashes && chars[k] == '#' {
+                            matched_hashes += 1;
+                            k += 1;
+                        }
+                        if matched_hashes == hashes {
+                            j = k;
+                            break;
+                        }
+                    }
+                    j += 1;
+                }
+                out.push_str("\"\"");
+                i = j;
+                continue;
+            }
+        }
+
+        // Standard string "..."
+        if c == '"' {
+            i += 1;
+            while i < n && chars[i] != '"' {
+                if chars[i] == '\\' && i + 1 < n {
+                    if chars[i + 1] == '\n' {
+                        out.push('\n');
+                    }
+                    i += 2;
+                } else {
+                    if chars[i] == '\n' {
+                        out.push('\n');
+                    }
+                    i += 1;
+                }
+            }
+            if i < n {
+                i += 1;
+            }
+            out.push_str("\"\"");
+            continue;
+        }
+
+        out.push(c);
+        i += 1;
+    }
+
+    out
+}
+
+/// Recursively expands a Rust `use` tree expression (e.g. `crate::engine::{code::{parse_code_file, ExtractedImport as Imp}, db::DbManager}`)
+/// into individual resolved module/symbol paths.
+fn expand_rust_use_tree(prefix: &str, tree_expr: &str, out: &mut Vec<String>) {
+    let trimmed = tree_expr.trim().trim_end_matches(';').trim();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    // Split top-level comma-separated items (respecting `{ ... }` nesting)
+    let mut parts = Vec::new();
+    let mut depth = 0isize;
+    let mut start = 0usize;
+    for (idx, ch) in trimmed.char_indices() {
+        if ch == '{' {
+            depth += 1;
+        } else if ch == '}' {
+            depth = (depth - 1).max(0);
+        } else if ch == ',' && depth == 0 {
+            parts.push(&trimmed[start..idx]);
+            start = idx + 1;
+        }
+    }
+    parts.push(&trimmed[start..]);
+
+    if parts.len() > 1 {
+        for part in parts {
+            expand_rust_use_tree(prefix, part, out);
+        }
+        return;
+    }
+
+    let item = parts[0].trim();
+    if item.is_empty() {
+        return;
+    }
+
+    // Check if item contains a nested group `path::{...}` or `{...}`
+    if let Some(brace_open) = item.find('{') {
+        if let Some(brace_close) = item.rfind('}') {
+            let sub_prefix_raw = item[..brace_open].trim().trim_end_matches("::");
+            let new_prefix = if prefix.is_empty() {
+                sub_prefix_raw.to_string()
+            } else if sub_prefix_raw.is_empty() {
+                prefix.to_string()
+            } else {
+                format!("{}::{}", prefix, sub_prefix_raw)
+            };
+            if !new_prefix.is_empty() {
+                out.push(new_prefix.clone());
+            }
+            let inner = &item[brace_open + 1..brace_close];
+            expand_rust_use_tree(&new_prefix, inner, out);
+            return;
+        }
+    }
+
+    // Strip ` as Alias`
+    let base_item = if let Some(as_idx) = item.find(" as ") {
+        item[..as_idx].trim()
+    } else {
+        item
+    };
+
+    let clean_item = base_item.trim_start_matches("::").trim();
+    if clean_item == "self" {
+        if !prefix.is_empty() {
+            out.push(prefix.to_string());
+        }
+        return;
+    }
+    if clean_item == "*" {
+        if !prefix.is_empty() {
+            out.push(prefix.to_string());
+        }
+        return;
+    }
+
+    let full = if prefix.is_empty() {
+        clean_item.to_string()
+    } else {
+        format!("{}::{}", prefix, clean_item)
+    };
+    if !full.is_empty() {
+        out.push(full);
+    }
+}
+
+pub fn extract_rust_imports_ast(content: &str) -> Vec<ExtractedImport> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+
+    // Scan statements separated by `;` or `{` / `}` blocks
+    let chars: Vec<char> = cleaned.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+
+    while i < n {
+        if chars[i].is_whitespace() {
+            i += 1;
+            continue;
+        }
+
+        // Skip attributes `#[...]` or `#![...]`
+        if chars[i] == '#' && i + 1 < n && (chars[i + 1] == '[' || (chars[i + 1] == '!' && i + 2 < n && chars[i + 2] == '[')) {
+            let mut bracket_depth = 0isize;
+            while i < n {
+                if chars[i] == '[' {
+                    bracket_depth += 1;
+                } else if chars[i] == ']' {
+                    bracket_depth -= 1;
+                    if bracket_depth <= 0 {
+                        i += 1;
+                        break;
+                    }
+                }
+                i += 1;
+            }
+            continue;
+        }
+
+        // Read word
+        if chars[i].is_ascii_alphabetic() || chars[i] == '_' {
+            let start = i;
+            while i < n && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            let word: String = chars[start..i].iter().collect();
+
+            // Skip optional `pub` or `pub(...)` visibility modifier
+            let mut effective_word = word;
+            if effective_word == "pub" {
+                while i < n && chars[i].is_whitespace() {
+                    i += 1;
+                }
+                if i < n && chars[i] == '(' {
+                    let mut pdepth = 0isize;
+                    while i < n {
+                        if chars[i] == '(' {
+                            pdepth += 1;
+                        } else if chars[i] == ')' {
+                            pdepth -= 1;
+                            if pdepth <= 0 {
+                                i += 1;
+                                break;
+                            }
+                        }
+                        i += 1;
+                    }
+                    while i < n && chars[i].is_whitespace() {
+                        i += 1;
+                    }
+                }
+                let w_start = i;
+                while i < n && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                    i += 1;
+                }
+                effective_word = chars[w_start..i].iter().collect();
+            }
+
+            if effective_word == "mod" {
+                while i < n && chars[i].is_whitespace() {
+                    i += 1;
+                }
+                let m_start = i;
+                while i < n && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                    i += 1;
+                }
+                let mod_name: String = chars[m_start..i].iter().collect();
+                while i < n && chars[i].is_whitespace() {
+                    i += 1;
+                }
+                // External module declaration ends with `;` (not `{` inline module)
+                if !mod_name.is_empty() && i < n && chars[i] == ';' {
+                    if seen.insert(format!("mod:{}", mod_name)) {
+                        results.push(ExtractedImport {
+                            raw: format!("mod {};", mod_name),
+                            target: mod_name,
+                            is_relative: true,
+                        });
+                    }
+                    i += 1;
+                }
+                continue;
+            }
+
+            if effective_word == "use" {
+                let u_start = i;
+                let mut brace_depth = 0isize;
+                while i < n {
+                    if chars[i] == '{' {
+                        brace_depth += 1;
+                    } else if chars[i] == '}' {
+                        brace_depth = (brace_depth - 1).max(0);
+                    } else if chars[i] == ';' && brace_depth == 0 {
+                        break;
+                    }
+                    i += 1;
+                }
+                let use_expr: String = chars[u_start..i].iter().collect();
+                if i < n && chars[i] == ';' {
+                    i += 1;
+                }
+                let mut expanded = Vec::new();
+                expand_rust_use_tree("", &use_expr, &mut expanded);
+                for full_path in expanded {
+                    let clean = full_path.trim().trim_start_matches("::");
+                    if !clean.is_empty() && seen.insert(clean.to_string()) {
+                        let is_rel = clean.starts_with("crate::")
+                            || clean.starts_with("super::")
+                            || clean.starts_with("self::");
+                        results.push(ExtractedImport {
+                            raw: format!("use {};", clean),
+                            target: clean.to_string(),
+                            is_relative: is_rel,
+                        });
+                    }
+                }
+                continue;
+            }
+            continue;
+        }
+
+        i += 1;
+    }
+
+    results
+}
+
+/// Strips Python `#` comments and triple/single quoted string literals,
+/// joining parenthesized and backslash-continued lines into logical statements.
+fn extract_python_logical_lines(source: &str) -> Vec<String> {
+    let chars: Vec<char> = source.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    let mut cleaned = String::with_capacity(source.len());
+    let mut paren_depth = 0isize;
+
+    while i < n {
+        let c = chars[i];
+
+        // Triple-quoted strings """...""" or '''...'''
+        if (c == '"' || c == '\'') && i + 2 < n && chars[i + 1] == c && chars[i + 2] == c {
+            let q = c;
+            i += 3;
+            while i + 2 < n && !(chars[i] == q && chars[i + 1] == q && chars[i + 2] == q) {
+                i += 1;
+            }
+            i = (i + 3).min(n);
+            cleaned.push_str("\"\"");
+            continue;
+        }
+
+        // Single-quoted strings '...' or "..."
+        if c == '"' || c == '\'' {
+            let q = c;
+            i += 1;
+            while i < n && chars[i] != q && chars[i] != '\n' {
+                if chars[i] == '\\' && i + 1 < n {
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            if i < n && chars[i] == q {
+                i += 1;
+            }
+            cleaned.push_str("\"\"");
+            continue;
+        }
+
+        // Comment #...
+        if c == '#' {
+            while i < n && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        // Explicit line continuation `\` + newline
+        if c == '\\' && i + 1 < n && (chars[i + 1] == '\n' || (chars[i + 1] == '\r' && i + 2 < n && chars[i + 2] == '\n')) {
+            i += if chars[i + 1] == '\r' { 3 } else { 2 };
+            cleaned.push(' ');
+            continue;
+        }
+
+        if c == '(' || c == '[' || c == '{' {
+            paren_depth += 1;
+            cleaned.push(' ');
+            i += 1;
+            continue;
+        }
+        if c == ')' || c == ']' || c == '}' {
+            paren_depth = (paren_depth - 1).max(0);
+            cleaned.push(' ');
+            i += 1;
+            continue;
+        }
+
+        if c == '\n' {
+            if paren_depth > 0 {
+                cleaned.push(' ');
+            } else {
+                cleaned.push('\n');
+            }
+            i += 1;
+            continue;
+        }
+
+        if c == ';' && paren_depth == 0 {
+            cleaned.push('\n');
+            i += 1;
+            continue;
+        }
+
+        cleaned.push(c);
+        i += 1;
+    }
+
+    cleaned
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
+pub fn extract_python_imports_ast(content: &str) -> Vec<ExtractedImport> {
+    let lines = extract_python_logical_lines(content);
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+
+    let mut push_py = |raw: String, target: &str| {
+        let clean = target.trim();
+        if !clean.is_empty() && seen.insert(clean.to_string()) {
+            results.push(ExtractedImport {
+                raw,
+                target: clean.to_string(),
+                is_relative: clean.starts_with('.'),
+            });
+        }
+    };
+
+    for line in lines {
+        // Case 1: `import a, b as c, d.e`
+        if let Some(rest) = line.strip_prefix("import ") {
+            for item in rest.split(',') {
+                let item_trim = item.trim();
+                let target = if let Some(as_idx) = item_trim.find(" as ") {
+                    item_trim[..as_idx].trim()
+                } else {
+                    item_trim.split_whitespace().next().unwrap_or("")
+                };
+                if !target.is_empty() {
+                    push_py(format!("import {}", target), target);
+                }
+            }
+            continue;
+        }
+
+        // Case 2: `from <module> import <items>`
+        if let Some(rest) = line.strip_prefix("from ") {
+            if let Some(imp_idx) = rest.find(" import ") {
+                let module_part = rest[..imp_idx].trim();
+                let items_part = rest[imp_idx + " import ".len()..].trim();
+
+                if !module_part.is_empty() && module_part.chars().any(|c| c != '.') {
+                    push_py(format!("from {} import ...", module_part), module_part);
+                }
+
+                for item in items_part.split(',') {
+                    let item_trim = item.trim();
+                    if item_trim.is_empty() || item_trim == "*" {
+                        continue;
+                    }
+                    let sym = if let Some(as_idx) = item_trim.find(" as ") {
+                        item_trim[..as_idx].trim()
+                    } else {
+                        item_trim.split_whitespace().next().unwrap_or("")
+                    };
+                    if !sym.is_empty() {
+                        let sub_target = if module_part.ends_with('.') {
+                            format!("{}{}", module_part, sym)
+                        } else if !module_part.is_empty() {
+                            format!("{}.{}", module_part, sym)
+                        } else {
+                            sym.to_string()
+                        };
+                        push_py(
+                            format!("from {} import {}", module_part, sym),
+                            &sub_target,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    results
+}
 
 // Go: import "foo/bar" or inside import ( "foo" \n "bar" )
 static GO_SINGLE_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -497,48 +988,10 @@ pub fn extract_imports(language: &str, content: &str) -> Vec<ExtractedImport> {
             return extract_js_ts_imports_ast(content);
         }
         "python" => {
-            for cap in PY_IMPORT_RE.captures_iter(content) {
-                let target = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str());
-                if let Some(t) = target {
-                    let clean = t.trim();
-                    if !clean.is_empty() && seen.insert(clean.to_string()) {
-                        results.push(ExtractedImport {
-                            raw: cap[0].to_string(),
-                            target: clean.to_string(),
-                            is_relative: clean.starts_with('.'),
-                        });
-                    }
-                }
-            }
+            return extract_python_imports_ast(content);
         }
         "rust" => {
-            // mod foo;
-            for cap in RS_MOD_RE.captures_iter(content) {
-                if let Some(m) = cap.get(1) {
-                    let name = m.as_str().trim();
-                    if seen.insert(format!("mod:{}", name)) {
-                        results.push(ExtractedImport {
-                            raw: cap[0].to_string(),
-                            target: name.to_string(),
-                            is_relative: true,
-                        });
-                    }
-                }
-            }
-            // use crate::... or use super::...
-            for cap in RS_USE_RE.captures_iter(content) {
-                if let Some(m) = cap.get(1) {
-                    let full_path = m.as_str().trim();
-                    if seen.insert(full_path.to_string()) {
-                        let is_rel = full_path.starts_with("crate::") || full_path.starts_with("super::");
-                        results.push(ExtractedImport {
-                            raw: cap[0].to_string(),
-                            target: full_path.to_string(),
-                            is_relative: is_rel,
-                        });
-                    }
-                }
-            }
+            return extract_rust_imports_ast(content);
         }
         "go" => {
             for cap in GO_SINGLE_IMPORT_RE.captures_iter(content) {
@@ -1072,33 +1525,55 @@ mod tests {
     fn test_extract_rust_imports() {
         let code = r#"
             pub mod parser;
-            mod db;
-            use crate::engine::db::DbManager;
+            pub(crate) mod db;
+            use crate::engine::{
+                db::DbManager as Db,
+                code::{parse_code_file, ExtractedImport},
+            };
             use super::embeddings::EmbeddingEngine;
             use serde::{Serialize, Deserialize};
+            // use crate::fake::CommentedOut;
+            /* use crate::fake::BlockCommented; */
+            let s = "use crate::fake::InsideString;";
         "#;
         let imports = extract_imports("rust", code);
         let targets: Vec<&str> = imports.iter().map(|i| i.target.as_str()).collect();
         assert!(targets.contains(&"parser"));
         assert!(targets.contains(&"db"));
         assert!(targets.contains(&"crate::engine::db::DbManager"));
+        assert!(targets.contains(&"crate::engine::code::parse_code_file"));
+        assert!(targets.contains(&"crate::engine::code::ExtractedImport"));
         assert!(targets.contains(&"super::embeddings::EmbeddingEngine"));
+        assert!(!targets.contains(&"crate::fake::CommentedOut"));
+        assert!(!targets.contains(&"crate::fake::BlockCommented"));
+        assert!(!targets.contains(&"crate::fake::InsideString"));
     }
 
     #[test]
     fn test_extract_python_imports() {
         let code = r#"
-            import os
-            import sys
-            from utils.helpers import format_date
+            import os, sys as system
+            from utils.helpers import (
+                format_date as fmt,
+                parse_json,
+            )
             from .models import User
+            from . import config
+            # import fake_comment
+            """
+            import fake_docstring
+            """
         "#;
         let imports = extract_imports("python", code);
         let targets: Vec<&str> = imports.iter().map(|i| i.target.as_str()).collect();
         assert!(targets.contains(&"os"));
         assert!(targets.contains(&"sys"));
         assert!(targets.contains(&"utils.helpers"));
+        assert!(targets.contains(&"utils.helpers.format_date"));
         assert!(targets.contains(&".models"));
+        assert!(targets.contains(&".config"));
+        assert!(!targets.contains(&"fake_comment"));
+        assert!(!targets.contains(&"fake_docstring"));
     }
 
     #[test]

@@ -43,7 +43,7 @@ Objetivo: Evoluir de expressões regulares (AST-lite) para parsing sintático pr
 
 - [x] **Commit 8: Migração de Regex para AST em TypeScript/JavaScript**
   - Parser sintático exato para TS/JS, suportando imports multiline, tipos dinâmicos e re-exports.
-- [ ] **Commit 9: Migração de Regex para AST em Rust e Python**
+- [x] **Commit 9: Migração de Regex para AST em Rust e Python**
   - Extração precisa de módulos, `mod`, `use` e `from ... import` para Rust e Python com aliases.
 - [ ] **Commit 10: Call Graph inicial a nível de Funções/Métodos**
   - Mapear chamadas entre funções e métodos internos no grafo de código.
