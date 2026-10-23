@@ -329,13 +329,22 @@ impl Engine {
             (
                 found_note_ids,
                 found_code_ids,
+                project_files_set,
+                project_files_by_name,
                 parsed_notes,
                 parsed_codes,
             )
         })
         .await?;
 
-        let (found_note_ids, found_code_ids, parsed_notes, parsed_codes) = scan_res;
+        let (
+            found_note_ids,
+            found_code_ids,
+            project_files_set,
+            project_files_by_name,
+            parsed_notes,
+            parsed_codes,
+        ) = scan_res;
         let mut count = 0;
 
         // 2. Index Changed Markdown Notes
@@ -516,6 +525,7 @@ impl Engine {
             let mut db = self.db.lock().await;
             let deleted_code = db.delete_missing_code_files(&found_code_ids)?;
             if count > 0 || deleted_code > 0 {
+                let _ = db.resolve_pending_code_links(&project_files_set, &project_files_by_name);
                 let _ = db.resolve_call_graph();
             }
             if notes_deleted || deleted_code > 0 || count > 0 {

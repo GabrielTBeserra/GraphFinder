@@ -1731,6 +1731,61 @@ impl DbManager {
         Ok(updated)
     }
 
+    /// Re-evaluates external/unresolved `code_links` against the current project file set
+    /// so that files added in incremental syncs automatically link to existing importers.
+    pub fn resolve_pending_code_links(
+        &mut self,
+        project_files_set: &HashSet<String>,
+        project_files_by_name: &HashMap<String, Vec<String>>,
+    ) -> Result<usize> {
+        let pending: Vec<(String, String, String)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT source_id, target_id, raw_import FROM code_links WHERE is_external = 1",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?;
+            rows.filter_map(|r| r.ok()).collect()
+        };
+
+        let mut resolved_updates = Vec::new();
+        for (source_id, old_target, raw_import) in pending {
+            if let Some(new_target) = crate::engine::code::resolve_import_path(
+                &source_id,
+                &raw_import,
+                project_files_set,
+                project_files_by_name,
+            ) {
+                resolved_updates.push((source_id, old_target, raw_import, new_target));
+            }
+        }
+
+        if resolved_updates.is_empty() {
+            return Ok(0);
+        }
+
+        let count = resolved_updates.len();
+        let tx = self.conn.transaction()?;
+        {
+            let mut del_stmt = tx.prepare_cached(
+                "DELETE FROM code_links WHERE source_id = ?1 AND target_id = ?2 AND raw_import = ?3",
+            )?;
+            let mut ins_stmt = tx.prepare_cached(
+                "INSERT OR IGNORE INTO code_links (source_id, target_id, raw_import, is_external) VALUES (?1, ?2, ?3, 0)",
+            )?;
+            for (source_id, old_target, raw_import, new_target) in resolved_updates {
+                del_stmt.execute(params![source_id, old_target, raw_import])?;
+                ins_stmt.execute(params![source_id, new_target, raw_import])?;
+            }
+        }
+        tx.commit()?;
+        Ok(count)
+    }
+
     pub fn delete_missing_code_files(&mut self, current_ids: &HashSet<String>) -> Result<usize> {
         let existing_ids: Vec<String> = {
             let mut stmt = self.conn.prepare("SELECT id FROM code_files")?;
@@ -2668,5 +2723,62 @@ mod tests {
             .expect("section query ok")
             .expect("should resolve section by file stem");
         assert_eq!(section.note_id, "Architecture.md");
+    }
+
+    #[test]
+    fn test_incremental_pending_code_links_resolution() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+
+        // 1. Index src/App.tsx while src/components/GraphView.tsx does not exist yet
+        let app_code = "import { GraphView } from './components/GraphView';\nexport function App() {}";
+        let parsed_app = crate::engine::code::parse_code_file("src/App.tsx", app_code);
+        let unresolved_links = vec![(
+            "src/App.tsx".to_string(),
+            "./components/GraphView".to_string(),
+            true,
+        )];
+        db.save_code_file_batch(
+            &parsed_app,
+            "hash_app",
+            100,
+            std::slice::from_ref(&dummy_vec),
+            &unresolved_links,
+        )
+        .expect("save app");
+
+        let deps_before = db.get_code_dependencies("src/App.tsx", "both").expect("deps before");
+        assert!(deps_before.imports.is_empty());
+        assert_eq!(deps_before.external, vec!["./components/GraphView"]);
+
+        // 2. Now src/components/GraphView.tsx is added in a subsequent incremental sync
+        let gv_code = "export function GraphView() {}";
+        let parsed_gv = crate::engine::code::parse_code_file("src/components/GraphView.tsx", gv_code);
+        db.save_code_file_batch(
+            &parsed_gv,
+            "hash_gv",
+            101,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save gv");
+
+        let mut files_set = HashSet::new();
+        files_set.insert("src/App.tsx".to_string());
+        files_set.insert("src/components/GraphView.tsx".to_string());
+        let mut files_by_name = HashMap::new();
+        files_by_name.insert(
+            "GraphView.tsx".to_string(),
+            vec!["src/components/GraphView.tsx".to_string()],
+        );
+
+        let updated = db
+            .resolve_pending_code_links(&files_set, &files_by_name)
+            .expect("resolve pending links");
+        assert_eq!(updated, 1);
+
+        let deps_after = db.get_code_dependencies("src/App.tsx", "both").expect("deps after");
+        assert_eq!(deps_after.imports, vec!["src/components/GraphView.tsx"]);
+        assert!(deps_after.external.is_empty());
     }
 }
