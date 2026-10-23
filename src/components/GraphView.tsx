@@ -220,15 +220,27 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const pathStartNodeRef = useRef<any | null>(null);
   const pathResultRef = useRef<PathResult | null>(null);
 
+  const requestCanvasRepaint = useCallback(() => {
+    const fg = graphInstanceRef.current;
+    if (!fg) return;
+    try {
+      if (typeof fg.linkColor === 'function') {
+        fg.linkColor(fg.linkColor());
+      }
+    } catch {
+      // ignore repaint errors
+    }
+  }, []);
+
   useEffect(() => {
     colorModeRef.current = colorMode;
-    graphInstanceRef.current?.d3ReheatSimulation();
-  }, [colorMode]);
+    requestCanvasRepaint();
+  }, [colorMode, requestCanvasRepaint]);
 
   useEffect(() => {
     highlightGodNodesRef.current = highlightGodNodes;
-    graphInstanceRef.current?.d3ReheatSimulation();
-  }, [highlightGodNodes]);
+    requestCanvasRepaint();
+  }, [highlightGodNodes, requestCanvasRepaint]);
 
   useEffect(() => {
     pathModeRef.current = pathMode;
@@ -237,29 +249,31 @@ export const GraphView: React.FC<GraphViewProps> = ({
       setPathResult(null);
       pathStartNodeRef.current = null;
       pathResultRef.current = null;
-      graphInstanceRef.current?.d3ReheatSimulation();
+      requestCanvasRepaint();
     }
-  }, [pathMode]);
+  }, [pathMode, requestCanvasRepaint]);
 
   useEffect(() => {
     pathStartNodeRef.current = pathStartNode;
-  }, [pathStartNode]);
+    requestCanvasRepaint();
+  }, [pathStartNode, requestCanvasRepaint]);
 
   useEffect(() => {
     pathResultRef.current = pathResult;
-  }, [pathResult]);
+    requestCanvasRepaint();
+  }, [pathResult, requestCanvasRepaint]);
 
   useEffect(() => {
     themeRef.current = theme;
     if (graphInstanceRef.current) {
       try {
         graphInstanceRef.current.backgroundColor(theme === 'light' ? '#f8fafc' : '#090a0f');
-        graphInstanceRef.current.d3ReheatSimulation();
+        requestCanvasRepaint();
       } catch (err) {
         console.warn('Error updating graph theme:', err);
       }
     }
-  }, [theme]);
+  }, [theme, requestCanvasRepaint]);
 
   // Glowing animation ref
   const glowingStateRef = useRef<{ id: string; startTime: number; duration: number } | null>(null);
@@ -329,8 +343,12 @@ export const GraphView: React.FC<GraphViewProps> = ({
   useEffect(() => {
     egoDepthRef.current = egoDepth;
     recomputeConnected(hoverNodeIdRef.current || selectedNodeIdRef.current, egoDepth);
-    graphInstanceRef.current?.d3ReheatSimulation();
-  }, [egoDepth, recomputeConnected]);
+    if (localOnly) {
+      graphInstanceRef.current?.d3ReheatSimulation();
+    } else {
+      requestCanvasRepaint();
+    }
+  }, [egoDepth, localOnly, recomputeConnected, requestCanvasRepaint]);
 
   // Handle Glowing Node and Camera Auto-Centering
   useEffect(() => {
