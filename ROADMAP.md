@@ -41,7 +41,7 @@ Objetivo: Escalar a busca semântica para dezenas de milhares de chunks com lat�
 
 Objetivo: Evoluir de expressões regulares (AST-lite) para parsing sintático preciso e grafos de chamadas.
 
-- [ ] **Commit 8: Migração de Regex para AST em TypeScript/JavaScript**
+- [x] **Commit 8: Migração de Regex para AST em TypeScript/JavaScript**
   - Parser sintático exato para TS/JS, suportando imports multiline, tipos dinâmicos e re-exports.
 - [ ] **Commit 9: Migração de Regex para AST em Rust e Python**
   - Extração precisa de módulos, `mod`, `use` e `from ... import` para Rust e Python com aliases.

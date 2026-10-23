@@ -81,14 +81,334 @@ pub fn is_supported_code_file(path: &Path) -> bool {
 }
 
 // ==========================================
-// Regular Expressions for Import Extraction
+// AST-Aware Lexical & Syntactic Parser for TS/JS
 // ==========================================
 
-// JS/TS: import ... from '...'; export ... from '...'; require('...'); import('...')
-static JS_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)(?:import|export)\s+(?:(?:[\w*\s{},]+)\s+from\s+)?['"]([^'"]+)['"]|(?:require|import)\s*\(\s*['"]([^'"]+)['"]\s*\)"#)
-        .expect("valid regex for js imports")
-});
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum JsTokenKind {
+    Ident,
+    StringLit,
+    Punct,
+}
+
+#[derive(Debug, Clone)]
+struct JsToken {
+    kind: JsTokenKind,
+    text: String,
+    #[allow(dead_code)]
+    line: usize,
+}
+
+/// Tokenizes TypeScript / JavaScript source into an AST token stream,
+/// stripping `//` line comments and `/* ... */` block comments accurately
+/// while preserving string literals and scanning inside `${...}` template expressions.
+fn tokenize_js_ts(source: &str) -> Vec<JsToken> {
+    let chars: Vec<char> = source.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    let mut line = 1usize;
+    let mut tokens = Vec::new();
+
+    while i < n {
+        let c = chars[i];
+        if c == '\n' {
+            line += 1;
+            i += 1;
+            continue;
+        }
+        if c.is_whitespace() {
+            i += 1;
+            continue;
+        }
+
+        // Single-line comment //
+        if c == '/' && i + 1 < n && chars[i + 1] == '/' {
+            i += 2;
+            while i < n && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        // Multi-line comment /* ... */
+        if c == '/' && i + 1 < n && chars[i + 1] == '*' {
+            i += 2;
+            while i + 1 < n && !(chars[i] == '*' && chars[i + 1] == '/') {
+                if chars[i] == '\n' {
+                    line += 1;
+                }
+                i += 1;
+            }
+            i = (i + 2).min(n);
+            continue;
+        }
+
+        // String literal '...' or "..."
+        if c == '\'' || c == '"' {
+            let quote = c;
+            let start_line = line;
+            i += 1;
+            let mut val = String::new();
+            while i < n && chars[i] != quote {
+                if chars[i] == '\\' && i + 1 < n {
+                    i += 1;
+                    if chars[i] == '\n' {
+                        line += 1;
+                    }
+                    val.push(chars[i]);
+                } else {
+                    if chars[i] == '\n' {
+                        line += 1;
+                    }
+                    val.push(chars[i]);
+                }
+                i += 1;
+            }
+            if i < n {
+                i += 1; // closing quote
+            }
+            tokens.push(JsToken {
+                kind: JsTokenKind::StringLit,
+                text: val,
+                line: start_line,
+            });
+            continue;
+        }
+
+        // Template literal `...` (recursively tokenize ${...} expressions)
+        if c == '`' {
+            i += 1;
+            let mut interp_content = String::new();
+            while i < n && chars[i] != '`' {
+                if chars[i] == '\\' && i + 1 < n {
+                    if chars[i + 1] == '\n' {
+                        line += 1;
+                    }
+                    i += 2;
+                    continue;
+                }
+                if chars[i] == '$' && i + 1 < n && chars[i + 1] == '{' {
+                    i += 2;
+                    let mut depth = 1usize;
+                    while i < n && depth > 0 {
+                        if chars[i] == '\n' {
+                            line += 1;
+                        }
+                        if chars[i] == '{' {
+                            depth += 1;
+                        } else if chars[i] == '}' {
+                            depth -= 1;
+                            if depth == 0 {
+                                i += 1;
+                                break;
+                            }
+                        }
+                        interp_content.push(chars[i]);
+                        i += 1;
+                    }
+                    interp_content.push(';');
+                } else {
+                    if chars[i] == '\n' {
+                        line += 1;
+                    }
+                    i += 1;
+                }
+            }
+            if i < n {
+                i += 1;
+            }
+            if !interp_content.is_empty() {
+                tokens.extend(tokenize_js_ts(&interp_content));
+            }
+            continue;
+        }
+
+        // Identifier or keyword
+        if c.is_ascii_alphabetic() || c == '_' || c == '$' {
+            let start_line = line;
+            let mut ident = String::new();
+            while i < n && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '$') {
+                ident.push(chars[i]);
+                i += 1;
+            }
+            tokens.push(JsToken {
+                kind: JsTokenKind::Ident,
+                text: ident,
+                line: start_line,
+            });
+            continue;
+        }
+
+        // Arrow `=>`
+        if c == '=' && i + 1 < n && chars[i + 1] == '>' {
+            tokens.push(JsToken {
+                kind: JsTokenKind::Punct,
+                text: "=>".to_string(),
+                line,
+            });
+            i += 2;
+            continue;
+        }
+
+        // Punctuation
+        tokens.push(JsToken {
+            kind: JsTokenKind::Punct,
+            text: c.to_string(),
+            line,
+        });
+        i += 1;
+    }
+
+    tokens
+}
+
+/// Syntactic AST import extractor for TypeScript / JavaScript.
+/// Handles:
+/// - Single and multiline `import ... from '...'` and `import type ... from '...'`
+/// - Side-effect `import '...'`
+/// - Single and multiline re-exports: `export { ... } from '...'`, `export * from '...'`, `export * as ns from '...'`, `export type { ... } from '...'`
+/// - Dynamic `import('...')` (including inline webpack comments) and TS `import('...').Type`
+/// - CommonJS `require('...')` and TS `import x = require('...')`
+pub fn extract_js_ts_imports_ast(content: &str) -> Vec<ExtractedImport> {
+    let tokens = tokenize_js_ts(content);
+    let len = tokens.len();
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+    let mut i = 0;
+
+    let mut push_import = |raw: String, target: &str| {
+        let clean = target.trim();
+        if !clean.is_empty() && seen.insert(clean.to_string()) {
+            results.push(ExtractedImport {
+                raw,
+                target: clean.to_string(),
+                is_relative: clean.starts_with('.') || clean.starts_with('/'),
+            });
+        }
+    };
+
+    while i < len {
+        let tok = &tokens[i];
+
+        // 1. `import` statements and `import(...)` dynamic calls / type queries
+        if tok.kind == JsTokenKind::Ident && tok.text == "import" {
+            // Case 1a: Dynamic import `import('...')`
+            if i + 2 < len && tokens[i + 1].text == "(" {
+                if tokens[i + 2].kind == JsTokenKind::StringLit {
+                    let target = &tokens[i + 2].text;
+                    push_import(format!("import('{}')", target), target);
+                    i += 3;
+                    continue;
+                }
+            }
+
+            // Case 1b: Side-effect import `import '...'`
+            if i + 1 < len && tokens[i + 1].kind == JsTokenKind::StringLit {
+                let target = &tokens[i + 1].text;
+                push_import(format!("import '{}'", target), target);
+                i += 2;
+                continue;
+            }
+
+            // Case 1c: `import ... from '...'` or `import x = require('...')` (potentially multiline)
+            let mut j = i + 1;
+            let mut brace_depth = 0isize;
+            let mut found = false;
+            while j < len {
+                let t = &tokens[j];
+                if t.text == "{" {
+                    brace_depth += 1;
+                } else if t.text == "}" {
+                    brace_depth = (brace_depth - 1).max(0);
+                } else if brace_depth == 0 && t.kind == JsTokenKind::Ident && t.text == "from" {
+                    if j + 1 < len && tokens[j + 1].kind == JsTokenKind::StringLit {
+                        let target = &tokens[j + 1].text;
+                        push_import(format!("import ... from '{}'", target), target);
+                        i = j + 2;
+                        found = true;
+                        break;
+                    }
+                } else if brace_depth == 0
+                    && t.kind == JsTokenKind::Ident
+                    && t.text == "require"
+                    && j + 2 < len
+                    && tokens[j + 1].text == "("
+                    && tokens[j + 2].kind == JsTokenKind::StringLit
+                {
+                    let target = &tokens[j + 2].text;
+                    push_import(format!("import = require('{}')", target), target);
+                    i = j + 3;
+                    found = true;
+                    break;
+                } else if brace_depth == 0 && (t.text == ";" || (t.kind == JsTokenKind::Ident && (t.text == "import" || t.text == "export" || t.text == "const" || t.text == "let" || t.text == "var" || t.text == "function" || t.text == "class"))) {
+                    break;
+                }
+                j += 1;
+            }
+            if found {
+                continue;
+            }
+        }
+
+        // 2. Re-exports: `export * from '...'`, `export * as ns from '...'`, `export { ... } from '...'`, `export type { ... } from '...'`
+        if tok.kind == JsTokenKind::Ident && tok.text == "export" {
+            let mut j = i + 1;
+            if j < len && tokens[j].kind == JsTokenKind::Ident && tokens[j].text == "type" {
+                j += 1;
+            }
+
+            if j < len && (tokens[j].text == "*" || tokens[j].text == "{") {
+                if tokens[j].text == "{" {
+                    let mut depth = 1usize;
+                    j += 1;
+                    while j < len && depth > 0 {
+                        if tokens[j].text == "{" {
+                            depth += 1;
+                        } else if tokens[j].text == "}" {
+                            depth -= 1;
+                        }
+                        j += 1;
+                    }
+                } else {
+                    // `*` or `* as ns`
+                    j += 1;
+                    if j + 1 < len && tokens[j].kind == JsTokenKind::Ident && tokens[j].text == "as" {
+                        j += 2;
+                    }
+                }
+
+                if j + 1 < len
+                    && tokens[j].kind == JsTokenKind::Ident
+                    && tokens[j].text == "from"
+                    && tokens[j + 1].kind == JsTokenKind::StringLit
+                {
+                    let target = &tokens[j + 1].text;
+                    push_import(format!("export ... from '{}'", target), target);
+                    i = j + 2;
+                    continue;
+                }
+            }
+        }
+
+        // 3. CommonJS `require('...')`
+        if tok.kind == JsTokenKind::Ident && tok.text == "require" {
+            if i + 2 < len
+                && tokens[i + 1].text == "("
+                && tokens[i + 2].kind == JsTokenKind::StringLit
+                && (i + 3 >= len || tokens[i + 3].text == ")" || tokens[i + 3].text == ",")
+            {
+                let target = &tokens[i + 2].text;
+                push_import(format!("require('{}')", target), target);
+                i += 3;
+                continue;
+            }
+        }
+
+        i += 1;
+    }
+
+    results
+}
 
 // Python: from foo.bar import ...; import foo.bar
 static PY_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -174,19 +494,7 @@ pub fn extract_imports(language: &str, content: &str) -> Vec<ExtractedImport> {
 
     match language {
         "typescript" | "tsx" | "javascript" | "jsx" => {
-            for cap in JS_IMPORT_RE.captures_iter(content) {
-                let target = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str());
-                if let Some(t) = target {
-                    let clean = t.trim();
-                    if !clean.is_empty() && seen.insert(clean.to_string()) {
-                        results.push(ExtractedImport {
-                            raw: cap[0].to_string(),
-                            target: clean.to_string(),
-                            is_relative: clean.starts_with('.') || clean.starts_with('/'),
-                        });
-                    }
-                }
-            }
+            return extract_js_ts_imports_ast(content);
         }
         "python" => {
             for cap in PY_IMPORT_RE.captures_iter(content) {
@@ -723,17 +1031,41 @@ mod tests {
     #[test]
     fn test_extract_js_imports() {
         let code = r#"
-            import React, { useState } from 'react';
+            import React, {
+                useState,
+                useEffect,
+                type FC,
+            } from 'react';
             import { GraphView } from './components/GraphView';
-            import type { GraphData } from '../types';
+            import type {
+                GraphData,
+                PathResult
+            } from '../types';
+            export {
+                 ArchitecturalReportModal,
+                type ReportProps
+            } from './ArchitecturalReportModal';
+            export * as utils from './utils/index';
+            const LazyComp = React.lazy(() => import(/* webpackChunkName: "lazy" */ './LazyComp'));
+            type DynamicType = typeof import('./dynamic/type').MyType;
             const { helper } = require('./utils/helper');
+            // import FakeComment from './fake-comment';
+            /* import FakeBlock from './fake-block'; */
+            const str = "import FakeString from './fake-string'";
         "#;
         let imports = extract_imports("typescript", code);
         let targets: Vec<&str> = imports.iter().map(|i| i.target.as_str()).collect();
         assert!(targets.contains(&"react"));
         assert!(targets.contains(&"./components/GraphView"));
         assert!(targets.contains(&"../types"));
+        assert!(targets.contains(&"./ArchitecturalReportModal"));
+        assert!(targets.contains(&"./utils/index"));
+        assert!(targets.contains(&"./LazyComp"));
+        assert!(targets.contains(&"./dynamic/type"));
         assert!(targets.contains(&"./utils/helper"));
+        assert!(!targets.contains(&"./fake-comment"));
+        assert!(!targets.contains(&"./fake-block"));
+        assert!(!targets.contains(&"./fake-string"));
     }
 
     #[test]
