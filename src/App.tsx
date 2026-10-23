@@ -31,7 +31,6 @@ import { Sidebar } from './components/Sidebar';
 import { McpModal } from './components/McpModal';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { NewProjectModal } from './components/NewProjectModal';
-import { LoadingScreen } from './components/LoadingScreen';
 import { OmnisearchModal } from './components/OmnisearchModal';
 import {
   ArrowClockwise,
@@ -449,15 +448,7 @@ export const App: React.FC = () => {
     }
   };
 
-  if (!engineReady) {
-    return (
-      <LoadingScreen
-        statusMessage={engineStatusMessage}
-        isError={engineError}
-      />
-    );
-  }
-
+  // Non-blocking boot: UI renders immediately from local SQLite database
   const isLight = theme === 'light';
 
   return (
@@ -542,6 +533,29 @@ export const App: React.FC = () => {
 
         {/* Right Section: Primary Action & Tools */}
         <div className="flex items-center gap-2">
+          {/* Non-blocking Neural Engine Status Indicator */}
+          {!engineReady && (
+            <div
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10.5px] font-medium transition-all ${
+                engineError
+                  ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                  : isLight
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-600 animate-pulse'
+                  : 'bg-indigo-950/40 border-indigo-800/40 text-indigo-400 animate-pulse'
+              }`}
+              title={engineStatusMessage}
+            >
+              <div
+                className={`w-1.5 h-1.5 rounded-full ${
+                  engineError ? 'bg-rose-500' : 'bg-indigo-500'
+                }`}
+              />
+              <span className="truncate max-w-[130px]">
+                {engineError ? 'Engine Error' : 'Neural Warming Up...'}
+              </span>
+            </div>
+          )}
+
           {/* Theme Toggle Button */}
           <button
             type="button"
