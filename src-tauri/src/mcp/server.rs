@@ -24,6 +24,29 @@ pub struct ServerState {
     pub port: u16,
 }
 
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+pub fn is_authorized_bearer(expected_token: Option<&str>, auth_header: Option<&str>) -> bool {
+    let expected = match expected_token.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(t) => t,
+        None => return true,
+    };
+    let provided = match auth_header.and_then(|h| h.strip_prefix("Bearer ")).map(str::trim) {
+        Some(p) => p,
+        None => return false,
+    };
+    constant_time_eq(expected.as_bytes(), provided.as_bytes())
+}
+
 async fn security_middleware(req: Request, next: Next) -> Result<Response, StatusCode> {
     // 1. Host validation against DNS rebinding
     if let Some(host) = req.headers().get(header::HOST).and_then(|h| h.to_str().ok()) {
@@ -69,6 +92,19 @@ async fn security_middleware(req: Request, next: Next) -> Result<Response, Statu
             "Content-Type, Authorization, Accept".parse().unwrap(),
         );
         return Ok(res);
+    }
+
+    // 3. Optional Bearer token authentication (GRAPHFINDER_MCP_TOKEN) for non-health endpoints
+    if req.uri().path() != "/health" {
+        let expected_token = std::env::var("GRAPHFINDER_MCP_TOKEN").ok();
+        let auth_header = req
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|h| h.to_str().ok());
+        if !is_authorized_bearer(expected_token.as_deref(), auth_header) {
+            eprintln!("[GraphFinder Security] Rejecting request with missing or invalid Bearer token");
+            return Err(StatusCode::UNAUTHORIZED);
+        }
     }
 
     let mut response = next.run(req).await;
@@ -357,4 +393,32 @@ pub async fn start_http_mcp_server(
 
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bearer_token_validation() {
+        // When no token is configured, all local requests are allowed
+        assert!(is_authorized_bearer(None, None));
+        assert!(is_authorized_bearer(Some(""), None));
+        assert!(is_authorized_bearer(Some("   "), None));
+
+        // When GRAPHFINDER_MCP_TOKEN is configured, valid Bearer header is required
+        assert!(!is_authorized_bearer(Some("secret-token-123"), None));
+        assert!(!is_authorized_bearer(
+            Some("secret-token-123"),
+            Some("Basic secret-token-123")
+        ));
+        assert!(!is_authorized_bearer(
+            Some("secret-token-123"),
+            Some("Bearer wrong-token")
+        ));
+        assert!(is_authorized_bearer(
+            Some("secret-token-123"),
+            Some("Bearer secret-token-123")
+        ));
+    }
 }
