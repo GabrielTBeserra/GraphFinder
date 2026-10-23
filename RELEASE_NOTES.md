@@ -35,7 +35,7 @@ Key highlights include:
 2. **Hybrid Retrieval (Vectors + BM25 FTS5 via RRF)**: Combines dense semantic embeddings with SQLite FTS5 keyword indexing for superior code, symbol, and multilingual search.
 3. **CommonMark AST Parser (`pulldown-cmark`)**: Replaced regex heuristics with full CommonMark AST parsing, section windowing for large texts, and exclusion of code blocks.
 4. **Security & Sandboxing**: Implemented DNS rebinding mitigation, strict Origin filtering, CSP enforcement, and XSS sanitization (`DOMPurify`).
-5. **Background File Watcher & Instant Sync**: Sub-second debounce synchronization with external editors (Obsidian, VS Code).
+5. **Background File Watcher & Instant Sync**: Sub-second debounce synchronization with external editors (VS Code, Cursor, Windsurf).
 6. **Vault-Wide Wikilink Refactoring**: Renaming a note automatically rewrites all incoming `[[Old Title]]` references across every document in the vault.
 7. **Expanded 15-Tool MCP Suite**: Official `rmcp` dual-mode support (Embedded Streamable HTTP/SSE + Headless Stdio CLI `--mcp`).
 
@@ -89,7 +89,7 @@ Previously, whenever a note was selected, saved, or updated in the background, `
 ## 4. Vault Integrity & File Watcher (P1)
 
 * **Incremental Hash Indexing ($O(1)$)**: Added `content_hash` (SHA-256) and filesystem timestamps to the `notes` table. Files that have not changed skip ONNX vector re-computation on vault sync.
-* **Background Directory Watcher**: Integrated `notify-debouncer-mini` (500ms debounce) in [`src-tauri/src/lib.rs`](file:///Z:/GraphFinder/src-tauri/src/lib.rs). External modifications from Obsidian, VS Code, or Git trigger automatic reindexing and emit `vault-sync-complete`.
+* **Background Directory Watcher**: Integrated `notify-debouncer-mini` (500ms debounce) in [`src-tauri/src/lib.rs`](file:///Z:/GraphFinder/src-tauri/src/lib.rs). External modifications from VS Code, Cursor, Windsurf, or Git trigger automatic reindexing and emit `vault-sync-complete`.
 * **Duplicate Event Filtering**: The file watcher checks if any note was actually modified (`count > 0`) before emitting `vault-sync-complete`, preventing redundant UI refresh loops.
 * **Opt-In Auto-Linking**: Disabled automated note file mutations by default. Appending semantic link sections to Markdown files is now opt-in via `GRAPHFINDER_AUTO_APPEND_LINKS=1`.
 * **Vault-Wide Wikilink Refactoring (`rename_note`)**:

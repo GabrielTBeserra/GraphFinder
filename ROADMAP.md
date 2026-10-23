@@ -8,17 +8,17 @@ Este documento estabelece o planejamento técnico e o roadmap detalhado de evolu
 
 Objetivo: Eliminar a lentidão na abertura do app (carregar projetos, notas e grafo em <50ms direto do SQLite) e remover todas as referências ao Obsidian.
 
-- [ ] **Commit 1: Boot instantâneo não-bloqueante no Frontend**
+- [x] **Commit 1: Boot instantâneo não-bloqueante no Frontend**
   - Remover bloqueio de tela total da `LoadingScreen` no `src/App.tsx`.
   - Converter o status do `FastEmbed` em indicador sutil não-bloqueante na barra de status/cabeçalho.
   - Carregar UI com o banco local imediatamente enquanto o modelo neural carrega em background.
-- [ ] **Commit 2: Paralelização e priorização no carregamento inicial (`Promise.allSettled`)**
+- [x] **Commit 2: Paralelização e priorização no carregamento inicial (`Promise.allSettled`)**
   - Refatorar `initApp()` e `loadData()` no `src/App.tsx` para buscar dados em paralelo.
   - Priorizar `fetchProjects()` e `fetchNotes()` para que o seletor de vaults/projetos apareça instantaneamente.
-- [ ] **Commit 3: Eliminação de lock contention de banco no Rust**
+- [x] **Commit 3: Eliminação de lock contention de banco no Rust**
   - Em `src-tauri/src/lib.rs`, adiar a sincronização em disco inicial (`sync_vault`) para após as leituras iniciais da UI.
   - Evitar que queries IPC do frontend fiquem presas aguardando o mutex do `DbManager`.
-- [ ] **Commit 4: Limpeza e remoção de referências ao Obsidian**
+- [x] **Commit 4: Limpeza e remoção de referências ao Obsidian**
   - Limpar menções, comentários e documentação em `src-tauri/src/lib.rs`, docs e READMEs.
   - Focar a documentação e integrações exclusivamente em editores de código e IDEs (VS Code, Cursor, Windsurf, Zed).
 
