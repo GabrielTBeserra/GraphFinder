@@ -18,8 +18,8 @@ import {
   ArrowsOut,
   ArrowsIn,
 } from '@phosphor-icons/react';
-import type { LinkSuggestion, NoteRecord, NoteSummary } from '../types';
-import { suggestLinks } from '../services/api';
+import type { LinkSuggestion, NoteRecord, NoteSummary, SectionSummary } from '../types';
+import { getCompressedContext, suggestLinks } from '../services/api';
 
 interface NoteEditorProps {
   note: NoteRecord | null;
@@ -35,6 +35,7 @@ interface AutocompleteState {
   isOpen: boolean;
   query: string;
   isSectionQuery: boolean;
+  isTagQuery?: boolean;
   baseNoteTitle: string;
   startIndex: number;
   cursorIndex: number;
@@ -46,7 +47,7 @@ interface AutocompleteItem {
   title: string;
   heading?: string;
   tag?: string;
-  type: 'note' | 'section';
+  type: 'note' | 'section' | 'tag';
   preview?: string;
 }
 
@@ -79,11 +80,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     isOpen: false,
     query: '',
     isSectionQuery: false,
+    isTagQuery: false,
     baseNoteTitle: '',
     startIndex: -1,
     cursorIndex: -1,
     selectedIndex: 0,
   });
+  const [remoteSections, setRemoteSections] = useState<SectionSummary[]>([]);
 
   const lastLoadedIdRef = useRef<string | undefined>(undefined);
 
@@ -97,11 +100,34 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         note?.content ??
           '# New Note\n\nStart writing your thoughts here.\nConnect to other notes with [[Note Title]] and add #tags.'
       );
-      setIsDirty(!note);
+      setIsDirty(!note || !note.id);
       setSuggestions([]);
       setAutocomplete((prev) => ({ ...prev, isOpen: false }));
+      if (note && !note.id && note.title) {
+        suggestLinks(note.title, note.title)
+          .then((res) => setSuggestions(res))
+          .catch(() => {});
+      }
     }
-  }, [note?.id, note?.title, note?.path, note?.content]);
+  }, [note]);
+
+  useEffect(() => {
+    if (!autocomplete.isOpen || !autocomplete.isSectionQuery || !autocomplete.baseNoteTitle) {
+      setRemoteSections([]);
+      return;
+    }
+    let cancelled = false;
+    getCompressedContext(autocomplete.baseNoteTitle)
+      .then((ctx) => {
+        if (!cancelled && ctx?.sections) {
+          setRemoteSections(ctx.sections);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [autocomplete.isOpen, autocomplete.isSectionQuery, autocomplete.baseNoteTitle]);
 
   const handleSave = useCallback(async () => {
     if (!title.trim() || isSaving) return;
@@ -164,8 +190,31 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             isOpen: true,
             query: q,
             isSectionQuery: isSection,
+            isTagQuery: false,
             baseNoteTitle: baseNote,
             startIndex: lastOpen,
+            cursorIndex: cursorPos,
+            selectedIndex: 0,
+          });
+          return;
+        }
+      }
+
+      // Check for #tag autocomplete (preceded by whitespace or start of line, not markdown header)
+      const currentLineStart = textBefore.lastIndexOf('\n') + 1;
+      const lineBeforeCursor = textBefore.slice(currentLineStart);
+      if (!/^#{1,6}\s/.test(lineBeforeCursor)) {
+        const tagMatch = lineBeforeCursor.match(/(?:^|\s)#([a-zA-Z0-9_-]*)$/);
+        if (tagMatch) {
+          const tagQuery = tagMatch[1];
+          const hashPos = cursorPos - tagQuery.length - 1;
+          setAutocomplete({
+            isOpen: true,
+            query: tagQuery,
+            isSectionQuery: false,
+            isTagQuery: true,
+            baseNoteTitle: '',
+            startIndex: hashPos,
             cursorIndex: cursorPos,
             selectedIndex: 0,
           });
@@ -203,6 +252,39 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
     const q = autocomplete.query.toLowerCase().trim();
 
+    // Case 0: Searching for #tags
+    if (autocomplete.isTagQuery) {
+      const tagCounts = new Map<string, number>();
+      for (const n of availableNotes) {
+        for (const t of n.tags) {
+          const cleanTag = t.toLowerCase();
+          tagCounts.set(cleanTag, (tagCounts.get(cleanTag) || 0) + 1);
+        }
+      }
+      const matchedTags = Array.from(tagCounts.entries())
+        .filter(([t]) => !q || t.includes(q))
+        .sort((a, b) => b[1] - a[1]);
+
+      const tagItems: AutocompleteItem[] = matchedTags.slice(0, 8).map(([t, cnt]) => ({
+        id: `tag:${t}`,
+        title: `#${t}`,
+        tag: t,
+        type: 'tag',
+        preview: `Used in ${cnt} note${cnt === 1 ? '' : 's'}`,
+      }));
+
+      if (q && !tagCounts.has(q)) {
+        tagItems.push({
+          id: `tag:new:${q}`,
+          title: `#${q}`,
+          tag: q,
+          type: 'tag',
+          preview: 'Create new tag',
+        });
+      }
+      return tagItems;
+    }
+
     // Case 1: Searching for section [[#Section]] or [[Note#Section]]
     if (autocomplete.isSectionQuery) {
       // If baseNoteTitle is empty, search current note's headings
@@ -218,7 +300,22 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           }));
       }
 
-      // If user specified an external note, suggest sections or match note title
+      if (remoteSections.length > 0) {
+        const filteredRemote = remoteSections.filter(
+          (s) => !q || s.heading.toLowerCase().includes(q)
+        );
+        if (filteredRemote.length > 0) {
+          return filteredRemote.slice(0, 8).map((s) => ({
+            id: `sec:${autocomplete.baseNoteTitle}#${s.heading}`,
+            title: autocomplete.baseNoteTitle,
+            heading: s.heading,
+            type: 'section',
+            preview: `~${s.token_estimate} tok • ${s.snippet}`,
+          }));
+        }
+      }
+
+      // Fallback if remote sections haven't loaded or custom heading
       return [
         {
           id: `sec:${autocomplete.baseNoteTitle}#${autocomplete.query}`,
@@ -261,10 +358,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   }, [
     autocomplete.isOpen,
     autocomplete.isSectionQuery,
+    autocomplete.isTagQuery,
     autocomplete.baseNoteTitle,
     autocomplete.query,
     title,
     currentHeadings,
+    remoteSections,
     availableNotes,
   ]);
 
@@ -272,7 +371,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const applyAutocomplete = useCallback(
     (item: AutocompleteItem) => {
       let insertText: string;
-      if (item.type === 'section') {
+      if (item.type === 'tag') {
+        insertText = `#${item.tag || item.title.replace(/^#/, '')} `;
+      } else if (item.type === 'section') {
         if (!autocomplete.baseNoteTitle || autocomplete.baseNoteTitle.toLowerCase() === title.toLowerCase()) {
           insertText = `[[#${item.heading}]]`;
         } else {
