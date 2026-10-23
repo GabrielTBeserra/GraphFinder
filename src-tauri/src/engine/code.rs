@@ -1160,6 +1160,7 @@ pub fn resolve_import_path(
 
     let target_clean = import_target
         .trim_start_matches('@')
+        .trim_start_matches('~')
         .trim_start_matches('/')
         .replace('\\', "/");
 
@@ -1194,35 +1195,56 @@ pub fn resolve_import_path(
         }
     }
 
-    // 4. Rust crate:: or super:: resolution
-    if import_target.starts_with("crate::") {
-        let rel_rust = import_target.trim_start_matches("crate::").replace("::", "/");
-        let rust_candidates = [
-            format!("src/{}.rs", rel_rust),
-            format!("src/{}/mod.rs", rel_rust),
-            format!("src-tauri/src/{}.rs", rel_rust),
-            format!("src-tauri/src/{}/mod.rs", rel_rust),
-            format!("{}.rs", rel_rust),
-            format!("{}/mod.rs", rel_rust),
-        ];
-        for c in &rust_candidates {
-            if project_files_set.contains(c) {
-                return Some(c.clone());
-            }
-        }
-        // Also try matching the module prefix if it references a sub-item like `crate::engine::db::DbManager`
-        let parts: Vec<&str> = rel_rust.split('/').collect();
-        if parts.len() > 1 {
-            let parent_mod = parts[..parts.len() - 1].join("/");
-            let rust_parent_candidates = [
-                format!("src/{}.rs", parent_mod),
-                format!("src/{}/mod.rs", parent_mod),
-                format!("src-tauri/src/{}.rs", parent_mod),
-                format!("src-tauri/src/{}/mod.rs", parent_mod),
-            ];
-            for c in &rust_parent_candidates {
-                if project_files_set.contains(c) {
-                    return Some(c.clone());
+    // 4. Rust crate::, super::, or self:: resolution
+    if import_target.starts_with("crate::")
+        || import_target.starts_with("super::")
+        || import_target.starts_with("self::")
+    {
+        let (rel_rust, is_super, is_self) = if let Some(rest) = import_target.strip_prefix("crate::") {
+            (rest.replace("::", "/"), false, false)
+        } else if let Some(rest) = import_target.strip_prefix("super::") {
+            (rest.replace("::", "/"), true, false)
+        } else {
+            let rest = import_target.trim_start_matches("self::");
+            (rest.replace("::", "/"), false, true)
+        };
+
+        let parts: Vec<&str> = rel_rust.split('/').filter(|s| !s.is_empty()).collect();
+        // Try progressively shorter module prefixes (e.g. engine/db/GraphData -> engine/db -> engine)
+        for prefix_len in (1..=parts.len()).rev() {
+            let mod_path = parts[..prefix_len].join("/");
+            if is_super || is_self {
+                let mut base_dirs = vec![parent_dir.to_path_buf()];
+                if is_super {
+                    if let Some(grandparent) = parent_dir.parent() {
+                        base_dirs.push(grandparent.to_path_buf());
+                    }
+                }
+                for base in base_dirs {
+                    let candidates = [
+                        base.join(format!("{}.rs", mod_path)),
+                        base.join(format!("{}/mod.rs", mod_path)),
+                    ];
+                    for cand in &candidates {
+                        let norm = normalize_path(cand);
+                        if project_files_set.contains(&norm) {
+                            return Some(norm);
+                        }
+                    }
+                }
+            } else {
+                let rust_candidates = [
+                    format!("src/{}.rs", mod_path),
+                    format!("src/{}/mod.rs", mod_path),
+                    format!("src-tauri/src/{}.rs", mod_path),
+                    format!("src-tauri/src/{}/mod.rs", mod_path),
+                    format!("{}.rs", mod_path),
+                    format!("{}/mod.rs", mod_path),
+                ];
+                for c in &rust_candidates {
+                    if project_files_set.contains(c) {
+                        return Some(c.clone());
+                    }
                 }
             }
         }
@@ -1680,5 +1702,37 @@ mod tests {
             &files_by_name,
         );
         assert_eq!(resolved_types, Some("src/types.ts".to_string()));
+
+        // Test @/ and ~/ path aliases
+        assert_eq!(
+            resolve_import_path("src/App.tsx", "@/components/GraphView", &files_set, &files_by_name),
+            Some("src/components/GraphView.tsx".to_string())
+        );
+        assert_eq!(
+            resolve_import_path("src/App.tsx", "~/types", &files_set, &files_by_name),
+            Some("src/types.ts".to_string())
+        );
+
+        // Test Rust super:: and crate:: module resolution
+        files_set.insert("src-tauri/src/engine/db.rs".to_string());
+        files_set.insert("src-tauri/src/engine/graph_analytics.rs".to_string());
+        assert_eq!(
+            resolve_import_path(
+                "src-tauri/src/engine/graph_analytics.rs",
+                "super::db::GraphData",
+                &files_set,
+                &files_by_name,
+            ),
+            Some("src-tauri/src/engine/db.rs".to_string())
+        );
+        assert_eq!(
+            resolve_import_path(
+                "src-tauri/src/mcp/mod.rs",
+                "crate::engine::db::DbManager",
+                &files_set,
+                &files_by_name,
+            ),
+            Some("src-tauri/src/engine/db.rs".to_string())
+        );
     }
 }
