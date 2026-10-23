@@ -2068,6 +2068,23 @@ pub fn sanitize_fts5_query(raw: &str) -> String {
     tokens.join(" ")
 }
 
+pub fn quantize_f32_to_i8(slice: &[f32]) -> Vec<u8> {
+    slice
+        .iter()
+        .map(|&f| {
+            let clamped = (f * 127.0).round().clamp(-127.0, 127.0);
+            (clamped as i8) as u8
+        })
+        .collect()
+}
+
+pub fn dequantize_i8_to_f32(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .iter()
+        .map(|&b| ((b as i8) as f32) / 127.0)
+        .collect()
+}
+
 fn f32_slice_to_bytes(slice: &[f32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(slice.len() * 4);
     for &f in slice {
@@ -2077,7 +2094,32 @@ fn f32_slice_to_bytes(slice: &[f32]) -> Vec<u8> {
 }
 
 #[inline]
+pub fn dot_product_asymmetric_i8(query: &[f32], bytes: &[u8]) -> f32 {
+    let mut dot = 0.0f32;
+    let mut norm_b = 0.0f32;
+
+    for i in 0..query.len() {
+        let val = ((bytes[i] as i8) as f32) / 127.0;
+        dot += query[i] * val;
+        norm_b += val * val;
+    }
+
+    let denom = norm_b.sqrt();
+    if denom <= f32::EPSILON {
+        0.0
+    } else {
+        dot / denom
+    }
+}
+
+#[inline]
 pub fn dot_product_bytes(query: &[f32], bytes: &[u8], query_is_unit: bool) -> f32 {
+    // 1. Quantized i8 vector branch (1 byte per dimension: 384 bytes instead of 1536 bytes)
+    if bytes.len() == query.len() {
+        return dot_product_asymmetric_i8(query, bytes);
+    }
+
+    // 2. Legacy / unquantized f32 vector branch (4 bytes per dimension: 1536 bytes)
     let chunks = bytes.chunks_exact(4);
     if chunks.len() != query.len() {
         return 0.0;
@@ -2283,5 +2325,23 @@ mod tests {
         let deps = db.get_code_dependencies("src/api/user.ts", "both").expect("deps ok");
         assert_eq!(deps.imports, vec!["src/api/client.ts"]);
         assert_eq!(deps.external, vec!["axios"]);
+    }
+
+    #[test]
+    fn test_scalar_quantization() {
+        let v = vec![0.7071f32, 0.7071f32, 0.0f32];
+        let quantized = quantize_f32_to_i8(&v);
+        assert_eq!(quantized.len(), 3);
+        // Stored as i8 bytes (3 bytes instead of 12 bytes: 4x compression)
+        assert_eq!(quantized.len(), v.len());
+
+        // Test asymmetric dot product via dynamic dispatch in dot_product_bytes
+        let sim = dot_product_bytes(&v, &quantized, false);
+        assert!((sim - 1.0).abs() < 0.01, "Expected similarity close to 1.0, got {}", sim);
+
+        // Test dequantization roundtrip
+        let deq = dequantize_i8_to_f32(&quantized);
+        assert_eq!(deq.len(), 3);
+        assert!((deq[0] - 0.7071).abs() < 0.01);
     }
 }
