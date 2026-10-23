@@ -24,6 +24,8 @@ struct ProjectsMeta {
     custom_names: HashMap<String, String>,
     #[serde(default)]
     custom_paths: HashMap<String, String>,
+    #[serde(default)]
+    cached_counts: HashMap<String, usize>,
 }
 
 #[derive(Clone)]
@@ -33,6 +35,7 @@ pub struct VaultManager {
     active_project_id: Arc<RwLock<String>>,
     custom_names: Arc<RwLock<HashMap<String, String>>>,
     custom_paths: Arc<RwLock<HashMap<String, String>>>,
+    cached_counts: Arc<RwLock<HashMap<String, usize>>>,
     engines: Arc<RwLock<HashMap<String, Arc<Engine>>>>,
 }
 
@@ -90,18 +93,38 @@ impl VaultManager {
         }
 
         let meta_file = vaults_dir.join("projects.json");
-        let (active_id, custom_names, custom_paths) = if meta_file.exists() {
+        let (active_id, custom_names, custom_paths, cached_counts) = if meta_file.exists() {
             if let Ok(data) = fs::read_to_string(&meta_file) {
                 if let Ok(meta) = serde_json::from_str::<ProjectsMeta>(&data) {
-                    (meta.active_project, meta.custom_names, meta.custom_paths)
+                    (
+                        meta.active_project,
+                        meta.custom_names,
+                        meta.custom_paths,
+                        meta.cached_counts,
+                    )
                 } else {
-                    ("default".to_string(), HashMap::new(), HashMap::new())
+                    (
+                        "default".to_string(),
+                        HashMap::new(),
+                        HashMap::new(),
+                        HashMap::new(),
+                    )
                 }
             } else {
-                ("default".to_string(), HashMap::new(), HashMap::new())
+                (
+                    "default".to_string(),
+                    HashMap::new(),
+                    HashMap::new(),
+                    HashMap::new(),
+                )
             }
         } else {
-            ("default".to_string(), HashMap::new(), HashMap::new())
+            (
+                "default".to_string(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+            )
         };
 
         let manager = Self {
@@ -110,6 +133,7 @@ impl VaultManager {
             active_project_id: Arc::new(RwLock::new(active_id)),
             custom_names: Arc::new(RwLock::new(custom_names)),
             custom_paths: Arc::new(RwLock::new(custom_paths)),
+            cached_counts: Arc::new(RwLock::new(cached_counts)),
             engines: Arc::new(RwLock::new(HashMap::new())),
         };
 
@@ -136,8 +160,32 @@ impl VaultManager {
         }
     }
 
+    async fn resolve_canonical_id(&self, project_id: &str) -> String {
+        let raw = project_id.trim();
+        if raw.is_empty() || raw.eq_ignore_ascii_case("default") {
+            return "default".to_string();
+        }
+        let clean = sanitize_project_id(raw);
+        {
+            let custom_paths = self.custom_paths.read().await;
+            if custom_paths.contains_key(raw) {
+                return raw.to_string();
+            }
+            if custom_paths.contains_key(&clean) {
+                return clean;
+            }
+            if let Some((k, _)) = custom_paths
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(raw) || k.eq_ignore_ascii_case(&clean))
+            {
+                return k.clone();
+            }
+        }
+        clean
+    }
+
     pub async fn try_get_or_create_engine(&self, project_id: &str) -> Result<Arc<Engine>, String> {
-        let id = sanitize_project_id(project_id);
+        let id = self.resolve_canonical_id(project_id).await;
 
         // Check if already in cache
         {
@@ -152,12 +200,17 @@ impl VaultManager {
 
         let engine = Engine::new(&vault_path, &db_path, Arc::clone(&self.embeddings))
             .map_err(|e| format!("Failed to initialize Engine for project '{}': {}", id, e))?;
+        let count = engine.cached_count();
         let engine_arc = Arc::new(engine);
 
         // Insert into cache
         {
             let mut map = self.engines.write().await;
-            map.insert(id, Arc::clone(&engine_arc));
+            map.insert(id.clone(), Arc::clone(&engine_arc));
+        }
+        {
+            let mut counts = self.cached_counts.write().await;
+            counts.insert(id, count);
         }
 
         Ok(engine_arc)
@@ -176,12 +229,12 @@ impl VaultManager {
     }
 
     async fn resolve_project_paths(&self, project_id: &str) -> (PathBuf, PathBuf) {
-        let safe_id = sanitize_project_id(project_id);
-        if safe_id == "default" {
+        let canonical_id = self.resolve_canonical_id(project_id).await;
+        if canonical_id == "default" {
             (resolve_vault_path(), resolve_db_path())
         } else {
             let custom_paths = self.custom_paths.read().await;
-            if let Some(custom_path_str) = custom_paths.get(&safe_id) {
+            if let Some(custom_path_str) = custom_paths.get(&canonical_id) {
                 let p = PathBuf::from(custom_path_str);
                 if !p.exists() {
                     let _ = fs::create_dir_all(&p);
@@ -189,6 +242,7 @@ impl VaultManager {
                 let db_path = p.join("index.db");
                 (p, db_path)
             } else {
+                let safe_id = sanitize_project_id(&canonical_id);
                 let project_vault = self.base_dir.join("vaults").join(&safe_id);
                 if !project_vault.exists() {
                     let _ = fs::create_dir_all(&project_vault);
@@ -199,15 +253,50 @@ impl VaultManager {
         }
     }
 
+    async fn get_fast_project_count(&self, id: &str, vault_path: &Path, db_path: &Path) -> usize {
+        // 1. Check loaded Engine atomic counter (0ns)
+        {
+            let engines = self.engines.read().await;
+            if let Some(eng) = engines.get(id) {
+                let c = eng.cached_count();
+                if c > 0 {
+                    return c;
+                }
+            }
+        }
+        // 2. Check existing SQLite index.db via fast read-only COUNT(*) (<0.3ms)
+        if let Some(db_count) = super::db::DbManager::quick_item_count(db_path) {
+            if db_count > 0 {
+                let mut counts = self.cached_counts.write().await;
+                counts.insert(id.to_string(), db_count);
+                return db_count;
+            }
+        }
+        // 3. Check in-memory / persisted cached_counts
+        {
+            let counts = self.cached_counts.read().await;
+            if let Some(&c) = counts.get(id) {
+                return c;
+            }
+        }
+        // 4. Shallow bounded fallback for brand-new unindexed directories
+        let c = count_notes_in_dir_bounded(vault_path);
+        {
+            let mut counts = self.cached_counts.write().await;
+            counts.insert(id.to_string(), c);
+        }
+        c
+    }
+
     pub async fn list_projects(&self) -> Vec<ProjectInfo> {
         let active = self.active_project_id().await;
-        let names = self.custom_names.read().await;
-        let custom_paths = self.custom_paths.read().await;
+        let names = self.custom_names.read().await.clone();
+        let custom_paths = self.custom_paths.read().await.clone();
         let mut list = Vec::new();
 
         // 1. Default / Principal project
         let (def_vault, def_db) = self.resolve_project_paths("default").await;
-        let def_count = count_notes_in_dir(&def_vault);
+        let def_count = self.get_fast_project_count("default", &def_vault, &def_db).await;
         list.push(ProjectInfo {
             id: "default".to_string(),
             name: names
@@ -217,26 +306,26 @@ impl VaultManager {
             path: def_vault.to_string_lossy().to_string(),
             db_path: def_db.to_string_lossy().to_string(),
             note_count: def_count,
-            is_active: active == "default",
+            is_active: active.eq_ignore_ascii_case("default"),
         });
 
         // 2. Custom path projects
         for (id, path_str) in custom_paths.iter() {
-            if id == "default" {
+            if id.eq_ignore_ascii_case("default") {
                 continue;
             }
             let p = PathBuf::from(path_str);
             let name = names.get(id).cloned().unwrap_or_else(|| id.clone());
-            let db_path = p.join("index.db").to_string_lossy().to_string();
-            let count = count_notes_in_dir(&p);
+            let db_path_buf = p.join("index.db");
+            let count = self.get_fast_project_count(id, &p, &db_path_buf).await;
 
             list.push(ProjectInfo {
                 id: id.clone(),
                 name,
                 path: p.to_string_lossy().to_string(),
-                db_path,
+                db_path: db_path_buf.to_string_lossy().to_string(),
                 note_count: count,
-                is_active: active == *id,
+                is_active: active.eq_ignore_ascii_case(id),
             });
         }
 
@@ -249,8 +338,8 @@ impl VaultManager {
                     let folder_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     if folder_name.is_empty()
                         || folder_name.starts_with('.')
-                        || folder_name == "default"
-                        || custom_paths.contains_key(folder_name)
+                        || folder_name.eq_ignore_ascii_case("default")
+                        || custom_paths.keys().any(|k| k.eq_ignore_ascii_case(folder_name))
                     {
                         continue;
                     }
@@ -260,16 +349,16 @@ impl VaultManager {
                         .get(&id)
                         .cloned()
                         .unwrap_or_else(|| folder_name.to_string());
-                    let db_path = path.join("index.db").to_string_lossy().to_string();
-                    let count = count_notes_in_dir(&path);
+                    let db_path_buf = path.join("index.db");
+                    let count = self.get_fast_project_count(&id, &path, &db_path_buf).await;
 
                     list.push(ProjectInfo {
                         id: id.clone(),
                         name,
                         path: path.to_string_lossy().to_string(),
-                        db_path,
+                        db_path: db_path_buf.to_string_lossy().to_string(),
                         note_count: count,
-                        is_active: active == id,
+                        is_active: active.eq_ignore_ascii_case(&id),
                     });
                 }
             }
@@ -279,19 +368,15 @@ impl VaultManager {
     }
 
     pub async fn switch_project(&self, project_id: &str) -> Result<ProjectInfo, String> {
-        let raw = project_id.trim();
-        let target_id = if raw.is_empty() || raw.eq_ignore_ascii_case("default") {
-            "default".to_string()
-        } else {
-            // Find existing project by id (case-insensitive) or slug
-            let clean = sanitize_project_id(raw);
-            let custom_paths = self.custom_paths.read().await;
-            if let Some((id, _)) = custom_paths.iter().find(|(k, _)| k.eq_ignore_ascii_case(raw) || k.eq_ignore_ascii_case(&clean)) {
-                id.clone()
-            } else {
-                clean
-            }
-        };
+        self.switch_project_with_handle(project_id, None).await
+    }
+
+    pub async fn switch_project_with_handle(
+        &self,
+        project_id: &str,
+        app_handle: Option<tauri::AppHandle>,
+    ) -> Result<ProjectInfo, String> {
+        let target_id = self.resolve_canonical_id(project_id).await;
 
         // 1. Update active project in memory and persist immediately
         {
@@ -303,14 +388,35 @@ impl VaultManager {
 
         // 2. Ensure engine is cached
         let engine = self.get_or_create_engine(&target_id).await;
+        let initial_count = engine.cached_count();
 
-        // 3. Sync vault in the background so the user interface never freezes
+        // 3. Sync vault in the background:
+        //    If the project already has indexed records in SQLite, yield for 200ms first so
+        //    the frontend's immediate get_graph / list_notes / list_code_files queries read
+        //    the existing DB in <5ms with zero lock contention!
         let engine_clone = Arc::clone(&engine);
+        let counts_cache = Arc::clone(&self.cached_counts);
+        let tid_for_bg = target_id.clone();
         tokio::spawn(async move {
-            let _ = engine_clone.sync_vault().await;
+            if initial_count > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            if let Ok(changed) = engine_clone.sync_vault_with_handle(app_handle.as_ref()).await {
+                let updated_total = engine_clone.cached_count();
+                {
+                    let mut counts = counts_cache.write().await;
+                    counts.insert(tid_for_bg, updated_total);
+                }
+                if let Some(handle) = app_handle {
+                    if initial_count == 0 || changed > 0 {
+                        use tauri::Emitter;
+                        let _ = handle.emit("vault-sync-complete", changed);
+                    }
+                }
+            }
         });
 
-        // 4. Return project info immediately
+        // 4. Return project info immediately in O(1)
         self.get_project_info(&target_id).await
     }
 
@@ -318,6 +424,15 @@ impl VaultManager {
         &self,
         name: &str,
         custom_path: Option<String>,
+    ) -> Result<ProjectInfo, String> {
+        self.create_project_with_handle(name, custom_path, None).await
+    }
+
+    pub async fn create_project_with_handle(
+        &self,
+        name: &str,
+        custom_path: Option<String>,
+        app_handle: Option<tauri::AppHandle>,
     ) -> Result<ProjectInfo, String> {
         let clean_name = name.trim();
         if clean_name.is_empty() {
@@ -352,8 +467,8 @@ impl VaultManager {
 
         let (vault_path, _) = self.resolve_project_paths(&slug).await;
 
-        // If folder doesn't have any markdown files, create an initial starter note
-        let existing_count = count_notes_in_dir(&vault_path);
+        // If folder doesn't have any markdown or code files at top levels, create an initial starter note
+        let existing_count = count_notes_in_dir_bounded(&vault_path);
         if existing_count == 0 {
             let starter_note = vault_path.join(format!("{}.md", clean_name));
             if !starter_note.exists() {
@@ -366,7 +481,7 @@ impl VaultManager {
         }
 
         self.save_meta().await;
-        self.switch_project(&slug).await
+        self.switch_project_with_handle(&slug, app_handle).await
     }
 
     /// Checks whether directory `target_dir` is already associated with an existing project (by canonical path).
@@ -473,29 +588,45 @@ impl VaultManager {
     }
 
     pub async fn get_project_info(&self, project_id: &str) -> Result<ProjectInfo, String> {
-        let clean = sanitize_project_id(project_id);
-        let projects = self.list_projects().await;
-        if let Some(p) = projects.into_iter().find(|p| {
-            p.id.eq_ignore_ascii_case(project_id) || p.id.eq_ignore_ascii_case(&clean)
-        }) {
-            return Ok(p);
-        }
-        // Fallback to default
-        let def_list = self.list_projects().await;
-        def_list
-            .into_iter()
-            .find(|p| p.id == "default")
-            .ok_or_else(|| format!("Project '{}' not found", project_id))
+        let canonical_id = self.resolve_canonical_id(project_id).await;
+        let active = self.active_project_id().await;
+        let (vault_path, db_path) = self.resolve_project_paths(&canonical_id).await;
+        let count = self
+            .get_fast_project_count(&canonical_id, &vault_path, &db_path)
+            .await;
+        let names = self.custom_names.read().await;
+        let name = if canonical_id == "default" {
+            names
+                .get("default")
+                .cloned()
+                .unwrap_or_else(|| "Principal".to_string())
+        } else {
+            names
+                .get(&canonical_id)
+                .cloned()
+                .unwrap_or_else(|| canonical_id.clone())
+        };
+
+        Ok(ProjectInfo {
+            id: canonical_id.clone(),
+            name,
+            path: vault_path.to_string_lossy().to_string(),
+            db_path: db_path.to_string_lossy().to_string(),
+            note_count: count,
+            is_active: active.eq_ignore_ascii_case(&canonical_id),
+        })
     }
 
     async fn save_meta(&self) {
         let active = self.active_project_id().await;
         let names = self.custom_names.read().await.clone();
         let custom_paths = self.custom_paths.read().await.clone();
+        let cached_counts = self.cached_counts.read().await.clone();
         let meta = ProjectsMeta {
             active_project: active,
             custom_names: names,
             custom_paths,
+            cached_counts,
         };
 
         let vaults_dir = self.base_dir.join("vaults");
@@ -507,13 +638,17 @@ impl VaultManager {
     }
 }
 
-fn count_notes_in_dir(dir: &Path) -> usize {
+fn count_notes_in_dir_bounded(dir: &Path) -> usize {
     if !dir.exists() {
         return 0;
     }
     walkdir::WalkDir::new(dir)
+        .max_depth(2)
         .into_iter()
         .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
             let name = e.file_name().to_string_lossy();
             !name.starts_with('.')
                 && name != "node_modules"
@@ -522,10 +657,15 @@ fn count_notes_in_dir(dir: &Path) -> usize {
                 && name != "build"
                 && name != ".fastembed_cache"
                 && name != "vendor"
+                && name != "__pycache__"
+                && name != "venv"
         })
         .filter_map(|e| e.ok())
+        .take(200)
         .filter(|e| {
-            e.path().is_file() && e.path().extension().and_then(|s| s.to_str()) == Some("md")
+            e.file_type().is_file()
+                && (e.path().extension().and_then(|s| s.to_str()) == Some("md")
+                    || super::code::is_supported_code_file(e.path()))
         })
         .count()
 }

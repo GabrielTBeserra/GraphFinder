@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
   fetchGraph,
@@ -68,6 +68,7 @@ export const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null);
+  const loadGenRef = useRef<number>(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [glowingNode, setGlowingNode] = useState<{ id: string; timestamp: number } | null>(null);
   const [engineReady, setEngineReady] = useState<boolean>(false);
@@ -182,12 +183,15 @@ export const App: React.FC = () => {
   }, []);
 
   const loadData = useCallback(async () => {
+    const gen = ++loadGenRef.current;
     try {
       const [gRes, nRes, cRes] = await Promise.allSettled([
         fetchGraph(),
         fetchNotes(),
         listCodeFiles(),
       ]);
+
+      if (gen !== loadGenRef.current) return;
 
       if (gRes.status === 'fulfilled') setGraphData(gRes.value);
       if (nRes.status === 'fulfilled') setNotes(nRes.value);
@@ -319,6 +323,7 @@ export const App: React.FC = () => {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       listen<number>('vault-sync-complete', (event) => {
         loadData();
+        loadProjects();
         if (event.payload > 0) {
           showToast(`${event.payload} files synchronized in background`, 'info');
         }
@@ -419,12 +424,31 @@ export const App: React.FC = () => {
 
   const handleSwitchProject = async (projectId: string) => {
     try {
-      const project = await switchProject(projectId);
-      setActiveProject(project);
+      loadGenRef.current += 1;
+      const optimistic = projects.find((p) => p.id.toLowerCase() === projectId.toLowerCase());
+      if (optimistic) {
+        setActiveProject({ ...optimistic, is_active: true });
+      }
       setSelectedNoteId(null);
       setActiveNote(null);
       setSelectedCodePath(null);
+      setSelectedCodeSymbol(null);
+      setIsEditorOpen(false);
       setIsCodeInspectorOpen(false);
+      setChunkResults([]);
+      setCodeChunkResults([]);
+      setGraphData({ nodes: [], links: [] });
+      setNotes([]);
+      setCodeFiles([]);
+
+      const project = await switchProject(projectId);
+      setActiveProject(project);
+      setProjects((prev) =>
+        prev.map((p) => ({
+          ...p,
+          is_active: p.id.toLowerCase() === project.id.toLowerCase(),
+        }))
+      );
       showToast(`Active project: ${project.name}`);
       await Promise.allSettled([loadData(), loadProjects()]);
     } catch (err) {
@@ -435,15 +459,23 @@ export const App: React.FC = () => {
 
   const handleCreateProject = async (name: string, path?: string) => {
     try {
-      const project = await createProject(name, path);
-      setActiveProject(project);
+      loadGenRef.current += 1;
       setSelectedNoteId(null);
       setActiveNote(null);
       setSelectedCodePath(null);
+      setSelectedCodeSymbol(null);
+      setIsEditorOpen(false);
       setIsCodeInspectorOpen(false);
+      setChunkResults([]);
+      setCodeChunkResults([]);
+      setGraphData({ nodes: [], links: [] });
+      setNotes([]);
+      setCodeFiles([]);
+
+      const project = await createProject(name, path);
+      setActiveProject(project);
       showToast(`New project "${project.name}" created successfully!`);
-      await loadData();
-      await loadProjects();
+      await Promise.allSettled([loadData(), loadProjects()]);
     } catch (err) {
       console.error('Error creating project:', err);
       throw err;
@@ -679,6 +711,7 @@ export const App: React.FC = () => {
         }`}
       >
         <Sidebar
+          projectId={activeProject?.id || 'default'}
           notes={notes}
           codeFiles={codeFiles}
           selectedNoteId={selectedNoteId}
@@ -702,6 +735,7 @@ export const App: React.FC = () => {
           }`}
         >
           <GraphView
+            projectId={activeProject?.id || 'default'}
             graphData={graphData}
             selectedNodeId={selectedNoteId}
             onSelectNode={handleSelectNote}

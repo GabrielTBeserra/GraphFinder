@@ -64,9 +64,6 @@ pub fn get_language_from_ext(ext: &str) -> Option<&'static str> {
         "swift" => Some("swift"),
         "html" | "htm" => Some("html"),
         "css" | "scss" | "sass" | "less" => Some("css"),
-        "json" => Some("json"),
-        "yaml" | "yml" => Some("yaml"),
-        "toml" => Some("toml"),
         "sql" => Some("sql"),
         "sh" | "bash" | "zsh" => Some("shell"),
         _ => None,
@@ -74,6 +71,23 @@ pub fn get_language_from_ext(ext: &str) -> Option<&'static str> {
 }
 
 pub fn is_supported_code_file(path: &Path) -> bool {
+    let file_name = match path.file_name().and_then(|s| s.to_str()) {
+        Some(n) => n.to_lowercase(),
+        None => return false,
+    };
+    if file_name.ends_with(".min.js")
+        || file_name.ends_with(".min.css")
+        || file_name.ends_with(".bundle.js")
+        || file_name.ends_with(".chunk.js")
+        || file_name.ends_with(".d.ts")
+        || file_name.ends_with(".map")
+        || file_name.ends_with(".generated.ts")
+        || file_name.ends_with(".generated.js")
+        || file_name.ends_with(".pb.go")
+        || file_name.ends_with("_pb2.py")
+    {
+        return false;
+    }
     if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
         get_language_from_ext(ext).is_some()
     } else {
@@ -1389,7 +1403,7 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
         let mut prev_sym: Option<String> = None;
 
         for (sym_idx, sym_name) in symbol_boundaries {
-            let min_gap = if prev_sym.is_some() { 3 } else { 15 };
+            let min_gap = if prev_sym.is_some() { 18 } else { 15 };
             if sym_idx > prev_idx && sym_idx - prev_idx >= min_gap {
                 let slice = lines[prev_idx..sym_idx].join("\n");
                 let token_estimate = estimate_code_tokens(&slice);
@@ -1426,12 +1440,12 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
             });
         }
     } else {
-        // Fallback: sliding window of ~60 lines with 10 lines overlap
-        let window_size = 60;
-        let step = 50;
+        // Fallback: sliding window of ~100 lines with 10 lines overlap
+        let window_size = 100;
+        let step = 90;
         let mut start = 0;
 
-        while start < lines.len() {
+        while start < lines.len() && chunks.len() < 20 {
             let end = (start + window_size).min(lines.len());
             let slice = lines[start..end].join("\n");
             let token_estimate = estimate_code_tokens(&slice);
@@ -1450,6 +1464,10 @@ pub fn chunk_code_file(_path: &str, content: &str) -> Vec<CodeChunk> {
             }
             start += step;
         }
+    }
+
+    if chunks.len() > 24 {
+        chunks.truncate(24);
     }
 
     // If no chunks generated, fallback to 1 chunk

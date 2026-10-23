@@ -305,7 +305,11 @@ impl GraphFinderMcpServer {
     /// Creates a new isolated project with dedicated Markdown vault and SQLite vector index.
     #[tool(description = "Creates a new isolated project with dedicated Markdown vault and SQLite vector index.")]
     async fn create_project(&self, Parameters(args): Parameters<CreateProjectArgs>) -> Result<CallToolResult, McpError> {
-        let project = match self.manager.create_project(&args.name, args.path).await {
+        let project = match self
+            .manager
+            .create_project_with_handle(&args.name, args.path, self.app_handle.clone())
+            .await
+        {
             Ok(p) => p,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to create project: {}", e))])),
         };
@@ -322,7 +326,11 @@ impl GraphFinderMcpServer {
     /// Switches the active default vault for subsequent GraphFinder operations.
     #[tool(description = "Switches the active default vault for subsequent GraphFinder operations.")]
     async fn switch_project(&self, Parameters(args): Parameters<SwitchProjectArgs>) -> Result<CallToolResult, McpError> {
-        let project = match self.manager.switch_project(&args.project_id).await {
+        let project = match self
+            .manager
+            .switch_project_with_handle(&args.project_id, self.app_handle.clone())
+            .await
+        {
             Ok(p) => p,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to switch project: {}", e))])),
         };

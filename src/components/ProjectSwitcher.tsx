@@ -97,10 +97,9 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                 <DropdownMenu.Item
                   key={proj.id}
                   onSelect={() => {
-                    onSwitchProject(proj.id);
-                  }}
-                  onClick={() => {
-                    onSwitchProject(proj.id);
+                    if (!isActive) {
+                      onSwitchProject(proj.id);
+                    }
                   }}
                   className={`flex items-center justify-between w-full px-2.5 py-2 rounded-md text-left transition-colors cursor-pointer select-none outline-none ${
                     isActive

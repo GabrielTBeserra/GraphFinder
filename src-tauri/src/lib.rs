@@ -21,21 +21,25 @@ async fn list_projects(manager: State<'_, Arc<VaultManager>>) -> Result<Vec<Proj
 #[tauri::command]
 #[allow(non_snake_case)]
 async fn switch_project(
+    app_handle: tauri::AppHandle,
     project_id: Option<String>,
     projectId: Option<String>,
     manager: State<'_, Arc<VaultManager>>,
 ) -> Result<ProjectInfo, String> {
     let id = project_id.or(projectId).unwrap_or_else(|| "default".to_string());
-    manager.switch_project(&id).await
+    manager.switch_project_with_handle(&id, Some(app_handle)).await
 }
 
 #[tauri::command]
 async fn create_project(
+    app_handle: tauri::AppHandle,
     name: String,
     path: Option<String>,
     manager: State<'_, Arc<VaultManager>>,
 ) -> Result<ProjectInfo, String> {
-    manager.create_project(&name, path).await
+    manager
+        .create_project_with_handle(&name, path, Some(app_handle))
+        .await
 }
 
 #[tauri::command]
@@ -240,11 +244,14 @@ async fn link_notes(
 }
 
 #[tauri::command]
-async fn sync_vault(manager: State<'_, Arc<VaultManager>>) -> Result<usize, String> {
+async fn sync_vault(
+    app_handle: tauri::AppHandle,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<usize, String> {
     manager
         .active_engine()
         .await
-        .sync_vault()
+        .sync_vault_with_handle(Some(&app_handle))
         .await
         .map_err(|e| e.to_string())
 }

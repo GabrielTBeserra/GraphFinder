@@ -222,9 +222,22 @@ impl EmbeddingEngine {
         self.ensure_initialized().await?;
         let model = Arc::clone(&self.model);
         tokio::task::spawn_blocking(move || {
+            let trimmed_texts: Vec<String> = texts
+                .into_iter()
+                .map(|mut s| {
+                    if s.len() > 800 {
+                        let mut end = 800;
+                        while end > 0 && !s.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        s.truncate(end);
+                    }
+                    s
+                })
+                .collect();
             let guard = model.lock().map_err(|e| e.to_string())?;
             let m = guard.as_ref().ok_or("Neural model not loaded")?;
-            let embeddings = m.embed(texts, None)?;
+            let embeddings = m.embed(trimmed_texts, Some(64))?;
             Ok(embeddings)
         })
         .await?

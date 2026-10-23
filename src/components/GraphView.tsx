@@ -21,6 +21,7 @@ import { findPath } from '../services/api';
 import { ArchitecturalReportModal } from './ArchitecturalReportModal';
 
 interface GraphViewProps {
+  projectId?: string;
   graphData: GraphData;
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string) => void;
@@ -183,6 +184,7 @@ function getNodeColor(node: any, isLight: boolean = false, colorMode: 'communiti
 }
 
 export const GraphView: React.FC<GraphViewProps> = ({
+  projectId,
   graphData,
   selectedNodeId,
   onSelectNode,
@@ -193,6 +195,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphInstanceRef = useRef<any>(null);
+  const prevProjectIdRef = useRef<string | undefined>(projectId);
   const [localOnly, setLocalOnly] = useState<boolean>(false);
   const [egoDepth, setEgoDepth] = useState<number>(1);
   const [filterMode, setFilterMode] = useState<'all' | 'notes' | 'code'>('all');
@@ -874,6 +877,22 @@ export const GraphView: React.FC<GraphViewProps> = ({
     recomputeConnected(hoverNodeIdRef.current || selectedNodeId);
   }, [selectedNodeId, recomputeConnected]);
 
+  // Reset filters and camera state when switching projects
+  useEffect(() => {
+    if (prevProjectIdRef.current !== projectId) {
+      prevProjectIdRef.current = projectId;
+      setFilterMode('all');
+      setLocalOnly(false);
+      setPathMode(false);
+      hoverNodeIdRef.current = null;
+      connectedNodeIdsRef.current = new Set();
+      lastRenderedKeyRef.current = '';
+      if (graphInstanceRef.current) {
+        graphInstanceRef.current.graphData({ nodes: [], links: [] });
+      }
+    }
+  }, [projectId]);
+
   // Update data ONLY when nodes/links change or focus/filter mode is toggled
   useEffect(() => {
     if (!graphInstanceRef.current) return;
@@ -913,7 +932,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
       displayData = { nodes: subNodes, links: subLinks };
     }
 
-    const currentKey = `${filterMode}|${localOnly ? `${selectedNodeId}:${egoDepth}` : 'all'}|` +
+    const currentKey = `${projectId || 'default'}|${filterMode}|${localOnly ? `${selectedNodeId}:${egoDepth}` : 'all'}|` +
       displayData.nodes.map((n) => `${n.id}:${n.title}:${n.degree || 0}`).sort().join(';') + '|' +
       displayData.links.map((l) => {
         const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
@@ -955,6 +974,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
       nodes: mergedNodes,
       links: mergedLinks,
     });
+    graphInstanceRef.current.d3ReheatSimulation?.();
 
     if (existingNodesMap.size === 0 && mergedNodes.length > 0) {
       setTimeout(() => {
@@ -963,7 +983,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
         }
       }, 250);
     }
-  }, [graphData, filterMode, localOnly, egoDepth, localOnly ? selectedNodeId : null, recomputeConnected]);
+  }, [projectId, graphData, filterMode, localOnly, egoDepth, localOnly ? selectedNodeId : null, recomputeConnected]);
 
   const handleZoomIn = () => {
     if (graphInstanceRef.current) {

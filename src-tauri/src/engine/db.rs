@@ -436,6 +436,7 @@ impl DbManager {
 
             CREATE INDEX IF NOT EXISTS idx_code_files_path ON code_files(path);
             CREATE INDEX IF NOT EXISTS idx_code_chunks_file ON code_chunks(file_id);
+            CREATE INDEX IF NOT EXISTS idx_code_chunks_symbol ON code_chunks(symbol_name);
             CREATE INDEX IF NOT EXISTS idx_code_links_source ON code_links(source_id);
             CREATE INDEX IF NOT EXISTS idx_code_links_target ON code_links(target_id);
             "#,
@@ -1467,123 +1468,187 @@ impl DbManager {
         vectors: &[Vec<f32>],
         resolved_links: &[(String, String, bool)], // (source_id, target_id, is_external)
     ) -> Result<()> {
+        self.save_code_files_bulk(&[(file, content_hash, mtime, vectors, resolved_links)])
+    }
+
+    pub fn save_code_files_bulk(
+        &mut self,
+        batch: &[(
+            &ParsedCodeFile,
+            &str,
+            i64,
+            &[Vec<f32>],
+            &[(String, String, bool)],
+        )],
+    ) -> Result<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
         let tx = self.conn.transaction()?;
 
-        // 1. Upsert code_files
-        tx.execute(
-            r#"
-            INSERT INTO code_files (id, path, name, extension, language, size_bytes, summary, content_hash, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-            ON CONFLICT(id) DO UPDATE SET
-                path = excluded.path,
-                name = excluded.name,
-                extension = excluded.extension,
-                language = excluded.language,
-                size_bytes = excluded.size_bytes,
-                summary = excluded.summary,
-                content_hash = excluded.content_hash,
-                updated_at = excluded.updated_at
-            "#,
-            params![
-                file.path,
-                file.path,
-                file.name,
-                file.extension,
-                file.language,
-                file.size_bytes as i64,
-                file.summary,
-                content_hash,
-                mtime,
-            ],
-        )?;
-
-        // 2. Update code_fts
-        tx.execute("DELETE FROM code_fts WHERE file_id = ?1", params![file.path])?;
-        tx.execute(
-            "INSERT INTO code_fts (file_id, name, path, language, summary) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![file.path, file.name, file.path, file.language, file.summary],
-        )?;
-
-        // 3. Delete old chunks and chunks_fts
-        tx.execute("DELETE FROM code_chunks WHERE file_id = ?1", params![file.path])?;
-        tx.execute("DELETE FROM code_chunks_fts WHERE file_id = ?1", params![file.path])?;
-
-        // 4. Insert chunks and chunk vectors
-        for (i, chunk) in file.chunks.iter().enumerate() {
-            let chunk_id = if let Some(ref sym) = chunk.symbol_name {
-                format!("{}#{}#{}", file.path, sym, chunk.chunk_index)
-            } else {
-                format!("{}#chunk-{}", file.path, chunk.chunk_index)
-            };
-
-            let vec_bytes = if i < vectors.len() {
-                f32_slice_to_bytes(&vectors[i])
-            } else {
-                Vec::new()
-            };
-
-            tx.execute(
+        {
+            let mut stmt_upsert_file = tx.prepare_cached(
+                r#"
+                INSERT INTO code_files (id, path, name, extension, language, size_bytes, summary, content_hash, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                ON CONFLICT(id) DO UPDATE SET
+                    path = excluded.path,
+                    name = excluded.name,
+                    extension = excluded.extension,
+                    language = excluded.language,
+                    size_bytes = excluded.size_bytes,
+                    summary = excluded.summary,
+                    content_hash = excluded.content_hash,
+                    updated_at = excluded.updated_at
+                "#,
+            )?;
+            let mut stmt_del_fts = tx.prepare_cached("DELETE FROM code_fts WHERE file_id = ?1")?;
+            let mut stmt_ins_fts = tx.prepare_cached(
+                "INSERT INTO code_fts (file_id, name, path, language, summary) VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            let mut stmt_del_chunks =
+                tx.prepare_cached("DELETE FROM code_chunks WHERE file_id = ?1")?;
+            let mut stmt_del_chunks_fts =
+                tx.prepare_cached("DELETE FROM code_chunks_fts WHERE file_id = ?1")?;
+            let mut stmt_ins_chunk = tx.prepare_cached(
                 r#"
                 INSERT OR REPLACE INTO code_chunks (id, file_id, chunk_index, symbol_name, start_line, end_line, content, token_estimate, vector)
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                 "#,
-                params![
-                    chunk_id,
-                    file.path,
-                    chunk.chunk_index as i64,
-                    chunk.symbol_name.as_deref(),
-                    chunk.start_line as i64,
-                    chunk.end_line as i64,
-                    chunk.content,
-                    chunk.token_estimate as i64,
-                    vec_bytes,
-                ],
             )?;
-
-            tx.execute(
+            let mut stmt_ins_chunk_fts = tx.prepare_cached(
                 r#"
                 INSERT INTO code_chunks_fts (chunk_id, file_id, file_name, symbol_name, content)
                 VALUES (?1, ?2, ?3, ?4, ?5)
                 "#,
-                params![
-                    chunk_id,
-                    file.path,
-                    file.name,
-                    chunk.symbol_name.as_deref().unwrap_or(""),
-                    chunk.content,
-                ],
             )?;
-        }
-
-        // 5. Update code_links
-        tx.execute("DELETE FROM code_links WHERE source_id = ?1", params![file.path])?;
-        for (source_id, target_id, is_ext) in resolved_links {
-            tx.execute(
+            let mut stmt_del_links =
+                tx.prepare_cached("DELETE FROM code_links WHERE source_id = ?1")?;
+            let mut stmt_ins_link = tx.prepare_cached(
                 r#"
                 INSERT OR IGNORE INTO code_links (source_id, target_id, raw_import, is_external)
                 VALUES (?1, ?2, ?2, ?3)
                 "#,
-                params![source_id, target_id, if *is_ext { 1 } else { 0 }],
             )?;
-        }
+            let mut stmt_del_calls =
+                tx.prepare_cached("DELETE FROM code_calls WHERE caller_file_id = ?1")?;
+            let mut stmt_ins_call = tx.prepare_cached(
+                r#"
+                INSERT OR IGNORE INTO code_calls (caller_file_id, caller_symbol, callee_name, callee_file_id)
+                VALUES (?1, ?2, ?3, NULL)
+                "#,
+            )?;
 
-        // 6. Update code_calls (Function/Method Call Graph)
-        tx.execute("DELETE FROM code_calls WHERE caller_file_id = ?1", params![file.path])?;
-        for chunk in &file.chunks {
-            let caller_sym = chunk.symbol_name.as_deref().unwrap_or("");
-            for callee in &chunk.calls {
-                tx.execute(
-                    r#"
-                    INSERT OR IGNORE INTO code_calls (caller_file_id, caller_symbol, callee_name, callee_file_id)
-                    VALUES (?1, ?2, ?3, NULL)
-                    "#,
-                    params![file.path, caller_sym, callee],
-                )?;
+            for (file, content_hash, mtime, vectors, resolved_links) in batch {
+                stmt_upsert_file.execute(params![
+                    file.path,
+                    file.path,
+                    file.name,
+                    file.extension,
+                    file.language,
+                    file.size_bytes as i64,
+                    file.summary,
+                    *content_hash,
+                    *mtime,
+                ])?;
+
+                stmt_del_fts.execute(params![file.path])?;
+                stmt_ins_fts.execute(params![
+                    file.path,
+                    file.name,
+                    file.path,
+                    file.language,
+                    file.summary
+                ])?;
+
+                stmt_del_chunks.execute(params![file.path])?;
+                stmt_del_chunks_fts.execute(params![file.path])?;
+
+                for (i, chunk) in file.chunks.iter().enumerate() {
+                    let chunk_id = if let Some(ref sym) = chunk.symbol_name {
+                        format!("{}#{}#{}", file.path, sym, chunk.chunk_index)
+                    } else {
+                        format!("{}#chunk-{}", file.path, chunk.chunk_index)
+                    };
+
+                    let vec_bytes = if i < vectors.len() {
+                        f32_slice_to_bytes(&vectors[i])
+                    } else {
+                        Vec::new()
+                    };
+
+                    stmt_ins_chunk.execute(params![
+                        chunk_id,
+                        file.path,
+                        chunk.chunk_index as i64,
+                        chunk.symbol_name.as_deref(),
+                        chunk.start_line as i64,
+                        chunk.end_line as i64,
+                        chunk.content,
+                        chunk.token_estimate as i64,
+                        vec_bytes,
+                    ])?;
+
+                    stmt_ins_chunk_fts.execute(params![
+                        chunk_id,
+                        file.path,
+                        file.name,
+                        chunk.symbol_name.as_deref().unwrap_or(""),
+                        chunk.content,
+                    ])?;
+                }
+
+                stmt_del_links.execute(params![file.path])?;
+                for (source_id, target_id, is_ext) in *resolved_links {
+                    stmt_ins_link.execute(params![
+                        source_id,
+                        target_id,
+                        if *is_ext { 1 } else { 0 }
+                    ])?;
+                }
+
+                stmt_del_calls.execute(params![file.path])?;
+                for chunk in &file.chunks {
+                    let caller_sym = chunk.symbol_name.as_deref().unwrap_or("");
+                    for callee in &chunk.calls {
+                        stmt_ins_call.execute(params![file.path, caller_sym, callee])?;
+                    }
+                }
             }
         }
 
         tx.commit()?;
         Ok(())
+    }
+
+    /// Fast read-only item count directly from an existing SQLite index.db without initializing schema or locking Engine.
+    pub fn quick_item_count(db_path: &std::path::Path) -> Option<usize> {
+        if !db_path.exists() {
+            return None;
+        }
+        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let conn = Connection::open_with_flags(db_path, flags).ok()?;
+        let _ = conn.busy_timeout(std::time::Duration::from_millis(50));
+        let notes: usize = conn
+            .query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))
+            .unwrap_or(0);
+        let code: usize = conn
+            .query_row("SELECT COUNT(*) FROM code_files", [], |r| r.get(0))
+            .unwrap_or(0);
+        Some(notes + code)
+    }
+
+    pub fn total_indexed_count(&self) -> usize {
+        let notes: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))
+            .unwrap_or(0);
+        let code: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM code_files", [], |r| r.get(0))
+            .unwrap_or(0);
+        notes + code
     }
 
     /// Resolves `callee_file_id` across the indexed codebase by matching `callee_name`
@@ -1609,6 +1674,7 @@ impl DbManager {
                 )
             )
             WHERE callee_file_id IS NULL
+              AND callee_name IN (SELECT symbol_name FROM code_chunks WHERE symbol_name IS NOT NULL)
             "#,
             [],
         )?;
