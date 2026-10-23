@@ -141,6 +141,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const graphInstanceRef = useRef<any>(null);
   const [localOnly, setLocalOnly] = useState<boolean>(false);
+  const [egoDepth, setEgoDepth] = useState<number>(1);
   const [filterMode, setFilterMode] = useState<'all' | 'notes' | 'code'>('all');
   const [colorMode, setColorMode] = useState<'communities' | 'default'>('communities');
   const [highlightGodNodes, setHighlightGodNodes] = useState<boolean>(true);
@@ -153,6 +154,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
   const hoverNodeIdRef = useRef<string | null>(null);
   const connectedNodeIdsRef = useRef<Set<string>>(new Set());
+  const egoDepthRef = useRef<number>(egoDepth);
   const onSelectNodeRef = useRef(onSelectNode);
   const onSelectCodeRef = useRef(onSelectCode);
   const themeRef = useRef<'dark' | 'light'>(theme);
@@ -233,21 +235,46 @@ export const GraphView: React.FC<GraphViewProps> = ({
     return { notes, code, total: graphData.nodes.length, links: graphData.links.length };
   }, [graphData]);
 
-  // Recompute connected node IDs based on active target (hover or selected) - stable callback
-  const recomputeConnected = useCallback((targetId: string | null) => {
+  // Recompute N-hop ego network connected node IDs based on active target (hover or selected)
+  const recomputeConnected = useCallback((targetId: string | null, maxHops?: number) => {
     if (!targetId) {
       connectedNodeIdsRef.current = new Set();
       return;
     }
-    const set = new Set<string>([targetId]);
+    const hops = maxHops ?? egoDepthRef.current;
+    const adj = new Map<string, string[]>();
     for (const link of graphDataRef.current.links) {
-      const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source;
-      const targetLink = typeof link.target === 'object' ? (link.target as any).id : link.target;
-      if (sourceId === targetId) set.add(targetLink);
-      if (targetLink === targetId) set.add(sourceId);
+      const s = typeof link.source === 'object' ? (link.source as any).id : link.source;
+      const t = typeof link.target === 'object' ? (link.target as any).id : link.target;
+      if (!adj.has(s)) adj.set(s, []);
+      if (!adj.has(t)) adj.set(t, []);
+      adj.get(s)!.push(t);
+      adj.get(t)!.push(s);
     }
-    connectedNodeIdsRef.current = set;
+
+    const visited = new Set<string>([targetId]);
+    let frontier = [targetId];
+    for (let d = 0; d < hops && frontier.length > 0; d++) {
+      const nextFrontier: string[] = [];
+      for (const curr of frontier) {
+        const neighbors = adj.get(curr) || [];
+        for (const nb of neighbors) {
+          if (!visited.has(nb)) {
+            visited.add(nb);
+            nextFrontier.push(nb);
+          }
+        }
+      }
+      frontier = nextFrontier;
+    }
+    connectedNodeIdsRef.current = visited;
   }, []);
+
+  useEffect(() => {
+    egoDepthRef.current = egoDepth;
+    recomputeConnected(hoverNodeIdRef.current || selectedNodeIdRef.current, egoDepth);
+    graphInstanceRef.current?.d3ReheatSimulation();
+  }, [egoDepth, recomputeConnected]);
 
   // Handle Glowing Node and Camera Auto-Centering
   useEffect(() => {
@@ -730,7 +757,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
     }
 
     if (localOnly && selectedNodeId) {
-      recomputeConnected(selectedNodeId);
+      recomputeConnected(selectedNodeId, egoDepth);
       const connected = connectedNodeIdsRef.current;
       const subNodes = displayData.nodes.filter((n) => connected.has(n.id));
       const subLinks = displayData.links.filter((l) => {
@@ -741,7 +768,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
       displayData = { nodes: subNodes, links: subLinks };
     }
 
-    const currentKey = `${filterMode}|${localOnly ? selectedNodeId : 'all'}|` +
+    const currentKey = `${filterMode}|${localOnly ? `${selectedNodeId}:${egoDepth}` : 'all'}|` +
       displayData.nodes.map((n) => `${n.id}:${n.title}:${n.degree || 0}`).sort().join(';') + '|' +
       displayData.links.map((l) => {
         const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
@@ -788,7 +815,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
         }
       }, 250);
     }
-  }, [graphData, filterMode, localOnly, localOnly ? selectedNodeId : null, recomputeConnected]);
+  }, [graphData, filterMode, localOnly, egoDepth, localOnly ? selectedNodeId : null, recomputeConnected]);
 
   const handleZoomIn = () => {
     if (graphInstanceRef.current) {
@@ -954,22 +981,52 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
 
-        <button
-          type="button"
-          className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
-            localOnly
-              ? isLight
-                ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
-                : 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
-              : isLight
-              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
-          }`}
-          title={localOnly ? 'Disable Focus (Show Full Graph)' : 'Enable Focus Mode'}
-          onClick={() => setLocalOnly(!localOnly)}
-        >
-          {localOnly ? <Crosshair size={13} weight="bold" /> : <Compass size={13} />}
-        </button>
+        {/* Ego Network (N-Hop Focus) toggle + Dynamic Depth Slider */}
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              localOnly
+                ? isLight
+                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                  : 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
+                : isLight
+                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+            }`}
+            title={localOnly ? 'Disable Ego Network Focus (Show Full Graph)' : 'Enable Ego Network (N-Hop Focus)'}
+            onClick={() => setLocalOnly(!localOnly)}
+          >
+            {localOnly ? <Crosshair size={12} weight="bold" /> : <Compass size={12} />}
+            <span>Ego {egoDepth}H</span>
+          </button>
+
+          {(localOnly || selectedNodeId) && (
+            <div
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[10px] font-mono ${
+                isLight
+                  ? 'bg-slate-100/90 border-slate-200 text-slate-600'
+                  : 'bg-[#090b10]/90 border-[#171b26] text-slate-300'
+              }`}
+              title={`Profundidade da Ego Network: ${egoDepth} salto(s)`}
+            >
+              <span className="text-[9.5px] uppercase tracking-wider opacity-75">Hops</span>
+              <input
+                type="range"
+                min={1}
+                max={5}
+                step={1}
+                value={egoDepth}
+                onChange={(e) => setEgoDepth(Number(e.target.value))}
+                className="w-14 h-1 accent-indigo-500 cursor-pointer"
+                aria-label="Profundidade N-Hop da Ego Network"
+              />
+              <span className={`font-bold ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
+                {egoDepth}
+              </span>
+            </div>
+          )}
+        </div>
 
         <button
           type="button"
@@ -1087,7 +1144,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
         {localOnly && (
           <>
             <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
-            <span className={`font-medium ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>Focus Active</span>
+            <span className={`font-medium ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
+              Ego Network ({egoDepth}-Hop)
+            </span>
           </>
         )}
       </div>

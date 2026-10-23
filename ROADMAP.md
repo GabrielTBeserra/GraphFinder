@@ -47,16 +47,13 @@ Objetivo: Evoluir de expressões regulares (AST-lite) para parsing sintático pr
   - Extração precisa de módulos, `mod`, `use` e `from ... import` para Rust e Python com aliases.
 - [x] **Commit 10: Call Graph inicial a nível de Funções/Métodos**
   - Mapear chamadas entre funções e métodos internos no grafo de código.
-- [ ] **Commit 11: Detecção de Acoplamento Temporal via Git (`co-change`)**
-  - Identificar arquivos que sofrem commit juntos com frequência para revelar dependências ocultas.
-
 ---
 
 ## 🎨 Bloco 4: Visualização e UX do Grafo
 
 Objetivo: Melhorar legibilidade de grafos complexos e fornecer ferramentas de auditoria arquitetural.
 
-- [ ] **Commit 12: Filtro de Ego Network (N-Hop Focus) no `GraphView`**
+- [x] **Commit 12: Filtro de Ego Network (N-Hop Focus) no `GraphView`**
   - Slider dinâmico de profundidade para isolar vizinhanças imediatas de nós selecionados.
 - [ ] **Commit 13: Agrupamento visual por Comunidade LPA**
   - Bounding hulls e clusters coloridos no Canvas ao redor de nós da mesma comunidade Louvain/LPA.
