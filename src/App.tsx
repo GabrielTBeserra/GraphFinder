@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
   fetchGraph,
@@ -31,7 +31,6 @@ import { Sidebar } from './components/Sidebar';
 import { McpModal } from './components/McpModal';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { NewProjectModal } from './components/NewProjectModal';
-import { LoadingScreen } from './components/LoadingScreen';
 import { OmnisearchModal } from './components/OmnisearchModal';
 import {
   ArrowClockwise,
@@ -69,6 +68,7 @@ export const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null);
+  const loadGenRef = useRef<number>(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [glowingNode, setGlowingNode] = useState<{ id: string; timestamp: number } | null>(null);
   const [engineReady, setEngineReady] = useState<boolean>(false);
@@ -183,18 +183,19 @@ export const App: React.FC = () => {
   }, []);
 
   const loadData = useCallback(async () => {
+    const gen = ++loadGenRef.current;
     try {
-      let gData: GraphData = { nodes: [], links: [] };
-      let nData: NoteSummary[] = [];
-      let cFiles: CodeFileRecord[] = [];
+      const [gRes, nRes, cRes] = await Promise.allSettled([
+        fetchGraph(),
+        fetchNotes(),
+        listCodeFiles(),
+      ]);
 
-      try { gData = await fetchGraph(); } catch (e) { console.warn('fetchGraph failed in loadData:', e); }
-      try { nData = await fetchNotes(); } catch (e) { console.warn('fetchNotes failed in loadData:', e); }
-      try { cFiles = await listCodeFiles(); } catch (e) { console.warn('listCodeFiles failed in loadData:', e); }
+      if (gen !== loadGenRef.current) return;
 
-      setGraphData(gData);
-      setNotes(nData);
-      setCodeFiles(cFiles);
+      if (gRes.status === 'fulfilled') setGraphData(gRes.value);
+      if (nRes.status === 'fulfilled') setNotes(nRes.value);
+      if (cRes.status === 'fulfilled') setCodeFiles(cRes.value);
     } catch (err) {
       console.error('Error loading GraphFinder data:', err);
     }
@@ -205,43 +206,87 @@ export const App: React.FC = () => {
 
     async function initApp() {
       try {
-        const engineInfo = await fetchEngineStatus();
-        if (engineInfo.is_ready) {
-          setEngineReady(true);
-        }
-
-        // Fetch data independently so one failure never blocks the others
-        let gData: GraphData = { nodes: [], links: [] };
-        let nData: NoteSummary[] = [];
-        let cFiles: CodeFileRecord[] = [];
-        let pList: ProjectInfo[] = [];
-
-        try { gData = await fetchGraph(); } catch (e) { console.warn('fetchGraph failed:', e); }
-        try { nData = await fetchNotes(); } catch (e) { console.warn('fetchNotes failed:', e); }
-        try { cFiles = await listCodeFiles(); } catch (e) { console.warn('listCodeFiles failed:', e); }
-        try { pList = await fetchProjects(); } catch (e) { console.warn('fetchProjects failed:', e); }
-
-        if (isCancelled) return;
-        setGraphData(gData);
-        setNotes(nData);
-        setCodeFiles(cFiles);
-        setProjects(pList);
-
-        const active = pList.find((p) => p.is_active) || pList[0] || null;
-        setActiveProject(active);
-
-        if (nData.length > 0) {
-          setSelectedNoteId(nData[0].id);
-          setIsEditorOpen(false);
-          try {
-            const firstNote = await fetchNote(nData[0].id);
-            if (!isCancelled && firstNote) {
-              setActiveNote(firstNote);
+        // Check engine status asynchronously without blocking UI data fetch
+        fetchEngineStatus()
+          .then((engineInfo) => {
+            if (!isCancelled && engineInfo.is_ready) {
+              setEngineReady(true);
             }
-          } catch (e) {
-            console.warn('fetchNote failed:', e);
-          }
-        }
+          })
+          .catch(() => {});
+
+        // 1. Fetch projects in parallel and update active project as soon as ready
+        const projectsPromise = fetchProjects()
+          .then((pList) => {
+            if (!isCancelled) {
+              setProjects(pList);
+              const active = pList.find((p) => p.is_active) || pList[0] || null;
+              setActiveProject(active);
+            }
+            return pList;
+          })
+          .catch((e) => {
+            console.warn('fetchProjects failed:', e);
+            return [];
+          });
+
+        // 2. Fetch notes in parallel and set initial active note
+        const notesPromise = fetchNotes()
+          .then(async (nData) => {
+            if (!isCancelled) {
+              setNotes(nData);
+              if (nData.length > 0) {
+                setSelectedNoteId(nData[0].id);
+                setIsEditorOpen(false);
+                try {
+                  const firstNote = await fetchNote(nData[0].id);
+                  if (!isCancelled && firstNote) {
+                    setActiveNote(firstNote);
+                  }
+                } catch (e) {
+                  console.warn('fetchNote failed:', e);
+                }
+              }
+            }
+            return nData;
+          })
+          .catch((e) => {
+            console.warn('fetchNotes failed:', e);
+            return [];
+          });
+
+        // 3. Fetch graph topology in parallel
+        const graphPromise = fetchGraph()
+          .then((gData) => {
+            if (!isCancelled) {
+              setGraphData(gData);
+            }
+            return gData;
+          })
+          .catch((e) => {
+            console.warn('fetchGraph failed:', e);
+            return { nodes: [], links: [] };
+          });
+
+        // 4. Fetch code files in parallel
+        const codeFilesPromise = listCodeFiles()
+          .then((cFiles) => {
+            if (!isCancelled) {
+              setCodeFiles(cFiles);
+            }
+            return cFiles;
+          })
+          .catch((e) => {
+            console.warn('listCodeFiles failed:', e);
+            return [];
+          });
+
+        await Promise.allSettled([
+          projectsPromise,
+          notesPromise,
+          graphPromise,
+          codeFilesPromise,
+        ]);
       } catch (err) {
         console.error('Initialization error:', err);
       }
@@ -278,6 +323,7 @@ export const App: React.FC = () => {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       listen<number>('vault-sync-complete', (event) => {
         loadData();
+        loadProjects();
         if (event.payload > 0) {
           showToast(`${event.payload} files synchronized in background`, 'info');
         }
@@ -378,12 +424,31 @@ export const App: React.FC = () => {
 
   const handleSwitchProject = async (projectId: string) => {
     try {
-      const project = await switchProject(projectId);
-      setActiveProject(project);
+      loadGenRef.current += 1;
+      const optimistic = projects.find((p) => p.id.toLowerCase() === projectId.toLowerCase());
+      if (optimistic) {
+        setActiveProject({ ...optimistic, is_active: true });
+      }
       setSelectedNoteId(null);
       setActiveNote(null);
       setSelectedCodePath(null);
+      setSelectedCodeSymbol(null);
+      setIsEditorOpen(false);
       setIsCodeInspectorOpen(false);
+      setChunkResults([]);
+      setCodeChunkResults([]);
+      setGraphData({ nodes: [], links: [] });
+      setNotes([]);
+      setCodeFiles([]);
+
+      const project = await switchProject(projectId);
+      setActiveProject(project);
+      setProjects((prev) =>
+        prev.map((p) => ({
+          ...p,
+          is_active: p.id.toLowerCase() === project.id.toLowerCase(),
+        }))
+      );
       showToast(`Active project: ${project.name}`);
       await Promise.allSettled([loadData(), loadProjects()]);
     } catch (err) {
@@ -394,15 +459,23 @@ export const App: React.FC = () => {
 
   const handleCreateProject = async (name: string, path?: string) => {
     try {
-      const project = await createProject(name, path);
-      setActiveProject(project);
+      loadGenRef.current += 1;
       setSelectedNoteId(null);
       setActiveNote(null);
       setSelectedCodePath(null);
+      setSelectedCodeSymbol(null);
+      setIsEditorOpen(false);
       setIsCodeInspectorOpen(false);
+      setChunkResults([]);
+      setCodeChunkResults([]);
+      setGraphData({ nodes: [], links: [] });
+      setNotes([]);
+      setCodeFiles([]);
+
+      const project = await createProject(name, path);
+      setActiveProject(project);
       showToast(`New project "${project.name}" created successfully!`);
-      await loadData();
-      await loadProjects();
+      await Promise.allSettled([loadData(), loadProjects()]);
     } catch (err) {
       console.error('Error creating project:', err);
       throw err;
@@ -449,15 +522,7 @@ export const App: React.FC = () => {
     }
   };
 
-  if (!engineReady) {
-    return (
-      <LoadingScreen
-        statusMessage={engineStatusMessage}
-        isError={engineError}
-      />
-    );
-  }
-
+  // Non-blocking boot: UI renders immediately from local SQLite database
   const isLight = theme === 'light';
 
   return (
@@ -542,6 +607,29 @@ export const App: React.FC = () => {
 
         {/* Right Section: Primary Action & Tools */}
         <div className="flex items-center gap-2">
+          {/* Non-blocking Neural Engine Status Indicator */}
+          {!engineReady && (
+            <div
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10.5px] font-medium transition-all ${
+                engineError
+                  ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                  : isLight
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-600 animate-pulse'
+                  : 'bg-indigo-950/40 border-indigo-800/40 text-indigo-400 animate-pulse'
+              }`}
+              title={engineStatusMessage}
+            >
+              <div
+                className={`w-1.5 h-1.5 rounded-full ${
+                  engineError ? 'bg-rose-500' : 'bg-indigo-500'
+                }`}
+              />
+              <span className="truncate max-w-[130px]">
+                {engineError ? 'Engine Error' : 'Neural Warming Up...'}
+              </span>
+            </div>
+          )}
+
           {/* Theme Toggle Button */}
           <button
             type="button"
@@ -623,6 +711,7 @@ export const App: React.FC = () => {
         }`}
       >
         <Sidebar
+          projectId={activeProject?.id || 'default'}
           notes={notes}
           codeFiles={codeFiles}
           selectedNoteId={selectedNoteId}
@@ -646,6 +735,7 @@ export const App: React.FC = () => {
           }`}
         >
           <GraphView
+            projectId={activeProject?.id || 'default'}
             graphData={graphData}
             selectedNodeId={selectedNoteId}
             onSelectNode={handleSelectNote}

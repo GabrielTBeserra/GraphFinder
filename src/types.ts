@@ -150,6 +150,8 @@ export interface SymbolInfo {
   start_line: number;
   end_line: number;
   token_estimate: number;
+  calls?: string[];
+  called_by?: string[];
 }
 
 export interface FileContext {
@@ -170,6 +172,8 @@ export interface CodeDependencies {
   imports: string[];
   imported_by: string[];
   external: string[];
+  outgoing_calls?: string[];
+  incoming_callers?: string[];
 }
 
 export interface CommunityInfo {

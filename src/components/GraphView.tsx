@@ -21,6 +21,7 @@ import { findPath } from '../services/api';
 import { ArchitecturalReportModal } from './ArchitecturalReportModal';
 
 interface GraphViewProps {
+  projectId?: string;
   graphData: GraphData;
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string) => void;
@@ -99,6 +100,59 @@ function hashStringToColor(str: string, isLight: boolean): string {
   return isLight ? VIBRANT_ACCENTS[index].light : VIBRANT_ACCENTS[index].dark;
 }
 
+interface Point2D {
+  x: number;
+  y: number;
+}
+
+function computeConvexHull(points: Point2D[]): Point2D[] {
+  if (points.length <= 2) return points.slice();
+  const sorted = points
+    .slice()
+    .sort((a, b) => (a.x !== b.x ? a.x - b.x : a.y - b.y));
+
+  const cross = (o: Point2D, a: Point2D, b: Point2D) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  const lower: Point2D[] = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  const upper: Point2D[] = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  upper.pop();
+  lower.pop();
+  return lower.concat(upper);
+}
+
+function drawSmoothHull(ctx: CanvasRenderingContext2D, hull: Point2D[]) {
+  if (hull.length < 3) return;
+  ctx.beginPath();
+  const len = hull.length;
+  const firstMidX = (hull[len - 1].x + hull[0].x) / 2;
+  const firstMidY = (hull[len - 1].y + hull[0].y) / 2;
+  ctx.moveTo(firstMidX, firstMidY);
+  for (let i = 0; i < len; i++) {
+    const p1 = hull[i];
+    const p2 = hull[(i + 1) % len];
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    ctx.quadraticCurveTo(p1.x, p1.y, midX, midY);
+  }
+  ctx.closePath();
+}
+
 function getNodeColor(node: any, isLight: boolean = false, colorMode: 'communities' | 'default' = 'communities'): string {
   if (colorMode === 'communities' && typeof node.community === 'number') {
     return COMMUNITY_PALETTE[node.community % COMMUNITY_PALETTE.length];
@@ -130,6 +184,7 @@ function getNodeColor(node: any, isLight: boolean = false, colorMode: 'communiti
 }
 
 export const GraphView: React.FC<GraphViewProps> = ({
+  projectId,
   graphData,
   selectedNodeId,
   onSelectNode,
@@ -140,7 +195,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphInstanceRef = useRef<any>(null);
+  const prevProjectIdRef = useRef<string | undefined>(projectId);
   const [localOnly, setLocalOnly] = useState<boolean>(false);
+  const [egoDepth, setEgoDepth] = useState<number>(1);
   const [filterMode, setFilterMode] = useState<'all' | 'notes' | 'code'>('all');
   const [colorMode, setColorMode] = useState<'communities' | 'default'>('communities');
   const [highlightGodNodes, setHighlightGodNodes] = useState<boolean>(true);
@@ -153,6 +210,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
   const hoverNodeIdRef = useRef<string | null>(null);
   const connectedNodeIdsRef = useRef<Set<string>>(new Set());
+  const egoDepthRef = useRef<number>(egoDepth);
   const onSelectNodeRef = useRef(onSelectNode);
   const onSelectCodeRef = useRef(onSelectCode);
   const themeRef = useRef<'dark' | 'light'>(theme);
@@ -162,15 +220,27 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const pathStartNodeRef = useRef<any | null>(null);
   const pathResultRef = useRef<PathResult | null>(null);
 
+  const requestCanvasRepaint = useCallback(() => {
+    const fg = graphInstanceRef.current;
+    if (!fg) return;
+    try {
+      if (typeof fg.linkColor === 'function') {
+        fg.linkColor(fg.linkColor());
+      }
+    } catch {
+      // ignore repaint errors
+    }
+  }, []);
+
   useEffect(() => {
     colorModeRef.current = colorMode;
-    graphInstanceRef.current?.d3ReheatSimulation();
-  }, [colorMode]);
+    requestCanvasRepaint();
+  }, [colorMode, requestCanvasRepaint]);
 
   useEffect(() => {
     highlightGodNodesRef.current = highlightGodNodes;
-    graphInstanceRef.current?.d3ReheatSimulation();
-  }, [highlightGodNodes]);
+    requestCanvasRepaint();
+  }, [highlightGodNodes, requestCanvasRepaint]);
 
   useEffect(() => {
     pathModeRef.current = pathMode;
@@ -179,29 +249,31 @@ export const GraphView: React.FC<GraphViewProps> = ({
       setPathResult(null);
       pathStartNodeRef.current = null;
       pathResultRef.current = null;
-      graphInstanceRef.current?.d3ReheatSimulation();
+      requestCanvasRepaint();
     }
-  }, [pathMode]);
+  }, [pathMode, requestCanvasRepaint]);
 
   useEffect(() => {
     pathStartNodeRef.current = pathStartNode;
-  }, [pathStartNode]);
+    requestCanvasRepaint();
+  }, [pathStartNode, requestCanvasRepaint]);
 
   useEffect(() => {
     pathResultRef.current = pathResult;
-  }, [pathResult]);
+    requestCanvasRepaint();
+  }, [pathResult, requestCanvasRepaint]);
 
   useEffect(() => {
     themeRef.current = theme;
     if (graphInstanceRef.current) {
       try {
         graphInstanceRef.current.backgroundColor(theme === 'light' ? '#f8fafc' : '#090a0f');
-        graphInstanceRef.current.d3ReheatSimulation();
+        requestCanvasRepaint();
       } catch (err) {
         console.warn('Error updating graph theme:', err);
       }
     }
-  }, [theme]);
+  }, [theme, requestCanvasRepaint]);
 
   // Glowing animation ref
   const glowingStateRef = useRef<{ id: string; startTime: number; duration: number } | null>(null);
@@ -233,21 +305,50 @@ export const GraphView: React.FC<GraphViewProps> = ({
     return { notes, code, total: graphData.nodes.length, links: graphData.links.length };
   }, [graphData]);
 
-  // Recompute connected node IDs based on active target (hover or selected) - stable callback
-  const recomputeConnected = useCallback((targetId: string | null) => {
+  // Recompute N-hop ego network connected node IDs based on active target (hover or selected)
+  const recomputeConnected = useCallback((targetId: string | null, maxHops?: number) => {
     if (!targetId) {
       connectedNodeIdsRef.current = new Set();
       return;
     }
-    const set = new Set<string>([targetId]);
+    const hops = maxHops ?? egoDepthRef.current;
+    const adj = new Map<string, string[]>();
     for (const link of graphDataRef.current.links) {
-      const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source;
-      const targetLink = typeof link.target === 'object' ? (link.target as any).id : link.target;
-      if (sourceId === targetId) set.add(targetLink);
-      if (targetLink === targetId) set.add(sourceId);
+      const s = typeof link.source === 'object' ? (link.source as any).id : link.source;
+      const t = typeof link.target === 'object' ? (link.target as any).id : link.target;
+      if (!adj.has(s)) adj.set(s, []);
+      if (!adj.has(t)) adj.set(t, []);
+      adj.get(s)!.push(t);
+      adj.get(t)!.push(s);
     }
-    connectedNodeIdsRef.current = set;
+
+    const visited = new Set<string>([targetId]);
+    let frontier = [targetId];
+    for (let d = 0; d < hops && frontier.length > 0; d++) {
+      const nextFrontier: string[] = [];
+      for (const curr of frontier) {
+        const neighbors = adj.get(curr) || [];
+        for (const nb of neighbors) {
+          if (!visited.has(nb)) {
+            visited.add(nb);
+            nextFrontier.push(nb);
+          }
+        }
+      }
+      frontier = nextFrontier;
+    }
+    connectedNodeIdsRef.current = visited;
   }, []);
+
+  useEffect(() => {
+    egoDepthRef.current = egoDepth;
+    recomputeConnected(hoverNodeIdRef.current || selectedNodeIdRef.current, egoDepth);
+    if (localOnly) {
+      graphInstanceRef.current?.d3ReheatSimulation();
+    } else {
+      requestCanvasRepaint();
+    }
+  }, [egoDepth, localOnly, recomputeConnected, requestCanvasRepaint]);
 
   // Handle Glowing Node and Camera Auto-Centering
   useEffect(() => {
@@ -363,6 +464,72 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const connected = connectedNodeIdsRef.current;
         if (connected.has(s) && connected.has(t)) return 2.2;
         return 1.2;
+      })
+      .onRenderFramePre((ctx: CanvasRenderingContext2D, globalScale: number) => {
+        if (colorModeRef.current !== 'communities' || !graphInstanceRef.current) return;
+        const currentData = graphInstanceRef.current.graphData();
+        const nodes: any[] = currentData?.nodes || [];
+        if (nodes.length === 0) return;
+
+        const isLight = themeRef.current === 'light';
+        const connected = connectedNodeIdsRef.current;
+        const groups = new Map<number, any[]>();
+
+        for (const n of nodes) {
+          if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
+          if (!groups.has(n.community)) groups.set(n.community, []);
+          groups.get(n.community)!.push(n);
+        }
+
+        const padRadius = 26;
+        const angles = [0, Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4, Math.PI, (5 * Math.PI) / 4, (3 * Math.PI) / 2, (7 * Math.PI) / 4];
+
+        groups.forEach((commNodes, commId) => {
+          if (commNodes.length < 2) return;
+
+          const hasActiveFocus = connected.size > 0;
+          const anyConnected = hasActiveFocus && commNodes.some((n) => connected.has(n.id));
+          if (hasActiveFocus && !anyConnected) return;
+
+          const color = COMMUNITY_PALETTE[commId % COMMUNITY_PALETTE.length];
+          const paddedPoints: Point2D[] = [];
+          let minY = Infinity;
+          let sumX = 0;
+
+          for (const n of commNodes) {
+            sumX += n.x;
+            if (n.y - padRadius < minY) minY = n.y - padRadius;
+            for (const a of angles) {
+              paddedPoints.push({
+                x: n.x + Math.cos(a) * padRadius,
+                y: n.y + Math.sin(a) * padRadius,
+              });
+            }
+          }
+
+          const hull = computeConvexHull(paddedPoints);
+          if (hull.length < 3) return;
+
+          ctx.save();
+          drawSmoothHull(ctx, hull);
+          ctx.fillStyle = isLight ? `${color}14` : `${color}12`;
+          ctx.fill();
+          ctx.lineWidth = Math.max(1 / globalScale, 0.8);
+          ctx.setLineDash([5 / globalScale, 4 / globalScale]);
+          ctx.strokeStyle = isLight ? `${color}45` : `${color}38`;
+          ctx.stroke();
+
+          if (globalScale > 0.45) {
+            const centerX = sumX / commNodes.length;
+            const fontSize = Math.max(9.5 / globalScale, 8);
+            ctx.font = `600 ${fontSize}px 'Plus Jakarta Sans', monospace, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillStyle = isLight ? `${color}cc` : `${color}aa`;
+            ctx.fillText(`Cluster #${commId} (${commNodes.length})`, centerX, minY - 4 / globalScale);
+          }
+          ctx.restore();
+        });
       })
       .nodeCanvasObject((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
         if (!node || !isFinite(node.x) || !isFinite(node.y)) return;
@@ -663,6 +830,32 @@ export const GraphView: React.FC<GraphViewProps> = ({
     // Forces configuration
     graph.d3Force('charge')?.strength(-160);
     graph.d3Force('link')?.distance(65);
+    graph.d3Force('cluster', (alpha: number) => {
+      if (colorModeRef.current !== 'communities' || !graphInstanceRef.current) return;
+      const nodes: any[] = graphInstanceRef.current.graphData()?.nodes || [];
+      const centroids = new Map<number, { x: number; y: number; count: number }>();
+      for (const n of nodes) {
+        if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
+        const c = centroids.get(n.community) || { x: 0, y: 0, count: 0 };
+        c.x += n.x;
+        c.y += n.y;
+        c.count += 1;
+        centroids.set(n.community, c);
+      }
+      centroids.forEach((c) => {
+        c.x /= c.count;
+        c.y /= c.count;
+      });
+      const strength = 0.12 * alpha;
+      for (const n of nodes) {
+        if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
+        const c = centroids.get(n.community);
+        if (c && c.count > 1) {
+          n.vx = (n.vx || 0) + (c.x - n.x) * strength;
+          n.vy = (n.vy || 0) + (c.y - n.y) * strength;
+        }
+      }
+    });
 
     graphInstanceRef.current = graph;
 
@@ -702,6 +895,22 @@ export const GraphView: React.FC<GraphViewProps> = ({
     recomputeConnected(hoverNodeIdRef.current || selectedNodeId);
   }, [selectedNodeId, recomputeConnected]);
 
+  // Reset filters and camera state when switching projects
+  useEffect(() => {
+    if (prevProjectIdRef.current !== projectId) {
+      prevProjectIdRef.current = projectId;
+      setFilterMode('all');
+      setLocalOnly(false);
+      setPathMode(false);
+      hoverNodeIdRef.current = null;
+      connectedNodeIdsRef.current = new Set();
+      lastRenderedKeyRef.current = '';
+      if (graphInstanceRef.current) {
+        graphInstanceRef.current.graphData({ nodes: [], links: [] });
+      }
+    }
+  }, [projectId]);
+
   // Update data ONLY when nodes/links change or focus/filter mode is toggled
   useEffect(() => {
     if (!graphInstanceRef.current) return;
@@ -730,7 +939,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
     }
 
     if (localOnly && selectedNodeId) {
-      recomputeConnected(selectedNodeId);
+      recomputeConnected(selectedNodeId, egoDepth);
       const connected = connectedNodeIdsRef.current;
       const subNodes = displayData.nodes.filter((n) => connected.has(n.id));
       const subLinks = displayData.links.filter((l) => {
@@ -741,7 +950,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
       displayData = { nodes: subNodes, links: subLinks };
     }
 
-    const currentKey = `${filterMode}|${localOnly ? selectedNodeId : 'all'}|` +
+    const currentKey = `${projectId || 'default'}|${filterMode}|${localOnly ? `${selectedNodeId}:${egoDepth}` : 'all'}|` +
       displayData.nodes.map((n) => `${n.id}:${n.title}:${n.degree || 0}`).sort().join(';') + '|' +
       displayData.links.map((l) => {
         const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
@@ -765,6 +974,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
         existing.degree = n.degree;
         existing.node_type = n.node_type;
         existing.path = n.path;
+        existing.community = n.community;
+        existing.is_god_node = n.is_god_node;
+        existing.centrality = n.centrality;
         return existing;
       }
       return { ...n };
@@ -780,6 +992,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
       nodes: mergedNodes,
       links: mergedLinks,
     });
+    graphInstanceRef.current.d3ReheatSimulation?.();
 
     if (existingNodesMap.size === 0 && mergedNodes.length > 0) {
       setTimeout(() => {
@@ -788,7 +1001,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
         }
       }, 250);
     }
-  }, [graphData, filterMode, localOnly, localOnly ? selectedNodeId : null, recomputeConnected]);
+  }, [projectId, graphData, filterMode, localOnly, egoDepth, localOnly ? selectedNodeId : null, recomputeConnected]);
 
   const handleZoomIn = () => {
     if (graphInstanceRef.current) {
@@ -954,22 +1167,52 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
 
-        <button
-          type="button"
-          className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
-            localOnly
-              ? isLight
-                ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
-                : 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
-              : isLight
-              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
-          }`}
-          title={localOnly ? 'Disable Focus (Show Full Graph)' : 'Enable Focus Mode'}
-          onClick={() => setLocalOnly(!localOnly)}
-        >
-          {localOnly ? <Crosshair size={13} weight="bold" /> : <Compass size={13} />}
-        </button>
+        {/* Ego Network (N-Hop Focus) toggle + Dynamic Depth Slider */}
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              localOnly
+                ? isLight
+                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                  : 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
+                : isLight
+                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+            }`}
+            title={localOnly ? 'Disable Ego Network Focus (Show Full Graph)' : 'Enable Ego Network (N-Hop Focus)'}
+            onClick={() => setLocalOnly(!localOnly)}
+          >
+            {localOnly ? <Crosshair size={12} weight="bold" /> : <Compass size={12} />}
+            <span>Ego {egoDepth}H</span>
+          </button>
+
+          {(localOnly || selectedNodeId) && (
+            <div
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[10px] font-mono ${
+                isLight
+                  ? 'bg-slate-100/90 border-slate-200 text-slate-600'
+                  : 'bg-[#090b10]/90 border-[#171b26] text-slate-300'
+              }`}
+              title={`Profundidade da Ego Network: ${egoDepth} salto(s)`}
+            >
+              <span className="text-[9.5px] uppercase tracking-wider opacity-75">Hops</span>
+              <input
+                type="range"
+                min={1}
+                max={5}
+                step={1}
+                value={egoDepth}
+                onChange={(e) => setEgoDepth(Number(e.target.value))}
+                className="w-14 h-1 accent-indigo-500 cursor-pointer"
+                aria-label="Profundidade N-Hop da Ego Network"
+              />
+              <span className={`font-bold ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
+                {egoDepth}
+              </span>
+            </div>
+          )}
+        </div>
 
         <button
           type="button"
@@ -1087,7 +1330,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
         {localOnly && (
           <>
             <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
-            <span className={`font-medium ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>Focus Active</span>
+            <span className={`font-medium ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
+              Ego Network ({egoDepth}-Hop)
+            </span>
           </>
         )}
       </div>

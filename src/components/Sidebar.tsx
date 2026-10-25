@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   MagnifyingGlass,
   Plus,
@@ -17,6 +17,7 @@ import type { ChunkHit, CodeChunkHit, CodeFileRecord, NoteSummary } from '../typ
 import { getLanguageStyle } from './CodeInspector';
 
 interface SidebarProps {
+  projectId?: string;
   notes: NoteSummary[];
   codeFiles?: CodeFileRecord[];
   selectedNoteId: string | null;
@@ -35,6 +36,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  projectId,
   notes,
   codeFiles = [],
   selectedNoteId,
@@ -57,6 +59,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [codeLanguageFilter, setCodeLanguageFilter] = useState<string | null>(null);
   const [isSemanticView, setIsSemanticView] = useState(false);
+
+  useEffect(() => {
+    setSearchTerm('');
+    setSelectedTag(null);
+    setCodeLanguageFilter(null);
+    setIsSemanticView(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (notes.length === 0 && codeFiles.length > 0) {
+      setMode('code');
+    } else if (codeFiles.length === 0 && notes.length > 0) {
+      setMode('notes');
+    }
+  }, [projectId, notes.length, codeFiles.length]);
 
   const tagCounts = useMemo(() => {
     const map = new Map<string, number>();

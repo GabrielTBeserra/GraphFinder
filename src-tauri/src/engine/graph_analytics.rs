@@ -388,6 +388,9 @@ impl GraphAnalyticsEngine {
 
         for u in 0..n {
             for (v, _) in &self.adj_out[u] {
+                if *v == u {
+                    continue;
+                }
                 // Check direct 2-cycle: u -> v and v -> u
                 if self.adj_out[*v].iter().any(|(w, _)| *w == u) {
                     let mut pair = vec![self.nodes[u].id.clone(), self.nodes[*v].id.clone()];
@@ -398,6 +401,29 @@ impl GraphAnalyticsEngine {
                             nodes: vec![self.nodes[u].title.clone(), self.nodes[*v].title.clone()],
                             length: 2,
                         });
+                    }
+                } else {
+                    // Check 3-cycle: u -> v -> w -> u
+                    for (w, _) in &self.adj_out[*v] {
+                        if *w != u && *w != *v && self.adj_out[*w].iter().any(|(x, _)| *x == u) {
+                            let mut triad = vec![
+                                self.nodes[u].id.clone(),
+                                self.nodes[*v].id.clone(),
+                                self.nodes[*w].id.clone(),
+                            ];
+                            triad.sort();
+                            let key = triad.join("<->");
+                            if seen_cycles.insert(key) {
+                                cycles.push(DependencyCycle {
+                                    nodes: vec![
+                                        self.nodes[u].title.clone(),
+                                        self.nodes[*v].title.clone(),
+                                        self.nodes[*w].title.clone(),
+                                    ],
+                                    length: 3,
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -1435,5 +1461,146 @@ impl GraphAnalyticsEngine {
             .replace("{{TOTAL_NODES}}", &report.total_nodes.to_string())
             .replace("{{TOTAL_EDGES}}", &report.total_edges.to_string())
             .replace("{{DATA_JSON}}", &json_data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::db::GraphLink;
+
+    fn make_node(id: &str, title: &str, node_type: &str) -> GraphNode {
+        GraphNode {
+            id: id.to_string(),
+            title: title.to_string(),
+            tags: vec![],
+            degree: 0,
+            node_type: node_type.to_string(),
+            path: Some(id.to_string()),
+            community: None,
+            is_god_node: false,
+            centrality: 0.0,
+        }
+    }
+
+    fn make_link(source: &str, target: &str, label: &str) -> GraphLink {
+        GraphLink {
+            source: source.to_string(),
+            target: target.to_string(),
+            label: Some(label.to_string()),
+        }
+    }
+
+    #[test]
+    fn test_lpa_communities_and_god_nodes() {
+        let nodes = vec![
+            make_node("hub.rs", "hub.rs", "code"),
+            make_node("a1.rs", "a1.rs", "code"),
+            make_node("a2.rs", "a2.rs", "code"),
+            make_node("b1.md", "Note B1", "note"),
+            make_node("b2.md", "Note B2", "note"),
+            make_node("b3.md", "Note B3", "note"),
+            make_node("orphan.md", "Orphan", "note"),
+        ];
+        let links = vec![
+            make_link("a1.rs", "hub.rs", "import"),
+            make_link("a2.rs", "hub.rs", "import"),
+            make_link("a1.rs", "a2.rs", "import"),
+            make_link("b1.md", "b2.md", "wikilink"),
+            make_link("b2.md", "b3.md", "wikilink"),
+            make_link("b3.md", "b1.md", "wikilink"),
+            make_link("b1.md", "hub.rs", "wikilink"),
+        ];
+        let graph = GraphData { nodes, links };
+        let engine = GraphAnalyticsEngine::new(&graph, HashMap::new());
+        let report = engine.analyze();
+
+        assert_eq!(report.total_nodes, 7);
+        assert_eq!(report.total_edges, 7);
+        assert!(report.communities.len() >= 2);
+        assert_eq!(report.isolated_nodes, vec!["Orphan"]);
+        assert!(
+            report.god_nodes.iter().any(|g| g.id == "hub.rs" && g.role == "Foundation / Core Dependency"),
+            "Expected hub.rs to be classified as Foundation / Core Dependency God Node, got: {:?}",
+            report.god_nodes
+        );
+    }
+
+    #[test]
+    fn test_dependency_cycle_detection() {
+        let nodes = vec![
+            make_node("a.ts", "a.ts", "code"),
+            make_node("b.ts", "b.ts", "code"),
+            make_node("c.ts", "c.ts", "code"),
+            make_node("d.ts", "d.ts", "code"),
+            make_node("e.ts", "e.ts", "code"),
+        ];
+        let links = vec![
+            // 2-cycle: a <-> b
+            make_link("a.ts", "b.ts", "import"),
+            make_link("b.ts", "a.ts", "import"),
+            // 3-cycle: c -> d -> e -> c
+            make_link("c.ts", "d.ts", "import"),
+            make_link("d.ts", "e.ts", "import"),
+            make_link("e.ts", "c.ts", "import"),
+        ];
+        let graph = GraphData { nodes, links };
+        let engine = GraphAnalyticsEngine::new(&graph, HashMap::new());
+        let report = engine.analyze();
+
+        assert!(report.cycles.iter().any(|c| c.length == 2));
+        assert!(report.cycles.iter().any(|c| c.length == 3));
+    }
+
+    #[test]
+    fn test_find_path_directed_and_undirected() {
+        let nodes = vec![
+            make_node("App.tsx", "App.tsx", "code"),
+            make_node("api.ts", "api.ts", "code"),
+            make_node("db.rs", "db.rs", "code"),
+        ];
+        let links = vec![
+            make_link("App.tsx", "api.ts", "import"),
+            make_link("api.ts", "db.rs", "import"),
+        ];
+        let graph = GraphData { nodes, links };
+        let engine = GraphAnalyticsEngine::new(&graph, HashMap::new());
+
+        // Forward directed path: App.tsx -> api.ts -> db.rs
+        let forward = engine.find_path("App.tsx", "db.rs").expect("forward path");
+        assert_eq!(forward.length, 2);
+        assert_eq!(forward.steps.len(), 3);
+        assert_eq!(forward.steps[1].direction, "->");
+
+        // Reverse undirected fallback path: db.rs <- api.ts <- App.tsx
+        let reverse = engine.find_path("db.rs", "App.tsx").expect("reverse path");
+        assert_eq!(reverse.length, 2);
+        assert_eq!(reverse.steps[1].direction, "<-");
+    }
+
+    #[test]
+    fn test_explain_node() {
+        let nodes = vec![
+            make_node("src/main.rs", "main.rs", "code"),
+            make_node("src/lib.rs", "lib.rs", "code"),
+            make_node("src/db.rs", "db.rs", "code"),
+        ];
+        let links = vec![
+            make_link("src/main.rs", "src/lib.rs", "import"),
+            make_link("src/lib.rs", "src/db.rs", "import"),
+        ];
+        let mut summaries = HashMap::new();
+        summaries.insert("src/lib.rs".to_string(), "Core library module".to_string());
+
+        let graph = GraphData { nodes, links };
+        let engine = GraphAnalyticsEngine::new(&graph, summaries);
+        let explanation = engine.explain_node("lib.rs").expect("explain lib.rs");
+
+        assert_eq!(explanation.id, "src/lib.rs");
+        assert_eq!(explanation.in_degree, 1);
+        assert_eq!(explanation.out_degree, 1);
+        assert_eq!(explanation.incoming_dependents, vec!["main.rs (import)"]);
+        assert_eq!(explanation.outgoing_dependencies, vec!["db.rs (import)"]);
+        assert_eq!(explanation.summary.as_deref(), Some("Core library module"));
     }
 }

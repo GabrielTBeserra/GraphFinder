@@ -2,7 +2,8 @@ use super::code::ParsedCodeFile;
 use super::parser::ParsedChunk;
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 fn default_node_type() -> String {
     "note".to_string()
@@ -113,6 +114,26 @@ pub struct CompressedContext {
     pub sections: Vec<SectionSummary>,
 }
 
+#[derive(Clone, PartialEq)]
+pub struct ScoredCandidate {
+    pub score: f32,
+    pub id: String,
+}
+
+impl Eq for ScoredCandidate {}
+
+impl PartialOrd for ScoredCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.score.partial_cmp(&other.score)
+    }
+}
+
+impl Ord for ScoredCandidate {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Neighborhood {
     pub center: Option<NoteRecord>,
@@ -155,6 +176,10 @@ pub struct SymbolInfo {
     pub start_line: usize,
     pub end_line: usize,
     pub token_estimate: usize,
+    #[serde(default)]
+    pub calls: Vec<String>,
+    #[serde(default)]
+    pub called_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +202,10 @@ pub struct CodeDependencies {
     pub imports: Vec<String>,
     pub imported_by: Vec<String>,
     pub external: Vec<String>,
+    #[serde(default)]
+    pub outgoing_calls: Vec<String>,
+    #[serde(default)]
+    pub incoming_callers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -381,6 +410,16 @@ impl DbManager {
                 PRIMARY KEY (source_id, target_id, raw_import)
             );
 
+            CREATE TABLE IF NOT EXISTS code_calls (
+                caller_file_id TEXT NOT NULL,
+                caller_symbol TEXT NOT NULL DEFAULT '',
+                callee_name TEXT NOT NULL,
+                callee_file_id TEXT,
+                PRIMARY KEY (caller_file_id, caller_symbol, callee_name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_code_calls_caller ON code_calls(caller_file_id);
+            CREATE INDEX IF NOT EXISTS idx_code_calls_callee ON code_calls(callee_name);
+
             CREATE VIRTUAL TABLE IF NOT EXISTS code_fts USING fts5(
                 file_id UNINDEXED,
                 name,
@@ -401,6 +440,7 @@ impl DbManager {
 
             CREATE INDEX IF NOT EXISTS idx_code_files_path ON code_files(path);
             CREATE INDEX IF NOT EXISTS idx_code_chunks_file ON code_chunks(file_id);
+            CREATE INDEX IF NOT EXISTS idx_code_chunks_symbol ON code_chunks(symbol_name);
             CREATE INDEX IF NOT EXISTS idx_code_links_source ON code_links(source_id);
             CREATE INDEX IF NOT EXISTS idx_code_links_target ON code_links(target_id);
             "#,
@@ -609,7 +649,7 @@ impl DbManager {
 
             let tags = self.get_tags_for_note(&id)?;
             let outgoing_links = self.get_outgoing_links_for_note(&id)?;
-            let backlinks = self.get_backlinks_for_title(&title)?;
+            let backlinks = self.get_backlinks_for_note(&id, &title)?;
 
             Ok(Some(NoteRecord {
                 id,
@@ -629,10 +669,26 @@ impl DbManager {
     }
 
     pub fn get_note_by_title(&self, title: &str) -> Result<Option<NoteRecord>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id FROM notes WHERE LOWER(title) = LOWER(?1) LIMIT 1")?;
-        let mut rows = stmt.query(params![title])?;
+        let clean = title.trim().trim_end_matches(".md");
+        let with_ext = format!("{}.md", clean);
+        let suffix_with_ext = format!("/{}", with_ext);
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id FROM notes
+            WHERE LOWER(title) = LOWER(?1)
+               OR LOWER(id) = LOWER(?1)
+               OR LOWER(id) = LOWER(?2)
+               OR LOWER(id) LIKE '%' || LOWER(?3)
+            ORDER BY
+               CASE
+                   WHEN LOWER(title) = LOWER(?1) THEN 0
+                   WHEN LOWER(id) = LOWER(?2) THEN 1
+                   ELSE 2
+               END
+            LIMIT 1
+            "#,
+        )?;
+        let mut rows = stmt.query(params![clean, with_ext, suffix_with_ext])?;
         if let Some(row) = rows.next()? {
             let id: String = row.get(0)?;
             self.get_note_by_id(&id)
@@ -757,6 +813,22 @@ impl DbManager {
 
         for r in title_rows {
             let (id, path, title) = r?;
+            let id_no_ext = id
+                .strip_suffix(".md")
+                .or_else(|| id.strip_suffix(".MD"))
+                .unwrap_or(&id)
+                .to_lowercase();
+            title_to_id
+                .entry(id_no_ext)
+                .or_insert_with(|| id.clone());
+            if let Some(stem) = std::path::Path::new(&id)
+                .file_stem()
+                .and_then(|s| s.to_str())
+            {
+                title_to_id
+                    .entry(stem.to_lowercase())
+                    .or_insert_with(|| id.clone());
+            }
             title_to_id.insert(title.to_lowercase(), id.clone());
             title_to_id.insert(id.to_lowercase(), id.clone());
             id_to_title.insert(id.clone(), title);
@@ -1004,25 +1076,42 @@ impl DbManager {
             }
             let query_is_unit = (q_norm_sq - 1.0).abs() < 1e-3;
 
-            let mut stmt = self.conn.prepare("SELECT c.id, c.vector FROM note_chunks c")?;
-            let rows = stmt.query_map([], |row| {
+            let top_k = (limit * 4).max(50);
+            let mut heap: BinaryHeap<Reverse<ScoredCandidate>> =
+                BinaryHeap::with_capacity(top_k + 1);
+
+            let mut stmt = self
+                .conn
+                .prepare("SELECT c.id, c.vector FROM note_chunks c WHERE LENGTH(c.vector) > 0")?;
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
                 let id: String = row.get(0)?;
                 let blob_ref = row.get_ref(1)?;
                 let blob = blob_ref.as_blob()?;
                 let score = dot_product_bytes(query_vector, blob, query_is_unit);
-                Ok((id, score))
-            })?;
+                if score <= 0.05 {
+                    continue;
+                }
 
-            let mut scored: Vec<(String, f32)> = Vec::new();
-            for r in rows {
-                scored.push(r?);
+                if heap.len() < top_k {
+                    heap.push(Reverse(ScoredCandidate { score, id }));
+                } else if let Some(min_top) = heap.peek() {
+                    if score > min_top.0.score {
+                        heap.pop();
+                        heap.push(Reverse(ScoredCandidate { score, id }));
+                    }
+                }
             }
-            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            scored.truncate(50);
 
-            for (rank, (id, score)) in scored.into_iter().enumerate() {
-                vec_scores.insert(id.clone(), score);
-                vec_ranks.insert(id, rank + 1);
+            let mut scored = Vec::with_capacity(heap.len());
+            while let Some(Reverse(item)) = heap.pop() {
+                scored.push(item);
+            }
+            scored.reverse();
+
+            for (rank, item) in scored.into_iter().enumerate() {
+                vec_scores.insert(item.id.clone(), item.score);
+                vec_ranks.insert(item.id, rank + 1);
             }
         }
 
@@ -1072,32 +1161,49 @@ impl DbManager {
 
         let max_rrf = (1.0 / 61.0) + (1.0 / 61.0);
 
-        // 4. Fetch full content and metadata for winning chunks
-        let mut chunk_stmt = self.conn.prepare(
-            r#"
-            SELECT c.id, c.note_id, n.title, c.heading, c.content, c.token_estimate
-            FROM note_chunks c
-            JOIN notes n ON n.id = c.note_id
-            WHERE c.id = ?1
-            "#,
-        )?;
-
-        let mut hits = Vec::with_capacity(rrf_scored.len());
-        for (chunk_id, rrf_score) in rrf_scored {
-            if let Ok(hit) = chunk_stmt.query_row(params![chunk_id], |row| {
+        // 4. Batch fetch full content and metadata for winning chunks (avoids N+1 query loop)
+        let mut hit_map: HashMap<String, (String, String, Option<String>, String, usize)> =
+            HashMap::new();
+        for batch in rrf_scored.chunks(100) {
+            let placeholders = (1..=batch.len())
+                .map(|i| format!("?{}", i))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                r#"
+                SELECT c.id, c.note_id, n.title, c.heading, c.content, c.token_estimate
+                FROM note_chunks c
+                JOIN notes n ON n.id = c.note_id
+                WHERE c.id IN ({})
+                "#,
+                placeholders
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let params_vec: Vec<&dyn rusqlite::ToSql> =
+                batch.iter().map(|(id, _)| id as &dyn rusqlite::ToSql).collect();
+            let mut rows = stmt.query(params_vec.as_slice())?;
+            while let Some(row) = rows.next()? {
                 let id: String = row.get(0)?;
                 let note_id: String = row.get(1)?;
                 let note_title: String = row.get(2)?;
                 let heading: Option<String> = row.get(3)?;
                 let content: String = row.get(4)?;
                 let token_estimate = row.get::<_, i64>(5)? as usize;
+                hit_map.insert(id, (note_id, note_title, heading, content, token_estimate));
+            }
+        }
 
+        let mut hits = Vec::with_capacity(rrf_scored.len());
+        for (chunk_id, rrf_score) in rrf_scored {
+            if let Some((note_id, note_title, heading, content, token_estimate)) =
+                hit_map.remove(&chunk_id)
+            {
                 let deep_link = match &heading {
                     Some(h) if !h.trim().is_empty() => format!("[[{}#{}]]", note_title, h),
                     _ => format!("[[{}]]", note_title),
                 };
 
-                let raw_vec_score = vec_scores.get(&id).copied().unwrap_or(0.0);
+                let raw_vec_score = vec_scores.get(&chunk_id).copied().unwrap_or(0.0);
                 let normalized_rrf = (rrf_score / max_rrf).clamp(0.0, 1.0);
                 let display_score = if raw_vec_score > 0.0 {
                     (raw_vec_score * 0.6 + normalized_rrf * 0.4).clamp(0.0, 1.0)
@@ -1105,8 +1211,8 @@ impl DbManager {
                     normalized_rrf
                 };
 
-                Ok(ChunkHit {
-                    chunk_id: id,
+                hits.push(ChunkHit {
+                    chunk_id,
                     note_id,
                     note_title,
                     heading,
@@ -1114,9 +1220,7 @@ impl DbManager {
                     content,
                     token_estimate,
                     score: display_score,
-                })
-            }) {
-                hits.push(hit);
+                });
             }
         }
 
@@ -1351,17 +1455,30 @@ impl DbManager {
         Ok(links)
     }
 
-    fn get_backlinks_for_title(&self, title: &str) -> Result<Vec<String>> {
+    fn get_backlinks_for_note(&self, note_id: &str, title: &str) -> Result<Vec<String>> {
+        let id_no_ext = note_id
+            .strip_suffix(".md")
+            .or_else(|| note_id.strip_suffix(".MD"))
+            .unwrap_or(note_id);
+        let stem = std::path::Path::new(note_id)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(id_no_ext);
         let mut stmt = self.conn.prepare(
             r#"
             SELECT DISTINCT n.title 
             FROM links l
             JOIN notes n ON n.id = l.source_id
-            WHERE LOWER(l.target_title) = LOWER(?1) OR LOWER(l.target_title) LIKE LOWER(?1 || '#%')
+            WHERE LOWER(l.target_title) = LOWER(?1)
+               OR LOWER(l.target_title) LIKE LOWER(?1 || '#%')
+               OR LOWER(l.target_title) = LOWER(?2)
+               OR LOWER(l.target_title) LIKE LOWER(?2 || '#%')
+               OR LOWER(l.target_title) = LOWER(?3)
+               OR LOWER(l.target_title) LIKE LOWER(?3 || '#%')
             ORDER BY n.title ASC
             "#,
         )?;
-        let rows = stmt.query_map(params![title], |row| row.get(0))?;
+        let rows = stmt.query_map(params![title, id_no_ext, stem], |row| row.get(0))?;
         let mut backlinks = Vec::new();
         for b in rows {
             backlinks.push(b?);
@@ -1400,108 +1517,273 @@ impl DbManager {
         vectors: &[Vec<f32>],
         resolved_links: &[(String, String, bool)], // (source_id, target_id, is_external)
     ) -> Result<()> {
+        self.save_code_files_bulk(&[(file, content_hash, mtime, vectors, resolved_links)])
+    }
+
+    pub fn save_code_files_bulk(
+        &mut self,
+        batch: &[(
+            &ParsedCodeFile,
+            &str,
+            i64,
+            &[Vec<f32>],
+            &[(String, String, bool)],
+        )],
+    ) -> Result<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
         let tx = self.conn.transaction()?;
 
-        // 1. Upsert code_files
-        tx.execute(
-            r#"
-            INSERT INTO code_files (id, path, name, extension, language, size_bytes, summary, content_hash, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-            ON CONFLICT(id) DO UPDATE SET
-                path = excluded.path,
-                name = excluded.name,
-                extension = excluded.extension,
-                language = excluded.language,
-                size_bytes = excluded.size_bytes,
-                summary = excluded.summary,
-                content_hash = excluded.content_hash,
-                updated_at = excluded.updated_at
-            "#,
-            params![
-                file.path,
-                file.path,
-                file.name,
-                file.extension,
-                file.language,
-                file.size_bytes as i64,
-                file.summary,
-                content_hash,
-                mtime,
-            ],
-        )?;
-
-        // 2. Update code_fts
-        tx.execute("DELETE FROM code_fts WHERE file_id = ?1", params![file.path])?;
-        tx.execute(
-            "INSERT INTO code_fts (file_id, name, path, language, summary) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![file.path, file.name, file.path, file.language, file.summary],
-        )?;
-
-        // 3. Delete old chunks and chunks_fts
-        tx.execute("DELETE FROM code_chunks WHERE file_id = ?1", params![file.path])?;
-        tx.execute("DELETE FROM code_chunks_fts WHERE file_id = ?1", params![file.path])?;
-
-        // 4. Insert chunks and chunk vectors
-        for (i, chunk) in file.chunks.iter().enumerate() {
-            let chunk_id = if let Some(ref sym) = chunk.symbol_name {
-                format!("{}#{}#{}", file.path, sym, chunk.chunk_index)
-            } else {
-                format!("{}#chunk-{}", file.path, chunk.chunk_index)
-            };
-
-            let vec_bytes = if i < vectors.len() {
-                f32_slice_to_bytes(&vectors[i])
-            } else {
-                Vec::new()
-            };
-
-            tx.execute(
+        {
+            let mut stmt_upsert_file = tx.prepare_cached(
+                r#"
+                INSERT INTO code_files (id, path, name, extension, language, size_bytes, summary, content_hash, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                ON CONFLICT(id) DO UPDATE SET
+                    path = excluded.path,
+                    name = excluded.name,
+                    extension = excluded.extension,
+                    language = excluded.language,
+                    size_bytes = excluded.size_bytes,
+                    summary = excluded.summary,
+                    content_hash = excluded.content_hash,
+                    updated_at = excluded.updated_at
+                "#,
+            )?;
+            let mut stmt_del_fts = tx.prepare_cached("DELETE FROM code_fts WHERE file_id = ?1")?;
+            let mut stmt_ins_fts = tx.prepare_cached(
+                "INSERT INTO code_fts (file_id, name, path, language, summary) VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            let mut stmt_del_chunks =
+                tx.prepare_cached("DELETE FROM code_chunks WHERE file_id = ?1")?;
+            let mut stmt_del_chunks_fts =
+                tx.prepare_cached("DELETE FROM code_chunks_fts WHERE file_id = ?1")?;
+            let mut stmt_ins_chunk = tx.prepare_cached(
                 r#"
                 INSERT OR REPLACE INTO code_chunks (id, file_id, chunk_index, symbol_name, start_line, end_line, content, token_estimate, vector)
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                 "#,
-                params![
-                    chunk_id,
-                    file.path,
-                    chunk.chunk_index as i64,
-                    chunk.symbol_name.as_deref(),
-                    chunk.start_line as i64,
-                    chunk.end_line as i64,
-                    chunk.content,
-                    chunk.token_estimate as i64,
-                    vec_bytes,
-                ],
             )?;
-
-            tx.execute(
+            let mut stmt_ins_chunk_fts = tx.prepare_cached(
                 r#"
                 INSERT INTO code_chunks_fts (chunk_id, file_id, file_name, symbol_name, content)
                 VALUES (?1, ?2, ?3, ?4, ?5)
                 "#,
-                params![
-                    chunk_id,
-                    file.path,
-                    file.name,
-                    chunk.symbol_name.as_deref().unwrap_or(""),
-                    chunk.content,
-                ],
             )?;
-        }
-
-        // 5. Update code_links
-        tx.execute("DELETE FROM code_links WHERE source_id = ?1", params![file.path])?;
-        for (source_id, target_id, is_ext) in resolved_links {
-            tx.execute(
+            let mut stmt_del_links =
+                tx.prepare_cached("DELETE FROM code_links WHERE source_id = ?1")?;
+            let mut stmt_ins_link = tx.prepare_cached(
                 r#"
                 INSERT OR IGNORE INTO code_links (source_id, target_id, raw_import, is_external)
                 VALUES (?1, ?2, ?2, ?3)
                 "#,
-                params![source_id, target_id, if *is_ext { 1 } else { 0 }],
             )?;
+            let mut stmt_del_calls =
+                tx.prepare_cached("DELETE FROM code_calls WHERE caller_file_id = ?1")?;
+            let mut stmt_ins_call = tx.prepare_cached(
+                r#"
+                INSERT OR IGNORE INTO code_calls (caller_file_id, caller_symbol, callee_name, callee_file_id)
+                VALUES (?1, ?2, ?3, NULL)
+                "#,
+            )?;
+
+            for (file, content_hash, mtime, vectors, resolved_links) in batch {
+                stmt_upsert_file.execute(params![
+                    file.path,
+                    file.path,
+                    file.name,
+                    file.extension,
+                    file.language,
+                    file.size_bytes as i64,
+                    file.summary,
+                    *content_hash,
+                    *mtime,
+                ])?;
+
+                stmt_del_fts.execute(params![file.path])?;
+                stmt_ins_fts.execute(params![
+                    file.path,
+                    file.name,
+                    file.path,
+                    file.language,
+                    file.summary
+                ])?;
+
+                stmt_del_chunks.execute(params![file.path])?;
+                stmt_del_chunks_fts.execute(params![file.path])?;
+
+                for (i, chunk) in file.chunks.iter().enumerate() {
+                    let chunk_id = if let Some(ref sym) = chunk.symbol_name {
+                        format!("{}#{}#{}", file.path, sym, chunk.chunk_index)
+                    } else {
+                        format!("{}#chunk-{}", file.path, chunk.chunk_index)
+                    };
+
+                    let vec_bytes = if i < vectors.len() {
+                        f32_slice_to_bytes(&vectors[i])
+                    } else {
+                        Vec::new()
+                    };
+
+                    stmt_ins_chunk.execute(params![
+                        chunk_id,
+                        file.path,
+                        chunk.chunk_index as i64,
+                        chunk.symbol_name.as_deref(),
+                        chunk.start_line as i64,
+                        chunk.end_line as i64,
+                        chunk.content,
+                        chunk.token_estimate as i64,
+                        vec_bytes,
+                    ])?;
+
+                    stmt_ins_chunk_fts.execute(params![
+                        chunk_id,
+                        file.path,
+                        file.name,
+                        chunk.symbol_name.as_deref().unwrap_or(""),
+                        chunk.content,
+                    ])?;
+                }
+
+                stmt_del_links.execute(params![file.path])?;
+                for (source_id, target_id, is_ext) in *resolved_links {
+                    stmt_ins_link.execute(params![
+                        source_id,
+                        target_id,
+                        if *is_ext { 1 } else { 0 }
+                    ])?;
+                }
+
+                stmt_del_calls.execute(params![file.path])?;
+                for chunk in &file.chunks {
+                    let caller_sym = chunk.symbol_name.as_deref().unwrap_or("");
+                    for callee in &chunk.calls {
+                        stmt_ins_call.execute(params![file.path, caller_sym, callee])?;
+                    }
+                }
+            }
         }
 
         tx.commit()?;
         Ok(())
+    }
+
+    /// Fast read-only item count directly from an existing SQLite index.db without initializing schema or locking Engine.
+    pub fn quick_item_count(db_path: &std::path::Path) -> Option<usize> {
+        if !db_path.exists() {
+            return None;
+        }
+        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let conn = Connection::open_with_flags(db_path, flags).ok()?;
+        let _ = conn.busy_timeout(std::time::Duration::from_millis(50));
+        let notes: usize = conn
+            .query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))
+            .unwrap_or(0);
+        let code: usize = conn
+            .query_row("SELECT COUNT(*) FROM code_files", [], |r| r.get(0))
+            .unwrap_or(0);
+        Some(notes + code)
+    }
+
+    pub fn total_indexed_count(&self) -> usize {
+        let notes: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))
+            .unwrap_or(0);
+        let code: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM code_files", [], |r| r.get(0))
+            .unwrap_or(0);
+        notes + code
+    }
+
+    /// Resolves `callee_file_id` across the indexed codebase by matching `callee_name`
+    /// against declared `symbol_name`s in `code_chunks`, prioritizing imported files first.
+    pub fn resolve_call_graph(&mut self) -> Result<usize> {
+        let tx = self.conn.transaction()?;
+        let updated = tx.execute(
+            r#"
+            UPDATE code_calls
+            SET callee_file_id = COALESCE(
+                (
+                    SELECT cc.file_id
+                    FROM code_chunks cc
+                    JOIN code_links cl ON cl.source_id = code_calls.caller_file_id AND cl.target_id = cc.file_id
+                    WHERE cc.symbol_name = code_calls.callee_name
+                    LIMIT 1
+                ),
+                (
+                    SELECT cc.file_id
+                    FROM code_chunks cc
+                    WHERE cc.symbol_name = code_calls.callee_name
+                    LIMIT 1
+                )
+            )
+            WHERE callee_file_id IS NULL
+              AND callee_name IN (SELECT symbol_name FROM code_chunks WHERE symbol_name IS NOT NULL)
+            "#,
+            [],
+        )?;
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    /// Re-evaluates external/unresolved `code_links` against the current project file set
+    /// so that files added in incremental syncs automatically link to existing importers.
+    pub fn resolve_pending_code_links(
+        &mut self,
+        project_files_set: &HashSet<String>,
+        project_files_by_name: &HashMap<String, Vec<String>>,
+    ) -> Result<usize> {
+        let pending: Vec<(String, String, String)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT source_id, target_id, raw_import FROM code_links WHERE is_external = 1",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?;
+            rows.filter_map(|r| r.ok()).collect()
+        };
+
+        let mut resolved_updates = Vec::new();
+        for (source_id, old_target, raw_import) in pending {
+            if let Some(new_target) = crate::engine::code::resolve_import_path(
+                &source_id,
+                &raw_import,
+                project_files_set,
+                project_files_by_name,
+            ) {
+                resolved_updates.push((source_id, old_target, raw_import, new_target));
+            }
+        }
+
+        if resolved_updates.is_empty() {
+            return Ok(0);
+        }
+
+        let count = resolved_updates.len();
+        let tx = self.conn.transaction()?;
+        {
+            let mut del_stmt = tx.prepare_cached(
+                "DELETE FROM code_links WHERE source_id = ?1 AND target_id = ?2 AND raw_import = ?3",
+            )?;
+            let mut ins_stmt = tx.prepare_cached(
+                "INSERT OR IGNORE INTO code_links (source_id, target_id, raw_import, is_external) VALUES (?1, ?2, ?3, 0)",
+            )?;
+            for (source_id, old_target, raw_import, new_target) in resolved_updates {
+                del_stmt.execute(params![source_id, old_target, raw_import])?;
+                ins_stmt.execute(params![source_id, new_target, raw_import])?;
+            }
+        }
+        tx.commit()?;
+        Ok(count)
     }
 
     pub fn delete_missing_code_files(&mut self, current_ids: &HashSet<String>) -> Result<usize> {
@@ -1520,6 +1802,7 @@ impl DbManager {
                 tx.execute("DELETE FROM code_chunks WHERE file_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_chunks_fts WHERE file_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_links WHERE source_id = ?1 OR target_id = ?1", params![id])?;
+                tx.execute("DELETE FROM code_calls WHERE caller_file_id = ?1 OR callee_file_id = ?1", params![id])?;
                 deleted += 1;
             }
         }
@@ -1549,36 +1832,49 @@ impl DbManager {
             }
             let query_is_unit = (q_norm_sq - 1.0).abs() < 1e-3;
 
+            let top_k = (limit * 4).max(50);
+            let mut heap: BinaryHeap<Reverse<ScoredCandidate>> =
+                BinaryHeap::with_capacity(top_k + 1);
+
             let query_sql = if let Some(lang) = lang_filter {
                 format!(
-                    "SELECT c.id, c.vector FROM code_chunks c JOIN code_files f ON f.id = c.file_id WHERE f.language = '{}'",
+                    "SELECT c.id, c.vector FROM code_chunks c JOIN code_files f ON f.id = c.file_id WHERE f.language = '{}' AND LENGTH(c.vector) > 0",
                     lang.replace('\'', "''")
                 )
             } else {
-                "SELECT c.id, c.vector FROM code_chunks c".to_string()
+                "SELECT c.id, c.vector FROM code_chunks c WHERE LENGTH(c.vector) > 0".to_string()
             };
 
             let mut stmt = self.conn.prepare(&query_sql)?;
-            let rows = stmt.query_map([], |row| {
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
                 let id: String = row.get(0)?;
                 let blob_ref = row.get_ref(1)?;
                 let blob = blob_ref.as_blob()?;
                 let sim = dot_product_bytes(query_vector, blob, query_is_unit);
-                Ok((id, sim))
-            })?;
+                if sim <= 0.05 {
+                    continue;
+                }
 
-            let mut scored: Vec<(String, f32)> = Vec::new();
-            for r in rows {
-                let (id, sim) = r?;
-                if sim > 0.05 {
-                    scored.push((id, sim));
+                if heap.len() < top_k {
+                    heap.push(Reverse(ScoredCandidate { score: sim, id }));
+                } else if let Some(min_top) = heap.peek() {
+                    if sim > min_top.0.score {
+                        heap.pop();
+                        heap.push(Reverse(ScoredCandidate { score: sim, id }));
+                    }
                 }
             }
 
-            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            for (rank, (id, score)) in scored.into_iter().take(limit * 4).enumerate() {
-                vec_ranks.insert(id.clone(), rank + 1);
-                vec_scores.insert(id, score);
+            let mut scored = Vec::with_capacity(heap.len());
+            while let Some(Reverse(item)) = heap.pop() {
+                scored.push(item);
+            }
+            scored.reverse();
+
+            for (rank, item) in scored.into_iter().enumerate() {
+                vec_ranks.insert(item.id.clone(), rank + 1);
+                vec_scores.insert(item.id, item.score);
             }
         }
 
@@ -1632,19 +1928,30 @@ impl DbManager {
 
         let max_rrf = (1.0 / 61.0) + (1.0 / 61.0);
 
-        // 4. Hydrate top hits
-        let mut chunk_stmt = self.conn.prepare(
-            r#"
-            SELECT c.id, c.file_id, f.name, f.language, c.symbol_name, c.start_line, c.end_line, c.content, c.token_estimate
-            FROM code_chunks c
-            JOIN code_files f ON f.id = c.file_id
-            WHERE c.id = ?1
-            "#,
-        )?;
-
-        let mut hits = Vec::with_capacity(rrf_scored.len());
-        for (chunk_id, rrf_score) in rrf_scored {
-            if let Ok(hit) = chunk_stmt.query_row(params![chunk_id], |row| {
+        // 4. Batch hydrate top hits (avoids N+1 query loop)
+        let mut hit_map: HashMap<
+            String,
+            (String, String, String, Option<String>, usize, usize, String, usize),
+        > = HashMap::new();
+        for batch in rrf_scored.chunks(100) {
+            let placeholders = (1..=batch.len())
+                .map(|i| format!("?{}", i))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                r#"
+                SELECT c.id, c.file_id, f.name, f.language, c.symbol_name, c.start_line, c.end_line, c.content, c.token_estimate
+                FROM code_chunks c
+                JOIN code_files f ON f.id = c.file_id
+                WHERE c.id IN ({})
+                "#,
+                placeholders
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let params_vec: Vec<&dyn rusqlite::ToSql> =
+                batch.iter().map(|(id, _)| id as &dyn rusqlite::ToSql).collect();
+            let mut rows = stmt.query(params_vec.as_slice())?;
+            while let Some(row) = rows.next()? {
                 let id: String = row.get(0)?;
                 let file_id: String = row.get(1)?;
                 let file_name: String = row.get(2)?;
@@ -1654,13 +1961,41 @@ impl DbManager {
                 let end_line = row.get::<_, i64>(6)? as usize;
                 let content: String = row.get(7)?;
                 let token_estimate = row.get::<_, i64>(8)? as usize;
+                hit_map.insert(
+                    id,
+                    (
+                        file_id,
+                        file_name,
+                        language,
+                        symbol_name,
+                        start_line,
+                        end_line,
+                        content,
+                        token_estimate,
+                    ),
+                );
+            }
+        }
 
+        let mut hits = Vec::with_capacity(rrf_scored.len());
+        for (chunk_id, rrf_score) in rrf_scored {
+            if let Some((
+                file_id,
+                file_name,
+                language,
+                symbol_name,
+                start_line,
+                end_line,
+                content,
+                token_estimate,
+            )) = hit_map.remove(&chunk_id)
+            {
                 let deep_link = match &symbol_name {
                     Some(s) if !s.trim().is_empty() => format!("[[{}#{}]]", file_id, s),
                     _ => format!("[[{}#L{}-L{}]]", file_id, start_line, end_line),
                 };
 
-                let raw_vec_score = vec_scores.get(&id).copied().unwrap_or(0.0);
+                let raw_vec_score = vec_scores.get(&chunk_id).copied().unwrap_or(0.0);
                 let normalized_rrf = (rrf_score / max_rrf).clamp(0.0, 1.0);
                 let display_score = if raw_vec_score > 0.0 {
                     (raw_vec_score * 0.6 + normalized_rrf * 0.4).clamp(0.0, 1.0)
@@ -1668,8 +2003,8 @@ impl DbManager {
                     normalized_rrf
                 };
 
-                Ok(CodeChunkHit {
-                    chunk_id: id,
+                hits.push(CodeChunkHit {
+                    chunk_id,
                     file_id,
                     file_name,
                     language,
@@ -1680,9 +2015,7 @@ impl DbManager {
                     content,
                     token_estimate,
                     score: display_score,
-                })
-            }) {
-                hits.push(hit);
+                });
             }
         }
 
@@ -1791,11 +2124,37 @@ impl DbManager {
             let (sym_opt, start_line, end_line, token_estimate) = r?;
             total_tokens += token_estimate;
             if let Some(s) = sym_opt {
+                // Outgoing calls from this symbol
+                let mut calls = Vec::new();
+                if let Ok(mut c_stmt) = self.conn.prepare(
+                    "SELECT callee_name FROM code_calls WHERE caller_file_id = ?1 AND caller_symbol = ?2 ORDER BY callee_name ASC LIMIT 25",
+                ) {
+                    if let Ok(c_rows) = c_stmt.query_map(params![file_id, s], |cr| cr.get::<_, String>(0)) {
+                        for c_item in c_rows.flatten() {
+                            calls.push(c_item);
+                        }
+                    }
+                }
+
+                // Incoming callers to this symbol across the codebase
+                let mut called_by = Vec::new();
+                if let Ok(mut cb_stmt) = self.conn.prepare(
+                    "SELECT DISTINCT CASE WHEN caller_symbol != '' THEN caller_file_id || '#' || caller_symbol ELSE caller_file_id END FROM code_calls WHERE callee_name = ?1 ORDER BY caller_file_id ASC LIMIT 25",
+                ) {
+                    if let Ok(cb_rows) = cb_stmt.query_map(params![s], |cbr| cbr.get::<_, String>(0)) {
+                        for cb_item in cb_rows.flatten() {
+                            called_by.push(cb_item);
+                        }
+                    }
+                }
+
                 symbols.push(SymbolInfo {
                     name: s,
                     start_line,
                     end_line,
                     token_estimate,
+                    calls,
+                    called_by,
                 });
             }
         }
@@ -1914,6 +2273,8 @@ impl DbManager {
         let mut imports = Vec::new();
         let mut imported_by = Vec::new();
         let mut external = Vec::new();
+        let mut outgoing_calls = Vec::new();
+        let mut incoming_callers = Vec::new();
 
         if direction == "imports" || direction == "both" {
             let mut stmt = self.conn.prepare(
@@ -1928,6 +2289,16 @@ impl DbManager {
                     imports.push(target);
                 }
             }
+
+            if let Ok(mut call_stmt) = self.conn.prepare(
+                "SELECT DISTINCT CASE WHEN callee_file_id IS NOT NULL AND callee_file_id != '' THEN callee_file_id || '#' || callee_name ELSE callee_name END FROM code_calls WHERE (caller_file_id = ?1 OR caller_file_id LIKE '%' || ?1) ORDER BY callee_name ASC LIMIT 30",
+            ) {
+                if let Ok(call_rows) = call_stmt.query_map(params![clean], |r| r.get::<_, String>(0)) {
+                    for c in call_rows.flatten() {
+                        outgoing_calls.push(c);
+                    }
+                }
+            }
         }
 
         if direction == "imported_by" || direction == "both" {
@@ -1938,6 +2309,30 @@ impl DbManager {
             for r in rows.flatten() {
                 imported_by.push(r);
             }
+
+            if let Ok(mut caller_stmt) = self.conn.prepare(
+                r#"
+                SELECT DISTINCT CASE WHEN caller_symbol != '' THEN caller_file_id || '#' || caller_symbol ELSE caller_file_id END
+                FROM code_calls
+                WHERE (
+                    callee_file_id = ?1
+                    OR callee_file_id LIKE '%' || ?1
+                    OR callee_name IN (
+                        SELECT symbol_name FROM code_chunks
+                        WHERE (file_id = ?1 OR file_id LIKE '%' || ?1) AND symbol_name IS NOT NULL
+                    )
+                )
+                AND caller_file_id != ?1
+                ORDER BY caller_file_id ASC
+                LIMIT 30
+                "#,
+            ) {
+                if let Ok(caller_rows) = caller_stmt.query_map(params![clean], |r| r.get::<_, String>(0)) {
+                    for c in caller_rows.flatten() {
+                        incoming_callers.push(c);
+                    }
+                }
+            }
         }
 
         Ok(CodeDependencies {
@@ -1945,6 +2340,8 @@ impl DbManager {
             imports,
             imported_by,
             external,
+            outgoing_calls,
+            incoming_callers,
         })
     }
 
@@ -1965,6 +2362,23 @@ pub fn sanitize_fts5_query(raw: &str) -> String {
     tokens.join(" ")
 }
 
+pub fn quantize_f32_to_i8(slice: &[f32]) -> Vec<u8> {
+    slice
+        .iter()
+        .map(|&f| {
+            let clamped = (f * 127.0).round().clamp(-127.0, 127.0);
+            (clamped as i8) as u8
+        })
+        .collect()
+}
+
+pub fn dequantize_i8_to_f32(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .iter()
+        .map(|&b| ((b as i8) as f32) / 127.0)
+        .collect()
+}
+
 fn f32_slice_to_bytes(slice: &[f32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(slice.len() * 4);
     for &f in slice {
@@ -1974,12 +2388,62 @@ fn f32_slice_to_bytes(slice: &[f32]) -> Vec<u8> {
 }
 
 #[inline]
+pub fn dot_product_asymmetric_i8(query: &[f32], bytes: &[u8]) -> f32 {
+    let mut dot = 0.0f32;
+    let mut norm_b = 0.0f32;
+
+    for i in 0..query.len() {
+        let val = ((bytes[i] as i8) as f32) / 127.0;
+        dot += query[i] * val;
+        norm_b += val * val;
+    }
+
+    let denom = norm_b.sqrt();
+    if denom <= f32::EPSILON {
+        0.0
+    } else {
+        dot / denom
+    }
+}
+
+#[inline]
 pub fn dot_product_bytes(query: &[f32], bytes: &[u8], query_is_unit: bool) -> f32 {
+    // 1. Quantized i8 vector branch (1 byte per dimension: 384 bytes instead of 1536 bytes)
+    if bytes.len() == query.len() {
+        return dot_product_asymmetric_i8(query, bytes);
+    }
+
+    // 2. Legacy / unquantized f32 vector branch (4 bytes per dimension: 1536 bytes)
     let chunks = bytes.chunks_exact(4);
     if chunks.len() != query.len() {
         return 0.0;
     }
 
+    // Fast path: if bytes is 4-byte aligned, view directly as &[f32] for autovectorized SIMD
+    let (prefix, f32_slice, suffix) = unsafe { bytes.align_to::<f32>() };
+    if prefix.is_empty() && suffix.is_empty() && f32_slice.len() == query.len() {
+        let mut dot = 0.0f32;
+        let mut norm_b = 0.0f32;
+
+        for i in 0..query.len() {
+            let val = f32_slice[i];
+            dot += query[i] * val;
+            norm_b += val * val;
+        }
+
+        if query_is_unit && (norm_b - 1.0).abs() < 1e-3 {
+            return dot;
+        }
+
+        let denom = norm_b.sqrt();
+        return if denom <= f32::EPSILON {
+            0.0
+        } else {
+            dot / denom
+        };
+    }
+
+    // Fallback unaligned path
     let mut dot = 0.0f32;
     let mut norm_b = 0.0f32;
 
@@ -2101,6 +2565,7 @@ mod tests {
             end_line: 25,
             content: "export async function fetchUserData(id: string) { return api.get(`/user/${id}`); }".to_string(),
             token_estimate: 20,
+            calls: vec!["requestJson".to_string()],
         };
 
         let parsed = ParsedCodeFile {
@@ -2155,5 +2620,165 @@ mod tests {
         let deps = db.get_code_dependencies("src/api/user.ts", "both").expect("deps ok");
         assert_eq!(deps.imports, vec!["src/api/client.ts"]);
         assert_eq!(deps.external, vec!["axios"]);
+    }
+
+    #[test]
+    fn test_scalar_quantization() {
+        let v = vec![0.7071f32, 0.7071f32, 0.0f32];
+        let quantized = quantize_f32_to_i8(&v);
+        assert_eq!(quantized.len(), 3);
+        // Stored as i8 bytes (3 bytes instead of 12 bytes: 4x compression)
+        assert_eq!(quantized.len(), v.len());
+
+        // Test asymmetric dot product via dynamic dispatch in dot_product_bytes
+        let sim = dot_product_bytes(&v, &quantized, false);
+        assert!((sim - 1.0).abs() < 0.01, "Expected similarity close to 1.0, got {}", sim);
+
+        // Test dequantization roundtrip
+        let deq = dequantize_i8_to_f32(&quantized);
+        assert_eq!(deq.len(), 3);
+        assert!((deq[0] - 0.7071).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_wikilink_file_stem_resolution() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+
+        let arch_chunk = ParsedChunk {
+            chunk_index: 0,
+            heading: Some("2. Rust Semantic Engine".to_string()),
+            content: "FastEmbed and SQLite.".to_string(),
+            token_estimate: 10,
+            links: vec![],
+            tags: vec!["rust".to_string()],
+        };
+        db.upsert_note(
+            "Architecture.md",
+            "Architecture.md",
+            "System Architecture",
+            "Core architecture note.",
+            "# System Architecture\n\nCore architecture note.\n\n## 2. Rust Semantic Engine\nFastEmbed and SQLite.",
+            "hash_arch",
+            100,
+            &[],
+            &["rust".to_string()],
+            Some(&dummy_vec),
+            &[(arch_chunk, dummy_vec.clone())],
+        )
+        .expect("upsert arch");
+
+        let guide_chunk = ParsedChunk {
+            chunk_index: 0,
+            heading: Some("Overview".to_string()),
+            content: "See [[Architecture#2. Rust Semantic Engine]] and [[Architecture]] for details.".to_string(),
+            token_estimate: 15,
+            links: vec![
+                "Architecture#2. Rust Semantic Engine".to_string(),
+                "Architecture".to_string(),
+            ],
+            tags: vec!["guide".to_string()],
+        };
+        db.upsert_note(
+            "Usage Guide.md",
+            "Usage Guide.md",
+            "Usage Guide",
+            "Guide summary.",
+            "# Usage Guide\n\nSee [[Architecture#2. Rust Semantic Engine]] and [[Architecture]] for details.",
+            "hash_guide",
+            101,
+            &[
+                "Architecture#2. Rust Semantic Engine".to_string(),
+                "Architecture".to_string(),
+            ],
+            &["guide".to_string()],
+            Some(&dummy_vec),
+            &[(guide_chunk, dummy_vec.clone())],
+        )
+        .expect("upsert guide");
+
+        let graph = db.get_graph_data().expect("graph data");
+        assert!(
+            !graph.nodes.iter().any(|n| n.node_type == "unresolved"),
+            "Expected no unresolved nodes when linking by file stem, got: {:?}",
+            graph.nodes
+        );
+        assert!(
+            graph
+                .links
+                .iter()
+                .any(|l| l.source == "Usage Guide.md" && l.target == "Architecture.md"),
+            "Expected link from Usage Guide.md to Architecture.md"
+        );
+
+        let by_stem = db
+            .get_note_by_title("Architecture")
+            .expect("query ok")
+            .expect("should resolve note by file stem");
+        assert_eq!(by_stem.id, "Architecture.md");
+        assert_eq!(by_stem.backlinks, vec!["Usage Guide"]);
+
+        let section = db
+            .get_section("Architecture", "2. Rust Semantic Engine")
+            .expect("section query ok")
+            .expect("should resolve section by file stem");
+        assert_eq!(section.note_id, "Architecture.md");
+    }
+
+    #[test]
+    fn test_incremental_pending_code_links_resolution() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+
+        // 1. Index src/App.tsx while src/components/GraphView.tsx does not exist yet
+        let app_code = "import { GraphView } from './components/GraphView';\nexport function App() {}";
+        let parsed_app = crate::engine::code::parse_code_file("src/App.tsx", app_code);
+        let unresolved_links = vec![(
+            "src/App.tsx".to_string(),
+            "./components/GraphView".to_string(),
+            true,
+        )];
+        db.save_code_file_batch(
+            &parsed_app,
+            "hash_app",
+            100,
+            std::slice::from_ref(&dummy_vec),
+            &unresolved_links,
+        )
+        .expect("save app");
+
+        let deps_before = db.get_code_dependencies("src/App.tsx", "both").expect("deps before");
+        assert!(deps_before.imports.is_empty());
+        assert_eq!(deps_before.external, vec!["./components/GraphView"]);
+
+        // 2. Now src/components/GraphView.tsx is added in a subsequent incremental sync
+        let gv_code = "export function GraphView() {}";
+        let parsed_gv = crate::engine::code::parse_code_file("src/components/GraphView.tsx", gv_code);
+        db.save_code_file_batch(
+            &parsed_gv,
+            "hash_gv",
+            101,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save gv");
+
+        let mut files_set = HashSet::new();
+        files_set.insert("src/App.tsx".to_string());
+        files_set.insert("src/components/GraphView.tsx".to_string());
+        let mut files_by_name = HashMap::new();
+        files_by_name.insert(
+            "GraphView.tsx".to_string(),
+            vec!["src/components/GraphView.tsx".to_string()],
+        );
+
+        let updated = db
+            .resolve_pending_code_links(&files_set, &files_by_name)
+            .expect("resolve pending links");
+        assert_eq!(updated, 1);
+
+        let deps_after = db.get_code_dependencies("src/App.tsx", "both").expect("deps after");
+        assert_eq!(deps_after.imports, vec!["src/components/GraphView.tsx"]);
+        assert!(deps_after.external.is_empty());
     }
 }

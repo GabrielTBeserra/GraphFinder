@@ -147,7 +147,7 @@ $ graphfinder search "how is authentication handled?"</pre>
       <article class="card span-2 reveal">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></div>
         <h3>Live file watcher</h3>
-        <p>Edit in Obsidian, VS Code or Neovim — changes are re-indexed within 500 ms.</p>
+        <p>Edit in VS Code, Cursor or Neovim — changes are re-indexed within 500 ms.</p>
       </article>
       <article class="card span-2 reveal">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 2 10 5-10 5L2 7l10-5Z"/><path d="m2 12 10 5 10-5M2 17l10 5 10-5"/></svg></div>
@@ -362,7 +362,7 @@ Each refresh invalidates the previous token family to stop replay attacks.
             <li>Parsing uses a real CommonMark AST (<code>pulldown-cmark</code>). Content inside fenced code blocks is isolated, so a <code>#</code> in code is never treated as a heading or tag.</li>
             <li>Sections longer than <strong>320 tokens</strong> are windowed with a <strong>40-token overlap</strong> so no context is lost at boundaries.</li>
             <li>Renaming a note (UI or <code>rename_note</code>) rewrites every incoming <code>[[Old Title]]</code> across the vault.</li>
-            <li>Notes edited outside GraphFinder (Obsidian, VS Code, Neovim…) are picked up by the file watcher (500 ms debounce).</li>
+            <li>Notes edited outside GraphFinder (VS Code, Cursor, Neovim…) are picked up by the file watcher (500 ms debounce).</li>
           </ul>
         </section>
 

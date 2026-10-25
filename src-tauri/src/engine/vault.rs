@@ -1,18 +1,19 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use walkdir::WalkDir;
 
-use super::code::{is_supported_code_file, parse_code_file, resolve_import_path};
+use super::code::{is_supported_code_file, parse_code_file, resolve_import_path, ParsedCodeFile};
 use super::db::{
     ChunkHit, CodeChunkHit, CodeDependencies, CodeFileRecord, CompressedContext, DbManager,
     FileContext, GraphData, LinkSuggestion, Neighborhood, NoteRecord, NoteSummary, SearchHit,
     VaultStats,
 };
 use super::embeddings::EmbeddingEngine;
-use super::parser::parse_markdown;
+use super::parser::{parse_markdown, ParsedNote};
 
 #[derive(Clone)]
 pub struct Engine {
@@ -20,6 +21,8 @@ pub struct Engine {
     db_path: PathBuf,
     db: Arc<Mutex<DbManager>>,
     embeddings: Arc<EmbeddingEngine>,
+    sync_mutex: Arc<Mutex<()>>,
+    cached_count: Arc<AtomicUsize>,
 }
 
 pub fn resolve_vault_path() -> PathBuf {
@@ -55,12 +58,15 @@ impl Engine {
         }
 
         let db = DbManager::new(db_path.to_str().unwrap_or("index.db"))?;
+        let initial_count = db.total_indexed_count();
 
         Ok(Self {
             vault_path,
             db_path,
             db: Arc::new(Mutex::new(db)),
             embeddings,
+            sync_mutex: Arc::new(Mutex::new(())),
+            cached_count: Arc::new(AtomicUsize::new(initial_count)),
         })
     }
 
@@ -72,11 +78,20 @@ impl Engine {
         &self.db_path
     }
 
+    pub fn cached_count(&self) -> usize {
+        self.cached_count.load(Ordering::Relaxed)
+    }
+
     /// Scans the vault directory and indexes all markdown files AND source code files into SQLite
     pub async fn sync_vault(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-        let mut count = 0;
-        let mut found_note_ids = HashSet::new();
-        let mut found_code_ids = HashSet::new();
+        self.sync_vault_with_handle(None).await
+    }
+
+    pub async fn sync_vault_with_handle(
+        &self,
+        app_handle: Option<&tauri::AppHandle>,
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+        let _sync_guard = self.sync_mutex.lock().await;
 
         // 1. Fetch existing timestamps and content hashes for instant incremental sync
         let (existing_note_meta, existing_code_meta) = {
@@ -84,119 +99,256 @@ impl Engine {
             (db.get_all_notes_meta()?, db.get_all_code_files_meta()?)
         };
 
-        // Standard directories to ignore
-        let ignored_dirs: HashSet<&str> = [
-            ".git", "node_modules", "target", "dist", "build", ".next", "vendor",
-            ".fastembed_cache", "__pycache__", ".venv", "venv", ".idea", ".vscode",
-            "coverage", "out", ".turbo", ".gradle", "bin", "obj", ".gemini", "public"
-        ].into_iter().collect();
+        let vault_path = self.vault_path.clone();
 
-        // Read optional .gitignore in root
-        let gitignore_patterns: Vec<String> = {
-            let gi_path = self.vault_path.join(".gitignore");
-            if gi_path.exists() {
-                if let Ok(content) = fs::read_to_string(&gi_path) {
-                    content
-                        .lines()
-                        .map(|l| l.trim())
-                        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                        .map(|l| l.trim_end_matches('/').to_string())
-                        .collect()
+        // Perform filesystem traversal, mtime filtering, and AST/Markdown parsing off the async executor
+        let scan_res = tokio::task::spawn_blocking(move || {
+            let ignored_dirs: HashSet<&str> = [
+                ".git",
+                "node_modules",
+                "target",
+                "dist",
+                "build",
+                ".next",
+                "vendor",
+                ".fastembed_cache",
+                "__pycache__",
+                ".venv",
+                "venv",
+                "env",
+                ".idea",
+                ".vscode",
+                "coverage",
+                "out",
+                ".turbo",
+                ".gradle",
+                "bin",
+                "obj",
+                ".gemini",
+                "public",
+                "graphfinder-out",
+                "mcp-tools",
+                "vaults",
+                "bower_components",
+                "Pods",
+                "DerivedData",
+                "zig-cache",
+                "zig-out",
+            ]
+            .into_iter()
+            .collect();
+
+            let ignored_files: HashSet<&str> = [
+                "package-lock.json",
+                "yarn.lock",
+                "pnpm-lock.yaml",
+                "cargo.lock",
+                "poetry.lock",
+                "composer.lock",
+                "gemfile.lock",
+            ]
+            .into_iter()
+            .collect();
+
+            let gitignore_patterns: Vec<String> = {
+                let gi_path = vault_path.join(".gitignore");
+                if gi_path.exists() {
+                    if let Ok(content) = fs::read_to_string(&gi_path) {
+                        content
+                            .lines()
+                            .map(|l| l.trim())
+                            .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with('!'))
+                            .map(|l| l.trim_start_matches('/').trim_end_matches('/').to_string())
+                            .filter(|l| !l.is_empty())
+                            .collect()
+                    } else {
+                        Vec::new()
+                    }
                 } else {
                     Vec::new()
                 }
-            } else {
-                Vec::new()
-            }
-        };
-
-        // First pass: collect entries and build path set for import resolution
-        let mut md_entries = Vec::new();
-        let mut code_entries = Vec::new();
-        let mut project_files_set = HashSet::new();
-        let mut project_files_by_name: HashMap<String, Vec<String>> = HashMap::new();
-
-        for entry in WalkDir::new(&self.vault_path)
-            .into_iter()
-            .filter_entry(|e| {
-                let file_name = e.file_name().to_string_lossy();
-                if e.file_type().is_dir() {
-                    if ignored_dirs.contains(file_name.as_ref()) {
-                        return false;
-                    }
-                    if gitignore_patterns.iter().any(|p| file_name == p.as_str()) {
-                        return false;
-                    }
-                }
-                true
-            })
-            .filter_map(|e| e.ok())
-        {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let rel_path = match path.strip_prefix(&self.vault_path) {
-                Ok(p) => p.to_string_lossy().replace('\\', "/"),
-                Err(_) => continue,
             };
 
-            if gitignore_patterns.iter().any(|p| {
-                rel_path == *p || rel_path.starts_with(&format!("{}/", p)) || rel_path.ends_with(p)
-            }) {
-                continue;
-            }
+            let mut md_entries: Vec<(PathBuf, String, i64)> = Vec::new();
+            let mut code_entries: Vec<(PathBuf, String, i64)> = Vec::new();
+            let mut project_files_set = HashSet::new();
+            let mut project_files_by_name: HashMap<String, Vec<String>> = HashMap::new();
+            let mut found_note_ids = HashSet::new();
+            let mut found_code_ids = HashSet::new();
 
-            if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                md_entries.push((path.to_path_buf(), rel_path));
-            } else if is_supported_code_file(path) {
-                let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
-                project_files_set.insert(rel_path.clone());
-                project_files_by_name.entry(file_name).or_default().push(rel_path.clone());
-                code_entries.push((path.to_path_buf(), rel_path));
-            }
-        }
-
-        // 2. Index Markdown Notes
-        for (path, rel_path) in md_entries {
-            let id = rel_path.clone();
-            found_note_ids.insert(id.clone());
-
-            let metadata = match fs::metadata(&path) {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-            let updated_at = metadata
-                .modified()
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as i64
+            for entry in WalkDir::new(&vault_path)
+                .into_iter()
+                .filter_entry(|e| {
+                    if e.depth() == 0 {
+                        return true;
+                    }
+                    let file_name = e.file_name().to_string_lossy();
+                    if e.file_type().is_dir() {
+                        if file_name.starts_with('.') || ignored_dirs.contains(file_name.as_ref()) {
+                            return false;
+                        }
+                        if gitignore_patterns.iter().any(|p| file_name == p.as_str()) {
+                            return false;
+                        }
+                    }
+                    true
                 })
-                .unwrap_or(0);
-
-            let content = match fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-
-            let hash = crate::engine::parser::content_hash(&content);
-
-            // Incremental check: if mtime AND content hash match, skip re-embedding
-            if let Some((existing_mtime, existing_hash)) = existing_note_meta.get(&id) {
-                if *existing_mtime == updated_at && existing_hash == &hash {
+                .filter_map(|e| e.ok())
+            {
+                if !entry.file_type().is_file() {
                     continue;
                 }
+                let path = entry.path();
+                let file_name_lower = entry.file_name().to_string_lossy().to_lowercase();
+                if ignored_files.contains(file_name_lower.as_str()) {
+                    continue;
+                }
+
+                let rel_path = match path.strip_prefix(&vault_path) {
+                    Ok(p) => p.to_string_lossy().replace('\\', "/"),
+                    Err(_) => continue,
+                };
+
+                if gitignore_patterns.iter().any(|p| {
+                    if p.starts_with('*') {
+                        rel_path.ends_with(p.trim_start_matches('*'))
+                    } else {
+                        rel_path == *p || rel_path.starts_with(&format!("{}/", p))
+                    }
+                }) {
+                    continue;
+                }
+
+                let meta = match entry.metadata() {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let file_len = meta.len();
+                let updated_at = meta
+                    .modified()
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64
+                    })
+                    .unwrap_or(0);
+
+                if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                    if file_len > 2_097_152 {
+                        continue;
+                    }
+                    found_note_ids.insert(rel_path.clone());
+                    md_entries.push((path.to_path_buf(), rel_path, updated_at));
+                } else if is_supported_code_file(path) {
+                    if file_len > 262_144 {
+                        continue;
+                    }
+                    let file_name = path
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    found_code_ids.insert(rel_path.clone());
+                    project_files_set.insert(rel_path.clone());
+                    project_files_by_name
+                        .entry(file_name)
+                        .or_default()
+                        .push(rel_path.clone());
+                    code_entries.push((path.to_path_buf(), rel_path, updated_at));
+                }
             }
 
-            let stem = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("untitled");
+            // Parse only changed Markdown notes
+            let mut parsed_notes: Vec<(String, String, i64, String, String, ParsedNote)> =
+                Vec::new();
+            for (path, rel_path, updated_at) in md_entries {
+                if let Some((existing_mtime, existing_hash)) = existing_note_meta.get(&rel_path) {
+                    if *existing_mtime == updated_at && !existing_hash.is_empty() {
+                        continue;
+                    }
+                }
+                let content = match fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                let hash = crate::engine::parser::content_hash(&content);
+                if let Some((_, existing_hash)) = existing_note_meta.get(&rel_path) {
+                    if existing_hash == &hash && !existing_hash.is_empty() {
+                        continue;
+                    }
+                }
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("untitled");
+                let parsed = parse_markdown(stem, &content);
+                parsed_notes.push((rel_path.clone(), rel_path, updated_at, content, hash, parsed));
+            }
 
-            let parsed = parse_markdown(stem, &content);
+            // Parse only changed Code files
+            let mut parsed_codes: Vec<(
+                ParsedCodeFile,
+                String,
+                i64,
+                Vec<(String, String, bool)>,
+            )> = Vec::new();
+            for (path, rel_path, updated_at) in code_entries {
+                if let Some((existing_mtime, existing_hash)) = existing_code_meta.get(&rel_path) {
+                    if *existing_mtime == updated_at && !existing_hash.is_empty() {
+                        continue;
+                    }
+                }
+                let content = match fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                let hash = crate::engine::parser::content_hash(&content);
+                if let Some((_, existing_hash)) = existing_code_meta.get(&rel_path) {
+                    if existing_hash == &hash && !existing_hash.is_empty() {
+                        continue;
+                    }
+                }
 
+                let parsed = parse_code_file(&rel_path, &content);
+                let mut resolved_links = Vec::with_capacity(parsed.imports.len());
+                for imp in &parsed.imports {
+                    if let Some(target_file) = resolve_import_path(
+                        &rel_path,
+                        &imp.target,
+                        &project_files_set,
+                        &project_files_by_name,
+                    ) {
+                        resolved_links.push((rel_path.clone(), target_file, false));
+                    } else {
+                        resolved_links.push((rel_path.clone(), imp.target.clone(), true));
+                    }
+                }
+                parsed_codes.push((parsed, hash, updated_at, resolved_links));
+            }
+
+            (
+                found_note_ids,
+                found_code_ids,
+                project_files_set,
+                project_files_by_name,
+                parsed_notes,
+                parsed_codes,
+            )
+        })
+        .await?;
+
+        let (
+            found_note_ids,
+            found_code_ids,
+            project_files_set,
+            project_files_by_name,
+            parsed_notes,
+            parsed_codes,
+        ) = scan_res;
+        let mut count = 0;
+
+        // 2. Index Changed Markdown Notes
+        for (id, rel_path, updated_at, content, hash, parsed) in parsed_notes {
             let note_embed_text = format!(
                 "{} {}\n{}",
                 parsed.title,
@@ -229,118 +381,157 @@ impl Engine {
                 chunk_embeddings.push((chunk, vec));
             }
 
-            let mut db = self.db.lock().await;
-            db.upsert_note(
-                &id,
-                &rel_path,
-                &parsed.title,
-                &parsed.summary,
-                &content,
-                &hash,
-                updated_at,
-                &parsed.links,
-                &parsed.tags,
-                Some(&note_embedding),
-                &chunk_embeddings,
-            )?;
+            {
+                let mut db = self.db.lock().await;
+                db.upsert_note(
+                    &id,
+                    &rel_path,
+                    &parsed.title,
+                    &parsed.summary,
+                    &content,
+                    &hash,
+                    updated_at,
+                    &parsed.links,
+                    &parsed.tags,
+                    Some(&note_embedding),
+                    &chunk_embeddings,
+                )?;
+            }
             count += 1;
         }
 
         // Clean up notes in db that no longer exist on disk
+        let mut notes_deleted = false;
         {
             let mut db = self.db.lock().await;
             let existing = db.get_all_notes()?;
             for n in existing {
                 if !found_note_ids.contains(&n.id) {
                     db.delete_note(&n.id)?;
+                    notes_deleted = true;
                 }
             }
         }
 
-        // 3. Index Code Files
-        for (path, rel_path) in code_entries {
-            let id = rel_path.clone();
-            found_code_ids.insert(id.clone());
+        // 3. Index Changed Code Files in Multi-File Batches
+        let is_large_sync = parsed_codes.len() > 80;
+        let max_embedded_chunks_per_file = if is_large_sync { 4 } else { 16 };
 
-            let metadata = match fs::metadata(&path) {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-
-            // Skip large files (> 1 MB) to prevent overhead on massive bundles
-            if metadata.len() > 1_048_576 {
-                continue;
+        // If this is a large initial sync, immediately persist the structural AST & FTS5 records first
+        // so the graph canvas and file lists are populated in <200ms while embeddings compute in batches!
+        if parsed_codes.len() > 25 {
+            let empty_vecs: Vec<Vec<f32>> = Vec::new();
+            for chunk_group in parsed_codes.chunks(100) {
+                let bulk_items: Vec<(
+                    &ParsedCodeFile,
+                    &str,
+                    i64,
+                    &[Vec<f32>],
+                    &[(String, String, bool)],
+                )> = chunk_group
+                    .iter()
+                    .map(|(p, h, mtime, links)| {
+                        (p, h.as_str(), *mtime, empty_vecs.as_slice(), links.as_slice())
+                    })
+                    .collect();
+                let mut db = self.db.lock().await;
+                db.save_code_files_bulk(&bulk_items)?;
             }
+            self.cached_count
+                .store(found_note_ids.len() + found_code_ids.len(), Ordering::Relaxed);
+            if let Some(handle) = app_handle {
+                use tauri::Emitter;
+                let _ = handle.emit("vault-sync-complete", 0usize);
+            }
+            tokio::task::yield_now().await;
+        }
 
-            let updated_at = metadata
-                .modified()
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as i64
-                })
-                .unwrap_or(0);
+        for file_batch in parsed_codes.chunks(24) {
+            let mut flat_texts = Vec::new();
+            let mut counts_per_file = Vec::with_capacity(file_batch.len());
 
-            let content = match fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-
-            let hash = crate::engine::parser::content_hash(&content);
-
-            // Incremental check: if mtime AND content hash match, skip re-embedding
-            if let Some((existing_mtime, existing_hash)) = existing_code_meta.get(&id) {
-                if *existing_mtime == updated_at && existing_hash == &hash {
-                    continue;
+            for (parsed, _, _, _) in file_batch {
+                let embed_count = parsed.chunks.len().min(max_embedded_chunks_per_file);
+                counts_per_file.push(embed_count);
+                for chunk in parsed.chunks.iter().take(embed_count) {
+                    let preview: &str = if chunk.content.len() > 500 {
+                        let mut end = 500;
+                        while end > 0 && !chunk.content.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        &chunk.content[..end]
+                    } else {
+                        &chunk.content
+                    };
+                    flat_texts.push(format!(
+                        "{}: {} (lines {}-{})\n{}",
+                        parsed.name,
+                        chunk.symbol_name.as_deref().unwrap_or("code"),
+                        chunk.start_line,
+                        chunk.end_line,
+                        preview
+                    ));
                 }
             }
 
-            let parsed = parse_code_file(&rel_path, &content);
-
-            // Resolve imports to internal files or external packages
-            let mut resolved_links = Vec::new();
-            for imp in &parsed.imports {
-                if let Some(target_file) = resolve_import_path(
-                    &rel_path,
-                    &imp.target,
-                    &project_files_set,
-                    &project_files_by_name,
-                ) {
-                    resolved_links.push((rel_path.clone(), target_file, false));
-                } else {
-                    resolved_links.push((rel_path.clone(), imp.target.clone(), true));
-                }
-            }
-
-            // Batch embed code chunk texts
-            let mut batch_texts = Vec::with_capacity(parsed.chunks.len());
-            for chunk in &parsed.chunks {
-                let chunk_text = format!(
-                    "{}: {} (lines {}-{})\n{}",
-                    parsed.name,
-                    chunk.symbol_name.as_deref().unwrap_or("code"),
-                    chunk.start_line,
-                    chunk.end_line,
-                    chunk.content
-                );
-                batch_texts.push(chunk_text);
-            }
-
-            let vectors = if !batch_texts.is_empty() {
-                self.embeddings.embed_batch(batch_texts).await?
+            let flat_vectors = if !flat_texts.is_empty() {
+                self.embeddings.embed_batch(flat_texts).await?
             } else {
                 Vec::new()
             };
 
-            let mut db = self.db.lock().await;
-            db.save_code_file_batch(&parsed, &hash, updated_at, &vectors, &resolved_links)?;
-            count += 1;
+            let mut vec_iter = flat_vectors.into_iter();
+            let mut per_file_vectors: Vec<Vec<Vec<f32>>> = Vec::with_capacity(file_batch.len());
+            for &c_len in &counts_per_file {
+                let mut file_vecs = Vec::with_capacity(c_len);
+                for _ in 0..c_len {
+                    if let Some(v) = vec_iter.next() {
+                        file_vecs.push(v);
+                    }
+                }
+                per_file_vectors.push(file_vecs);
+            }
+
+            let bulk_refs: Vec<(
+                &ParsedCodeFile,
+                &str,
+                i64,
+                &[Vec<f32>],
+                &[(String, String, bool)],
+            )> = file_batch
+                .iter()
+                .zip(per_file_vectors.iter())
+                .map(|((parsed, hash, mtime, links), vecs)| {
+                    (
+                        parsed,
+                        hash.as_str(),
+                        *mtime,
+                        vecs.as_slice(),
+                        links.as_slice(),
+                    )
+                })
+                .collect();
+
+            {
+                let mut db = self.db.lock().await;
+                db.save_code_files_bulk(&bulk_refs)?;
+            }
+            count += file_batch.len();
+            tokio::task::yield_now().await;
         }
 
-        // Clean up deleted code files
+        // Clean up deleted code files and resolve function/method call graph only if changes occurred
         {
             let mut db = self.db.lock().await;
-            let _ = db.delete_missing_code_files(&found_code_ids)?;
+            let deleted_code = db.delete_missing_code_files(&found_code_ids)?;
+            if count > 0 || deleted_code > 0 {
+                let _ = db.resolve_pending_code_links(&project_files_set, &project_files_by_name);
+                let _ = db.resolve_call_graph();
+            }
+            if notes_deleted || deleted_code > 0 || count > 0 {
+                let total = db.total_indexed_count();
+                self.cached_count.store(total, Ordering::Relaxed);
+            }
         }
 
         Ok(count)
@@ -541,6 +732,7 @@ impl Engine {
             Some(&note_embedding),
             &chunk_embeddings,
         )?;
+        self.cached_count.store(db.total_indexed_count(), Ordering::Relaxed);
 
         let note = db
             .get_note_by_id(&id)?
@@ -630,6 +822,7 @@ impl Engine {
 
         let mut db = self.db.lock().await;
         db.delete_note(&note.id)?;
+        self.cached_count.store(db.total_indexed_count(), Ordering::Relaxed);
         Ok(())
     }
 
@@ -659,11 +852,11 @@ impl Engine {
     }
 
     pub async fn get_graph(&self) -> Result<GraphData, Box<dyn std::error::Error + Send + Sync>> {
-        let (mut graph, summaries) = {
+        let mut graph = {
             let db = self.db.lock().await;
-            (db.get_graph_data()?, db.get_all_summaries()?)
+            db.get_graph_data()?
         };
-        let analytics = super::graph_analytics::GraphAnalyticsEngine::new(&graph, summaries);
+        let analytics = super::graph_analytics::GraphAnalyticsEngine::new(&graph, HashMap::new());
         let report = analytics.analyze();
         let god_ids: HashSet<String> = report.god_nodes.into_iter().map(|g| g.id).collect();
 
@@ -742,15 +935,24 @@ impl Engine {
         Ok(db.semantic_search(&query_emb, limit)?)
     }
 
-    /// Hybrid search: combines dense vector similarity and BM25 FTS5 using Reciprocal Rank Fusion
+    /// Hybrid search: combines dense vector similarity and BM25 FTS5 using Reciprocal Rank Fusion, with optional neural Reranker
     pub async fn search_chunks(
         &self,
         query: &str,
         limit: usize,
     ) -> Result<Vec<ChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
         let query_emb = self.embeddings.embed_text(query).await.unwrap_or_default();
-        let db = self.db.lock().await;
-        Ok(db.search_chunks_hybrid(query, &query_emb, limit)?)
+        let candidate_limit = if self.embeddings.is_reranker_ready() {
+            (limit * 2).max(20)
+        } else {
+            limit
+        };
+        let mut hits = {
+            let db = self.db.lock().await;
+            db.search_chunks_hybrid(query, &query_emb, candidate_limit)?
+        };
+        self.embeddings.rerank_chunks(query, &mut hits, limit);
+        Ok(hits)
     }
 
     /// Recommends existing notes/sections to link to while writing
@@ -817,8 +1019,17 @@ impl Engine {
         lang_filter: Option<&str>,
     ) -> Result<Vec<CodeChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
         let query_emb = self.embeddings.embed_text(query).await.unwrap_or_default();
-        let db = self.db.lock().await;
-        Ok(db.search_code_hybrid(query, &query_emb, limit, lang_filter)?)
+        let candidate_limit = if self.embeddings.is_reranker_ready() {
+            (limit * 2).max(20)
+        } else {
+            limit
+        };
+        let mut hits = {
+            let db = self.db.lock().await;
+            db.search_code_hybrid(query, &query_emb, candidate_limit, lang_filter)?
+        };
+        self.embeddings.rerank_code_chunks(query, &mut hits, limit);
+        Ok(hits)
     }
 
     pub async fn find_files(

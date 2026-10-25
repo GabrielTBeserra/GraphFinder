@@ -75,7 +75,7 @@ Traditional RAG systems slice documents arbitrarily into fixed-length windows or
 
 ### 4. Background File Watcher & Instant Sync
 * Automatic directory monitoring with debounce (500ms) via `notify-debouncer-mini`.
-* Notes edited or created externally in Obsidian, VS Code, or Neovim are indexed and reflected on the graph in real time.
+* Notes and code edited or created externally in VS Code, Cursor, Windsurf, or Neovim are indexed and reflected on the graph in real time.
 
 ### 5. Multi-Vault Project Isolation & Refactoring
 * Switch or create isolated vaults (`./vaults/<project_id>`) with dedicated vector indices.
@@ -88,7 +88,7 @@ Traditional RAG systems slice documents arbitrarily into fixed-length windows or
 * **Interactive Code Inspector**: Click any code node to inspect top-level symbols (functions, structs, classes), line ranges, token estimates, and jump between imported files.
 
 ### 7. Studio White Theme & Vibrant Semantic Graph Palettes
-* **Instant Dark / Light Mode Switching**: Native support for studio light mode (`#f8fafc`) and obsidian dark mode (`#090a0f`), featuring a topbar Sun/Moon toggle with persistent preference saved to `localStorage`.
+* **Instant Dark / Light Mode Switching**: Native support for studio light mode (`#f8fafc`) and deep dark mode (`#090a0f`), featuring a topbar Sun/Moon toggle with persistent preference saved to `localStorage`.
 * **Radial Glow Halos & Concentric Cores**: Central hub nodes emit soft orbital radial illumination gradients proportional to their connection degree, featuring adaptive contrast and colored `#` prefix tag pills.
 
 ---

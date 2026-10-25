@@ -21,21 +21,25 @@ async fn list_projects(manager: State<'_, Arc<VaultManager>>) -> Result<Vec<Proj
 #[tauri::command]
 #[allow(non_snake_case)]
 async fn switch_project(
+    app_handle: tauri::AppHandle,
     project_id: Option<String>,
     projectId: Option<String>,
     manager: State<'_, Arc<VaultManager>>,
 ) -> Result<ProjectInfo, String> {
     let id = project_id.or(projectId).unwrap_or_else(|| "default".to_string());
-    manager.switch_project(&id).await
+    manager.switch_project_with_handle(&id, Some(app_handle)).await
 }
 
 #[tauri::command]
 async fn create_project(
+    app_handle: tauri::AppHandle,
     name: String,
     path: Option<String>,
     manager: State<'_, Arc<VaultManager>>,
 ) -> Result<ProjectInfo, String> {
-    manager.create_project(&name, path).await
+    manager
+        .create_project_with_handle(&name, path, Some(app_handle))
+        .await
 }
 
 #[tauri::command]
@@ -240,11 +244,14 @@ async fn link_notes(
 }
 
 #[tauri::command]
-async fn sync_vault(manager: State<'_, Arc<VaultManager>>) -> Result<usize, String> {
+async fn sync_vault(
+    app_handle: tauri::AppHandle,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<usize, String> {
     manager
         .active_engine()
         .await
-        .sync_vault()
+        .sync_vault_with_handle(Some(&app_handle))
         .await
         .map_err(|e| e.to_string())
 }
@@ -493,6 +500,8 @@ pub fn run() {
                         "message": format!("Error loading neural model: {}", e)
                     }));
                 } else {
+                    // Cooperative delay: allow frontend initial queries (notes, projects, graph) to read DB without lock contention
+                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
                     let engine = manager_for_sync.active_engine().await;
                     if let Ok(count) = engine.sync_vault().await {
                         println!("[GraphFinder Tauri] {} notes synchronized in active vault.", count);
@@ -501,7 +510,7 @@ pub fn run() {
                 }
             });
 
-            // File Watcher with Debounce (500ms) for automatic synchronization when files are edited externally (Obsidian, VS Code, etc)
+            // File Watcher with Debounce (500ms) for automatic synchronization when files are edited externally (VS Code, Cursor, etc)
             let app_handle_for_watch = app.handle().clone();
             let manager_for_watch = Arc::clone(&manager);
             tauri::async_runtime::spawn_blocking(move || {

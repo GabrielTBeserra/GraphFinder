@@ -305,7 +305,11 @@ impl GraphFinderMcpServer {
     /// Creates a new isolated project with dedicated Markdown vault and SQLite vector index.
     #[tool(description = "Creates a new isolated project with dedicated Markdown vault and SQLite vector index.")]
     async fn create_project(&self, Parameters(args): Parameters<CreateProjectArgs>) -> Result<CallToolResult, McpError> {
-        let project = match self.manager.create_project(&args.name, args.path).await {
+        let project = match self
+            .manager
+            .create_project_with_handle(&args.name, args.path, self.app_handle.clone())
+            .await
+        {
             Ok(p) => p,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to create project: {}", e))])),
         };
@@ -322,7 +326,11 @@ impl GraphFinderMcpServer {
     /// Switches the active default vault for subsequent GraphFinder operations.
     #[tool(description = "Switches the active default vault for subsequent GraphFinder operations.")]
     async fn switch_project(&self, Parameters(args): Parameters<SwitchProjectArgs>) -> Result<CallToolResult, McpError> {
-        let project = match self.manager.switch_project(&args.project_id).await {
+        let project = match self
+            .manager
+            .switch_project_with_handle(&args.project_id, self.app_handle.clone())
+            .await
+        {
             Ok(p) => p,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to switch project: {}", e))])),
         };
@@ -803,7 +811,7 @@ impl GraphFinderMcpServer {
         match engine.get_code_dependencies(&args.file_path, direction).await {
             Ok(deps) => {
                 let out = format!(
-                    "Dependencies for `{}`:\n\n- Imported Files ({}):\n{}\n\n- Files Importing This File ({}):\n{}\n\n- External Modules/Packages ({}):\n{}",
+                    "Dependencies for `{}`:\n\n- Imported Files ({}):\n{}\n\n- Files Importing This File ({}):\n{}\n\n- External Modules/Packages ({}):\n{}\n\n- Outgoing Function Calls ({}):\n{}\n\n- Incoming Callers ({}):\n{}",
                     deps.file_id,
                     deps.imports.len(),
                     if deps.imports.is_empty() { "  (none)".to_string() } else { deps.imports.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
@@ -811,6 +819,10 @@ impl GraphFinderMcpServer {
                     if deps.imported_by.is_empty() { "  (none)".to_string() } else { deps.imported_by.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
                     deps.external.len(),
                     if deps.external.is_empty() { "  (none)".to_string() } else { deps.external.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                    deps.outgoing_calls.len(),
+                    if deps.outgoing_calls.is_empty() { "  (none)".to_string() } else { deps.outgoing_calls.iter().map(|c| format!("  - `{}`", c)).collect::<Vec<_>>().join("\n") },
+                    deps.incoming_callers.len(),
+                    if deps.incoming_callers.is_empty() { "  (none)".to_string() } else { deps.incoming_callers.iter().map(|c| format!("  - `{}`", c)).collect::<Vec<_>>().join("\n") },
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
