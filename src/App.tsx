@@ -23,6 +23,7 @@ import type {
   NoteRecord,
   NoteSummary,
   ProjectInfo,
+  SyncProgress,
 } from './types';
 import { GraphView } from './components/GraphView';
 import { NoteEditor } from './components/NoteEditor';
@@ -40,13 +41,32 @@ import {
   MagnifyingGlass,
   Sun,
   Moon,
+  WarningCircle,
 } from '@phosphor-icons/react';
 
 interface Toast {
   id: string;
   message: string;
-  type?: 'success' | 'info';
+  type?: 'success' | 'info' | 'error';
 }
+
+const formatSyncEta = (seconds: number) =>
+  seconds >= 60
+    ? `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
+    : `${seconds}s`;
+
+const getSyncStatus = (progress: SyncProgress) => {
+  switch (progress.phase) {
+    case 'scanning':
+      return `Scanning files · ${progress.completed} found`;
+    case 'indexing':
+      return `Indexing ${progress.completed}/${progress.total} · ${progress.percent ?? 0}%`;
+    case 'finalizing':
+      return 'Finalizing index · 99%';
+    case 'complete':
+      return 'Synchronization complete · 100%';
+  }
+};
 
 export const App: React.FC = () => {
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], links: [] });
@@ -61,6 +81,7 @@ export const App: React.FC = () => {
   const [codeChunkResults, setCodeChunkResults] = useState<CodeChunkHit[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isOmnisearchOpen, setIsOmnisearchOpen] = useState(false);
   const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
@@ -109,13 +130,16 @@ export const App: React.FC = () => {
     }
   }, [theme]);
 
-  const showToast = useCallback((message: string, type: 'success' | 'info' = 'success') => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3200);
-  }, []);
+  const showToast = useCallback(
+    (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+      const id = Math.random().toString(36).substring(2, 9);
+      setToasts((prev) => [...prev, { id, message, type }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 3200);
+    },
+    []
+  );
 
   const handleSelectNote = useCallback(async (idOrTitle: string) => {
     const clean = idOrTitle.replace(/^unresolved:/, '').split('#')[0].trim();
@@ -317,10 +341,25 @@ export const App: React.FC = () => {
     }, 4000);
 
     let unlistenSync: (() => void) | undefined;
+    let unlistenSyncProgress: (() => void) | undefined;
     let unlistenMcp: (() => void) | undefined;
     let unlistenEngine: (() => void) | undefined;
+    let syncCompleteTimeout: ReturnType<typeof setTimeout> | undefined;
 
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      listen<SyncProgress>('vault-sync-progress', (event) => {
+        const progress = event.payload;
+        setSyncProgress(progress);
+        if (progress.phase === 'complete') {
+          if (syncCompleteTimeout) clearTimeout(syncCompleteTimeout);
+          syncCompleteTimeout = setTimeout(() => {
+            setSyncProgress((current) => (current?.phase === 'complete' ? null : current));
+          }, 1600);
+        }
+      }).then((unlisten) => {
+        unlistenSyncProgress = unlisten;
+      });
+
       listen<number>('vault-sync-complete', (event) => {
         loadData();
         loadProjects();
@@ -361,7 +400,9 @@ export const App: React.FC = () => {
       isCancelled = true;
       clearInterval(statusInterval);
       clearTimeout(fallbackTimeout);
+      if (syncCompleteTimeout) clearTimeout(syncCompleteTimeout);
       if (unlistenSync) unlistenSync();
+      if (unlistenSyncProgress) unlistenSyncProgress();
       if (unlistenMcp) unlistenMcp();
       if (unlistenEngine) unlistenEngine();
     };
@@ -517,6 +558,8 @@ export const App: React.FC = () => {
       showToast(`Sync complete (${count} files processed)`);
     } catch (err) {
       console.error('Error during sync:', err);
+      setSyncProgress(null);
+      showToast(`Sync failed: ${String(err)}`, 'error');
     } finally {
       setIsSyncing(false);
     }
@@ -704,6 +747,65 @@ export const App: React.FC = () => {
         </div>
       </header>
 
+      {syncProgress && (
+        <div
+          className={`shrink-0 border-b px-4 py-2 ${
+            isLight ? 'border-slate-200 bg-white' : 'border-[#202636] bg-[#0d1017]'
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className={`text-[9px] font-semibold tracking-[0.18em] ${
+                isLight ? 'text-indigo-600' : 'text-indigo-400'
+              }`}
+            >
+              SYNC
+            </span>
+            <span
+              className={`min-w-0 flex-1 truncate text-[10px] font-mono ${
+                isLight ? 'text-slate-600' : 'text-[#aab4c5]'
+              }`}
+              title={syncProgress.current_file ?? undefined}
+            >
+              {syncProgress.current_file
+                ? `${getSyncStatus(syncProgress)} · ${syncProgress.current_file}`
+                : getSyncStatus(syncProgress)}
+            </span>
+            {syncProgress.phase === 'indexing' && (
+              <span className="hidden shrink-0 text-[10px] font-mono text-slate-500 sm:inline">
+                {syncProgress.eta_seconds === null
+                  ? 'Estimating time'
+                  : `~${formatSyncEta(syncProgress.eta_seconds)} left`}
+              </span>
+            )}
+            <div
+              className={`h-1 w-20 shrink-0 overflow-hidden rounded-full sm:w-28 ${
+                isLight ? 'bg-slate-200' : 'bg-[#252c3b]'
+              }`}
+              role="progressbar"
+              aria-label="Vault synchronization progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={syncProgress.percent ?? undefined}
+              aria-valuetext={getSyncStatus(syncProgress)}
+            >
+              <div
+                className={`h-full rounded-full bg-indigo-500 transition-[width] duration-300 ${
+                  syncProgress.percent === null ? 'w-1/3 animate-pulse' : ''
+                }`}
+                style={
+                  syncProgress.percent === null
+                    ? undefined
+                    : { width: `${syncProgress.percent}%` }
+                }
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Studio Body */}
       <div
         className={`flex-1 flex overflow-hidden relative ${
@@ -801,7 +903,11 @@ export const App: React.FC = () => {
                   : 'bg-[#14171f] border-[#262933] text-[#f1f5f9]'
               }`}
             >
-              <CheckCircle size={14} weight="fill" className="text-[#10b981] shrink-0" />
+              {toast.type === 'error' ? (
+                <WarningCircle size={14} weight="fill" className="shrink-0 text-rose-500" />
+              ) : (
+                <CheckCircle size={14} weight="fill" className="shrink-0 text-[#10b981]" />
+              )}
               <span>{toast.message}</span>
             </div>
           ))}

@@ -3,7 +3,47 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use app_lib::engine::{clean_path_str, EmbeddingEngine, VaultManager};
+use app_lib::engine::{clean_path_str, EmbeddingEngine, SyncPhase, SyncProgress, VaultManager};
+
+fn format_eta(seconds: u64) -> String {
+    if seconds >= 60 {
+        format!("{}m {:02}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{}s", seconds)
+    }
+}
+
+fn print_sync_progress(progress: &SyncProgress) {
+    use std::io::Write;
+
+    let current_file = progress
+        .current_file
+        .as_deref()
+        .map(|path| path.chars().take(56).collect::<String>())
+        .unwrap_or_default();
+    let message = match progress.phase {
+        SyncPhase::Scanning => format!(
+            "Scanning repository - {} files found {}",
+            progress.completed, current_file
+        ),
+        SyncPhase::Indexing => format!(
+            "Indexing {}/{} ({}%) - ETA {} {}",
+            progress.completed,
+            progress.total,
+            progress.percent.unwrap_or(0),
+            progress
+                .eta_seconds
+                .map(format_eta)
+                .unwrap_or_else(|| "estimating".to_string()),
+            current_file
+        ),
+        SyncPhase::Finalizing => "Finalizing index (99%)".to_string(),
+        SyncPhase::Complete => "Synchronization complete (100%)".to_string(),
+    };
+    let mut stdout = std::io::stdout().lock();
+    let _ = write!(stdout, "\r{message:<140}");
+    let _ = stdout.flush();
+}
 
 #[cfg(windows)]
 fn attach_console() {
@@ -618,8 +658,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
 
         let start_time = std::time::Instant::now();
-        let sync_result = engine.sync_vault().await;
+        let sync_result = engine
+            .sync_vault_with_progress(move |progress| {
+                if !is_json {
+                    print_sync_progress(&progress);
+                }
+            })
+            .await;
         let elapsed = start_time.elapsed();
+        if !is_json {
+            println!();
+        }
 
         match sync_result {
             Ok(changed_count) => {

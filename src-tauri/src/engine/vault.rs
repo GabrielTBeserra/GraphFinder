@@ -14,6 +14,7 @@ use super::db::{
 };
 use super::embeddings::EmbeddingEngine;
 use super::parser::{parse_markdown, ParsedNote};
+use super::progress::SyncProgress;
 
 #[derive(Clone)]
 pub struct Engine {
@@ -84,14 +85,42 @@ impl Engine {
 
     /// Scans the vault directory and indexes all markdown files AND source code files into SQLite
     pub async fn sync_vault(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-        self.sync_vault_with_handle(None).await
+        self.sync_vault_internal(None, Arc::new(|_| {})).await
     }
 
     pub async fn sync_vault_with_handle(
         &self,
         app_handle: Option<&tauri::AppHandle>,
     ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+        let event_handle = app_handle.cloned();
+        let on_progress = Arc::new(move |progress| {
+            if let Some(handle) = &event_handle {
+                use tauri::Emitter;
+                let _ = handle.emit("vault-sync-progress", progress);
+            }
+        });
+        self.sync_vault_internal(app_handle.cloned(), on_progress)
+            .await
+    }
+
+    pub async fn sync_vault_with_progress<F>(
+        &self,
+        on_progress: F,
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>>
+    where
+        F: Fn(SyncProgress) + Send + Sync + 'static,
+    {
+        self.sync_vault_internal(None, Arc::new(on_progress)).await
+    }
+
+    async fn sync_vault_internal(
+        &self,
+        app_handle: Option<tauri::AppHandle>,
+        on_progress: Arc<dyn Fn(SyncProgress) + Send + Sync>,
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         let _sync_guard = self.sync_mutex.lock().await;
+        let sync_started_at = std::time::Instant::now();
+        on_progress(SyncProgress::scanning(0, 0, None));
 
         // 1. Fetch existing timestamps and content hashes for instant incremental sync
         let (existing_note_meta, existing_code_meta) = {
@@ -100,6 +129,8 @@ impl Engine {
         };
 
         let vault_path = self.vault_path.clone();
+        let scan_progress = Arc::clone(&on_progress);
+        let scan_started_at = sync_started_at;
 
         // Perform filesystem traversal, mtime filtering, and AST/Markdown parsing off the async executor
         let scan_res = tokio::task::spawn_blocking(move || {
@@ -175,6 +206,8 @@ impl Engine {
             let mut project_files_by_name: HashMap<String, Vec<String>> = HashMap::new();
             let mut found_note_ids = HashSet::new();
             let mut found_code_ids = HashSet::new();
+            let mut scanned_files = 0;
+            let mut should_report_scan = false;
 
             for entry in WalkDir::new(&vault_path)
                 .into_iter()
@@ -237,12 +270,16 @@ impl Engine {
                     if file_len > 2_097_152 {
                         continue;
                     }
+                    scanned_files += 1;
+                    should_report_scan = true;
                     found_note_ids.insert(rel_path.clone());
-                    md_entries.push((path.to_path_buf(), rel_path, updated_at));
+                    md_entries.push((path.to_path_buf(), rel_path.clone(), updated_at));
                 } else if is_supported_code_file(path) {
                     if file_len > 262_144 {
                         continue;
                     }
+                    scanned_files += 1;
+                    should_report_scan = true;
                     let file_name = path
                         .file_name()
                         .and_then(|s| s.to_str())
@@ -254,9 +291,24 @@ impl Engine {
                         .entry(file_name)
                         .or_default()
                         .push(rel_path.clone());
-                    code_entries.push((path.to_path_buf(), rel_path, updated_at));
+                    code_entries.push((path.to_path_buf(), rel_path.clone(), updated_at));
                 }
+
+                if should_report_scan && scanned_files % 16 == 0 {
+                    scan_progress(SyncProgress::scanning(
+                        scanned_files,
+                        scan_started_at.elapsed().as_millis() as u64,
+                        Some(rel_path),
+                    ));
+                }
+                should_report_scan = false;
             }
+
+            scan_progress(SyncProgress::scanning(
+                scanned_files,
+                scan_started_at.elapsed().as_millis() as u64,
+                None,
+            ));
 
             // Parse only changed Markdown notes
             let mut parsed_notes: Vec<(String, String, i64, String, String, ParsedNote)> =
@@ -294,7 +346,13 @@ impl Engine {
             )> = Vec::new();
             for (path, rel_path, updated_at) in code_entries {
                 if let Some((existing_mtime, existing_hash)) = existing_code_meta.get(&rel_path) {
-                    if *existing_mtime == updated_at && !existing_hash.is_empty() {
+                    if *existing_mtime == updated_at
+                        && !existing_hash.is_empty()
+                        && !crate::engine::code::needs_code_metadata_refresh(
+                            &rel_path,
+                            existing_hash,
+                        )
+                    {
                         continue;
                     }
                 }
@@ -302,7 +360,7 @@ impl Engine {
                     Ok(c) => c,
                     Err(_) => continue,
                 };
-                let hash = crate::engine::parser::content_hash(&content);
+                let hash = crate::engine::code::indexed_code_content_hash(&rel_path, &content);
                 if let Some((_, existing_hash)) = existing_code_meta.get(&rel_path) {
                     if existing_hash == &hash && !existing_hash.is_empty() {
                         continue;
@@ -346,6 +404,14 @@ impl Engine {
             parsed_codes,
         ) = scan_res;
         let mut count = 0;
+        let total_work = parsed_notes.len() + parsed_codes.len();
+        let mut processed = 0;
+        on_progress(SyncProgress::indexing(
+            0,
+            total_work,
+            sync_started_at.elapsed().as_millis() as u64,
+            None,
+        ));
 
         // 2. Index Changed Markdown Notes
         for (id, rel_path, updated_at, content, hash, parsed) in parsed_notes {
@@ -372,6 +438,13 @@ impl Engine {
 
             let mut all_vectors = self.embeddings.embed_batch(batch_texts).await?;
             if all_vectors.is_empty() {
+                processed += 1;
+                on_progress(SyncProgress::indexing(
+                    processed,
+                    total_work,
+                    sync_started_at.elapsed().as_millis() as u64,
+                    Some(rel_path),
+                ));
                 continue;
             }
 
@@ -398,6 +471,13 @@ impl Engine {
                 )?;
             }
             count += 1;
+            processed += 1;
+            on_progress(SyncProgress::indexing(
+                processed,
+                total_work,
+                sync_started_at.elapsed().as_millis() as u64,
+                Some(rel_path),
+            ));
         }
 
         // Clean up notes in db that no longer exist on disk
@@ -517,8 +597,21 @@ impl Engine {
                 db.save_code_files_bulk(&bulk_refs)?;
             }
             count += file_batch.len();
+            processed += file_batch.len();
+            on_progress(SyncProgress::indexing(
+                processed,
+                total_work,
+                sync_started_at.elapsed().as_millis() as u64,
+                file_batch.last().map(|(parsed, _, _, _)| parsed.name.clone()),
+            ));
             tokio::task::yield_now().await;
         }
+
+        on_progress(SyncProgress::finalizing(
+            processed,
+            total_work,
+            sync_started_at.elapsed().as_millis() as u64,
+        ));
 
         // Clean up deleted code files and resolve function/method call graph only if changes occurred
         {
@@ -526,6 +619,7 @@ impl Engine {
             let deleted_code = db.delete_missing_code_files(&found_code_ids)?;
             if count > 0 || deleted_code > 0 {
                 let _ = db.resolve_pending_code_links(&project_files_set, &project_files_by_name);
+                db.resolve_pending_code_relations()?;
                 let _ = db.resolve_call_graph();
             }
             if notes_deleted || deleted_code > 0 || count > 0 {
@@ -534,6 +628,11 @@ impl Engine {
             }
         }
 
+        on_progress(SyncProgress::complete(
+            processed,
+            total_work,
+            sync_started_at.elapsed().as_millis() as u64,
+        ));
         Ok(count)
     }
 
@@ -1076,4 +1175,3 @@ impl Engine {
         Ok(db.list_code_files(limit)?)
     }
 }
-

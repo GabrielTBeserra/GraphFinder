@@ -15,6 +15,35 @@ pub struct ExtractedImport {
     pub is_relative: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeRelationKind {
+    Import,
+    TypeReference,
+    DiRegistration,
+    DiInjection,
+}
+
+impl CodeRelationKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Import => "import",
+            Self::TypeReference => "type",
+            Self::DiRegistration => "registration",
+            Self::DiInjection => "injection",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedCodeRelation {
+    pub kind: CodeRelationKind,
+    pub raw: String,
+    pub target: String,
+    pub source_symbol: Option<String>,
+    pub target_symbol: Option<String>,
+    pub line: usize,
+}
+
 /// A semantic chunk of code (function, class, struct, or windowed block).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeChunk {
@@ -35,7 +64,10 @@ pub struct ParsedCodeFile {
     pub extension: String,
     pub language: String,
     pub size_bytes: usize,
+    pub namespaces: Vec<String>,
+    pub declared_symbols: Vec<String>,
     pub imports: Vec<ExtractedImport>,
+    pub relations: Vec<ExtractedCodeRelation>,
     pub chunks: Vec<CodeChunk>,
     pub summary: String,
 }
@@ -962,8 +994,105 @@ static JAVA_KT_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static CSHARP_USING_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^\s*using\s+(?:static\s+)?([a-zA-Z0-9_.]+)\s*;"#)
+    Regex::new(
+        r#"(?m)^\s*(?:global\s+)?using\s+(?:static\s+)?(?:[A-Za-z_][A-Za-z0-9_]*\s*=\s*)?(?:global::)?([a-zA-Z0-9_.]+)\s*;"#,
+    )
         .expect("valid regex for csharp using")
+});
+
+static CSHARP_NAMESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*namespace\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:;|\{)")
+        .expect("valid regex for csharp namespace")
+});
+
+static CSHARP_DI_REGISTRATION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\bAdd(?:Scoped|Transient|Singleton)\s*<\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*,\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*>\s*\(",
+    )
+    .expect("valid regex for csharp DI registration")
+});
+
+static CSHARP_TYPE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:class|record|struct)\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+        .expect("valid regex for csharp type")
+});
+
+static CSHARP_DECLARED_SYMBOL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:class|interface|record|struct|enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+        .expect("valid regex for csharp declared symbol")
+});
+
+static CSHARP_CONSTRUCTOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^[ \t]*(?:(?:public|internal|protected|private)\s+)*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)",
+    )
+    .expect("valid regex for csharp constructor")
+});
+
+static TYPESCRIPT_CLASS_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bclass\s+([A-Za-z_$][A-Za-z0-9_$]*)").expect("valid TS class"));
+static TYPESCRIPT_CONSTRUCTOR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bconstructor\s*\(([^)]*)\)").expect("valid TS constructor"));
+static TYPESCRIPT_PROVIDER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bprovide\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*useClass\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*)")
+        .expect("valid NestJS provider binding")
+});
+static PYTHON_DEF_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+        .expect("valid Python function")
+});
+static PYTHON_DEPENDS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bDepends\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)").expect("valid FastAPI Depends")
+});
+static PHP_DI_BIND_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\$this\s*->\s*app\s*->\s*(?:bind|singleton|scoped)\s*\(\s*([\\A-Za-z_][\\A-Za-z0-9_]*)::class\s*,\s*([\\A-Za-z_][\\A-Za-z0-9_]*)::class",
+    )
+    .expect("valid Laravel container binding")
+});
+static PHP_CLASS_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)").expect("valid PHP class"));
+static PHP_CONSTRUCTOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?s)function\s+__construct\s*\(([^)]*)\)").expect("valid PHP constructor")
+});
+static PHP_TYPED_PARAMETER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"([\\A-Za-z_][\\A-Za-z0-9_]*)\s+\$[A-Za-z_]\w*").expect("valid PHP type")
+});
+static JAVA_TYPE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:class|record)\s+([A-Za-z_][A-Za-z0-9_]*)").expect("valid Java type")
+});
+static JAVA_CONSTRUCTOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^[ \t]*(?:(?:public|protected|private)\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)",
+    )
+    .expect("valid Java constructor")
+});
+static KOTLIN_PRIMARY_CONSTRUCTOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)")
+        .expect("valid Kotlin primary constructor")
+});
+static SWIFT_TYPE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:class|struct|actor)\s+([A-Za-z_][A-Za-z0-9_]*)").expect("valid Swift type")
+});
+static SWIFT_INIT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\binit\s*\(([^)]*)\)").expect("valid Swift init"));
+static GO_FACTORY_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*func\s+(New[A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)")
+        .expect("valid Go factory")
+});
+static RUST_IMPL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bimpl(?:\s*<[^>]+>)?\s+([A-Za-z_][A-Za-z0-9_]*)").expect("valid Rust impl")
+});
+static RUST_NEW_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bfn\s+new\s*\(([^)]*)\)").expect("valid Rust constructor"));
+static CPP_TYPE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:class|struct)\s+([A-Za-z_][A-Za-z0-9_]*)").expect("valid C++ type")
+});
+static CPP_CONSTRUCTOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^[ \t]*(?:(?:explicit|constexpr|public|private|protected)\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)",
+    )
+    .expect("valid C++ constructor")
 });
 
 // PHP: require 'foo.php'; include 'foo.php'; use Foo\Bar;
@@ -1067,7 +1196,8 @@ pub fn extract_imports(language: &str, content: &str) -> Vec<ExtractedImport> {
             }
         }
         "csharp" => {
-            for cap in CSHARP_USING_RE.captures_iter(content) {
+            let cleaned = strip_rust_comments_and_strings(content);
+            for cap in CSHARP_USING_RE.captures_iter(&cleaned) {
                 if let Some(m) = cap.get(1) {
                     let t = m.as_str().trim();
                     if seen.insert(t.to_string()) {
@@ -1142,6 +1272,606 @@ pub fn extract_imports(language: &str, content: &str) -> Vec<ExtractedImport> {
     }
 
     results
+}
+
+pub fn extract_csharp_namespaces(content: &str) -> Vec<String> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut namespaces = Vec::new();
+    let mut seen = HashSet::new();
+
+    for cap in CSHARP_NAMESPACE_RE.captures_iter(&cleaned) {
+        if let Some(namespace) = cap.get(1).map(|m| m.as_str()) {
+            if seen.insert(namespace.to_string()) {
+                namespaces.push(namespace.to_string());
+            }
+        }
+    }
+
+    namespaces
+}
+
+pub fn extract_csharp_symbols(content: &str) -> Vec<String> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut symbols = Vec::new();
+    let mut seen = HashSet::new();
+
+    for cap in CSHARP_DECLARED_SYMBOL_RE.captures_iter(&cleaned) {
+        if let Some(symbol) = cap.get(1).map(|m| m.as_str()) {
+            if seen.insert(symbol.to_string()) {
+                symbols.push(symbol.to_string());
+            }
+        }
+    }
+
+    symbols
+}
+
+pub fn extract_csharp_relations(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut relations = Vec::new();
+
+    for cap in CSHARP_DI_REGISTRATION_RE.captures_iter(&cleaned) {
+        let Some(interface_name) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+        let Some(implementation_name) = cap.get(2).map(|m| m.as_str()) else {
+            continue;
+        };
+        let target = implementation_name
+            .rsplit('.')
+            .next()
+            .unwrap_or(implementation_name);
+        let interface = interface_name.rsplit('.').next().unwrap_or(interface_name);
+        let start = cap.get(0).map(|m| m.start()).unwrap_or_default();
+
+        relations.push(ExtractedCodeRelation {
+            kind: CodeRelationKind::DiRegistration,
+            raw: cap[0].to_string(),
+            target: target.to_string(),
+            source_symbol: None,
+            target_symbol: Some(interface.to_string()),
+            line: cleaned[..start].lines().count() + 1,
+        });
+    }
+
+    let type_declarations: Vec<(usize, String)> = CSHARP_TYPE_RE
+        .captures_iter(&cleaned)
+        .filter_map(|cap| Some((cap.get(0)?.start(), cap.get(1)?.as_str().to_string())))
+        .collect();
+
+    for cap in CSHARP_CONSTRUCTOR_RE.captures_iter(&cleaned) {
+        let Some(constructor_name) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+        let Some(constructor) = cap.get(0) else {
+            continue;
+        };
+        let Some((_, owner_name)) = type_declarations
+            .iter()
+            .rev()
+            .find(|(start, _)| *start < constructor.start())
+        else {
+            continue;
+        };
+        if constructor_name != owner_name {
+            continue;
+        }
+        let Some(parameters) = cap.get(2).map(|m| m.as_str()) else {
+            continue;
+        };
+
+        for parameter in parameters.split(',') {
+            let type_name = parameter.split_whitespace().find(|token| {
+                !token.starts_with('[') && !matches!(*token, "ref" | "out" | "in" | "params")
+            });
+            let Some(type_name) = type_name else {
+                continue;
+            };
+            let type_name = type_name.trim_end_matches('?');
+            let interface_name = type_name.rsplit('.').next().unwrap_or(type_name);
+            let mut chars = interface_name.chars();
+            if !matches!((chars.next(), chars.next()), (Some('I'), Some(c)) if c.is_ascii_uppercase())
+            {
+                continue;
+            }
+
+            let parameter_start = cap.get(0).map(|m| m.start()).unwrap_or_default();
+            relations.push(ExtractedCodeRelation {
+                kind: CodeRelationKind::DiInjection,
+                raw: constructor.as_str().to_string(),
+                target: interface_name.to_string(),
+                source_symbol: Some(owner_name.clone()),
+                target_symbol: None,
+                line: cleaned[..parameter_start].lines().count() + 1,
+            });
+        }
+    }
+
+    relations
+}
+
+fn relation_symbol_before(regex: &Regex, content: &str, offset: usize) -> Option<String> {
+    regex
+        .captures_iter(&content[..offset])
+        .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+        .last()
+}
+
+fn relation_target_type(type_name: &str) -> Option<String> {
+    let base = type_name
+        .trim()
+        .trim_start_matches('\\')
+        .trim_end_matches(['?', '*', '&'])
+        .split('<')
+        .next()
+        .unwrap_or_default();
+    let target = base.rsplit(['.', '\\']).next().unwrap_or(base);
+    let is_builtin = [
+        "string", "String", "bool", "boolean", "byte", "char", "short", "int", "long", "float",
+        "double", "decimal", "number", "any", "unknown", "object", "void", "mixed",
+    ]
+    .contains(&target);
+
+    if target.is_empty() || is_builtin {
+        None
+    } else {
+        Some(target.to_string())
+    }
+}
+
+fn extract_typescript_injections(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut relations = Vec::new();
+
+    for cap in TYPESCRIPT_PROVIDER_RE.captures_iter(&cleaned) {
+        let (Some(binding), Some(token), Some(implementation)) =
+            (cap.get(0), cap.get(1), cap.get(2))
+        else {
+            continue;
+        };
+        relations.push(ExtractedCodeRelation {
+            kind: CodeRelationKind::DiRegistration,
+            raw: binding.as_str().to_string(),
+            target: implementation.as_str().to_string(),
+            source_symbol: None,
+            target_symbol: Some(token.as_str().to_string()),
+            line: cleaned[..binding.start()].lines().count() + 1,
+        });
+    }
+
+    for cap in TYPESCRIPT_CONSTRUCTOR_RE.captures_iter(&cleaned) {
+        let Some(constructor) = cap.get(0) else {
+            continue;
+        };
+        let Some(owner) =
+            relation_symbol_before(&TYPESCRIPT_CLASS_RE, &cleaned, constructor.start())
+        else {
+            continue;
+        };
+        let Some(parameters) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+
+        for parameter in parameters.split(',') {
+            let Some((_, annotation)) = parameter.rsplit_once(':') else {
+                continue;
+            };
+            let Some(target) = relation_target_type(annotation) else {
+                continue;
+            };
+            relations.push(ExtractedCodeRelation {
+                kind: CodeRelationKind::DiInjection,
+                raw: constructor.as_str().to_string(),
+                target,
+                source_symbol: Some(owner.clone()),
+                target_symbol: None,
+                line: cleaned[..constructor.start()].lines().count() + 1,
+            });
+        }
+    }
+
+    relations
+}
+
+fn extract_java_injections(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let declarations: Vec<(usize, String)> = JAVA_TYPE_RE
+        .captures_iter(&cleaned)
+        .filter_map(|cap| Some((cap.get(0)?.start(), cap.get(1)?.as_str().to_string())))
+        .collect();
+    let mut relations = Vec::new();
+
+    for cap in JAVA_CONSTRUCTOR_RE.captures_iter(&cleaned) {
+        let Some(constructor) = cap.get(0) else {
+            continue;
+        };
+        let Some(name) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+        let Some((_, owner)) = declarations
+            .iter()
+            .rev()
+            .find(|(start, _)| *start < constructor.start())
+        else {
+            continue;
+        };
+        if name != owner {
+            continue;
+        }
+        let Some(parameters) = cap.get(2).map(|m| m.as_str()) else {
+            continue;
+        };
+
+        for parameter in parameters.split(',') {
+            let type_name = parameter
+                .split_whitespace()
+                .find(|token| !token.starts_with('@'));
+            let Some(type_name) = type_name else {
+                continue;
+            };
+            let Some(target) = relation_target_type(type_name) else {
+                continue;
+            };
+            relations.push(ExtractedCodeRelation {
+                kind: CodeRelationKind::DiInjection,
+                raw: constructor.as_str().to_string(),
+                target,
+                source_symbol: Some(owner.clone()),
+                target_symbol: None,
+                line: cleaned[..constructor.start()].lines().count() + 1,
+            });
+        }
+    }
+
+    relations
+}
+
+fn extract_kotlin_injections(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut relations = Vec::new();
+
+    for cap in KOTLIN_PRIMARY_CONSTRUCTOR_RE.captures_iter(&cleaned) {
+        let (Some(constructor), Some(owner), Some(parameters)) =
+            (cap.get(0), cap.get(1), cap.get(2))
+        else {
+            continue;
+        };
+
+        for parameter in parameters.as_str().split(',') {
+            let Some((_, type_name)) = parameter.rsplit_once(':') else {
+                continue;
+            };
+            let Some(target) = relation_target_type(type_name) else {
+                continue;
+            };
+            relations.push(ExtractedCodeRelation {
+                kind: CodeRelationKind::DiInjection,
+                raw: constructor.as_str().to_string(),
+                target,
+                source_symbol: Some(owner.as_str().to_string()),
+                target_symbol: None,
+                line: cleaned[..constructor.start()].lines().count() + 1,
+            });
+        }
+    }
+
+    relations
+}
+
+fn extract_swift_injections(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut relations = Vec::new();
+
+    for cap in SWIFT_INIT_RE.captures_iter(&cleaned) {
+        let Some(init) = cap.get(0) else {
+            continue;
+        };
+        let Some(owner) = relation_symbol_before(&SWIFT_TYPE_RE, &cleaned, init.start()) else {
+            continue;
+        };
+        let Some(parameters) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+
+        for parameter in parameters.split(',') {
+            let Some((_, type_name)) = parameter.rsplit_once(':') else {
+                continue;
+            };
+            let Some(target) = relation_target_type(type_name) else {
+                continue;
+            };
+            relations.push(ExtractedCodeRelation {
+                kind: CodeRelationKind::DiInjection,
+                raw: init.as_str().to_string(),
+                target,
+                source_symbol: Some(owner.clone()),
+                target_symbol: None,
+                line: cleaned[..init.start()].lines().count() + 1,
+            });
+        }
+    }
+
+    relations
+}
+
+fn extract_go_factory_relations(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut relations = Vec::new();
+
+    for cap in GO_FACTORY_RE.captures_iter(&cleaned) {
+        let (Some(factory), Some(name), Some(parameters)) = (cap.get(0), cap.get(1), cap.get(2))
+        else {
+            continue;
+        };
+        for parameter in parameters.as_str().split(',') {
+            let Some(type_name) = parameter.split_whitespace().last() else {
+                continue;
+            };
+            let Some(target) = relation_target_type(type_name) else {
+                continue;
+            };
+            relations.push(ExtractedCodeRelation {
+                kind: CodeRelationKind::TypeReference,
+                raw: factory.as_str().to_string(),
+                target,
+                source_symbol: Some(name.as_str().to_string()),
+                target_symbol: None,
+                line: cleaned[..factory.start()].lines().count() + 1,
+            });
+        }
+    }
+
+    relations
+}
+
+fn extract_rust_constructor_relations(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut relations = Vec::new();
+
+    for cap in RUST_NEW_RE.captures_iter(&cleaned) {
+        let Some(constructor) = cap.get(0) else {
+            continue;
+        };
+        let Some(owner) = relation_symbol_before(&RUST_IMPL_RE, &cleaned, constructor.start())
+        else {
+            continue;
+        };
+        let Some(parameters) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+
+        for parameter in parameters.split(',') {
+            let Some((_, type_name)) = parameter.rsplit_once(':') else {
+                continue;
+            };
+            let type_name = type_name.trim();
+            let target_name = type_name
+                .split_once("dyn ")
+                .map(|(_, trait_name)| trait_name.trim_end_matches(['>', ' ', '&']))
+                .or_else(|| {
+                    type_name
+                        .split_once('<')
+                        .map(|(_, inner)| inner.trim_end_matches('>'))
+                })
+                .unwrap_or(type_name);
+            let Some(target) = relation_target_type(target_name) else {
+                continue;
+            };
+            relations.push(ExtractedCodeRelation {
+                kind: CodeRelationKind::TypeReference,
+                raw: constructor.as_str().to_string(),
+                target,
+                source_symbol: Some(owner.clone()),
+                target_symbol: None,
+                line: cleaned[..constructor.start()].lines().count() + 1,
+            });
+        }
+    }
+
+    relations
+}
+
+fn extract_cpp_injections(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let declarations: Vec<(usize, String)> = CPP_TYPE_RE
+        .captures_iter(&cleaned)
+        .filter_map(|cap| Some((cap.get(0)?.start(), cap.get(1)?.as_str().to_string())))
+        .collect();
+    let mut relations = Vec::new();
+
+    for cap in CPP_CONSTRUCTOR_RE.captures_iter(&cleaned) {
+        let Some(constructor) = cap.get(0) else {
+            continue;
+        };
+        let Some(name) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+        let Some((_, owner)) = declarations
+            .iter()
+            .rev()
+            .find(|(start, _)| *start < constructor.start())
+        else {
+            continue;
+        };
+        if name != owner {
+            continue;
+        }
+        let Some(parameters) = cap.get(2).map(|m| m.as_str()) else {
+            continue;
+        };
+
+        for parameter in parameters.split(',') {
+            let type_name = parameter.split_whitespace().next().unwrap_or_default();
+            let Some(target) = relation_target_type(type_name) else {
+                continue;
+            };
+            relations.push(ExtractedCodeRelation {
+                kind: CodeRelationKind::DiInjection,
+                raw: constructor.as_str().to_string(),
+                target,
+                source_symbol: Some(owner.clone()),
+                target_symbol: None,
+                line: cleaned[..constructor.start()].lines().count() + 1,
+            });
+        }
+    }
+
+    relations
+}
+
+fn extract_python_depends(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_python_comments_and_strings(content);
+    let mut relations = Vec::new();
+
+    for cap in PYTHON_DEPENDS_RE.captures_iter(&cleaned) {
+        let Some(call) = cap.get(0) else {
+            continue;
+        };
+        let Some(target) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+        relations.push(ExtractedCodeRelation {
+            kind: CodeRelationKind::DiInjection,
+            raw: call.as_str().to_string(),
+            target: target.to_string(),
+            source_symbol: relation_symbol_before(&PYTHON_DEF_RE, &cleaned, call.start()),
+            target_symbol: None,
+            line: cleaned[..call.start()].lines().count() + 1,
+        });
+    }
+
+    relations
+}
+
+fn extract_php_relations(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut relations = Vec::new();
+
+    for cap in PHP_DI_BIND_RE.captures_iter(&cleaned) {
+        let (Some(interface), Some(implementation), Some(raw)) =
+            (cap.get(1), cap.get(2), cap.get(0))
+        else {
+            continue;
+        };
+        let target = implementation
+            .as_str()
+            .rsplit('\\')
+            .next()
+            .unwrap_or(implementation.as_str());
+        let target_symbol = interface
+            .as_str()
+            .rsplit('\\')
+            .next()
+            .unwrap_or(interface.as_str());
+        relations.push(ExtractedCodeRelation {
+            kind: CodeRelationKind::DiRegistration,
+            raw: raw.as_str().to_string(),
+            target: target.to_string(),
+            source_symbol: None,
+            target_symbol: Some(target_symbol.to_string()),
+            line: cleaned[..raw.start()].lines().count() + 1,
+        });
+    }
+
+    for cap in PHP_CONSTRUCTOR_RE.captures_iter(&cleaned) {
+        let Some(constructor) = cap.get(0) else {
+            continue;
+        };
+        let Some(owner) = relation_symbol_before(&PHP_CLASS_RE, &cleaned, constructor.start())
+        else {
+            continue;
+        };
+        let Some(parameters) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+
+        for parameter in PHP_TYPED_PARAMETER_RE.captures_iter(parameters) {
+            let Some(type_name) = parameter.get(1).map(|m| m.as_str()) else {
+                continue;
+            };
+            let Some(target) = relation_target_type(type_name) else {
+                continue;
+            };
+            relations.push(ExtractedCodeRelation {
+                kind: CodeRelationKind::DiInjection,
+                raw: constructor.as_str().to_string(),
+                target,
+                source_symbol: Some(owner.clone()),
+                target_symbol: None,
+                line: cleaned[..constructor.start()].lines().count() + 1,
+            });
+        }
+    }
+
+    relations
+}
+
+fn strip_python_comments_and_strings(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut output = String::with_capacity(source.len());
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i] == '#' {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        if chars[i] == '\'' || chars[i] == '"' {
+            let quote = chars[i];
+            let triple = i + 2 < chars.len() && chars[i + 1] == quote && chars[i + 2] == quote;
+            i += if triple { 3 } else { 1 };
+            while i < chars.len() {
+                if chars[i] == '\n' {
+                    output.push('\n');
+                    i += 1;
+                    continue;
+                }
+                if chars[i] == '\\' && i + 1 < chars.len() {
+                    i += 2;
+                    continue;
+                }
+                let closes = if triple {
+                    i + 2 < chars.len()
+                        && chars[i] == quote
+                        && chars[i + 1] == quote
+                        && chars[i + 2] == quote
+                } else {
+                    chars[i] == quote
+                };
+                if closes {
+                    i += if triple { 3 } else { 1 };
+                    break;
+                }
+                i += 1;
+            }
+            output.push(' ');
+            continue;
+        }
+
+        output.push(chars[i]);
+        i += 1;
+    }
+
+    output
+}
+
+pub fn extract_code_relations(language: &str, content: &str) -> Vec<ExtractedCodeRelation> {
+    match language {
+        "csharp" => extract_csharp_relations(content),
+        "typescript" | "tsx" => extract_typescript_injections(content),
+        "java" => extract_java_injections(content),
+        "kotlin" => extract_kotlin_injections(content),
+        "python" => extract_python_depends(content),
+        "php" => extract_php_relations(content),
+        "swift" => extract_swift_injections(content),
+        "go" => extract_go_factory_relations(content),
+        "rust" => extract_rust_constructor_relations(content),
+        "cpp" => extract_cpp_injections(content),
+        _ => Vec::new(),
+    }
 }
 
 // ==========================================
@@ -1514,6 +2244,42 @@ pub fn estimate_code_tokens(text: &str) -> usize {
     (text.len() / 4).max(1)
 }
 
+const CODE_RELATION_HASH_PREFIX: &str = "code-relations-v3:";
+
+pub fn needs_code_metadata_refresh(rel_path: &str, stored_hash: &str) -> bool {
+    let extension = Path::new(rel_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
+    let language = get_language_from_ext(extension);
+    let relations_supported = matches!(
+        language,
+        Some(
+            "csharp"
+                | "typescript"
+                | "tsx"
+                | "java"
+                | "kotlin"
+                | "python"
+                | "php"
+                | "swift"
+                | "go"
+                | "rust"
+                | "cpp"
+        )
+    );
+    relations_supported && !stored_hash.starts_with(CODE_RELATION_HASH_PREFIX)
+}
+
+pub fn indexed_code_content_hash(rel_path: &str, content: &str) -> String {
+    let source_hash = crate::engine::parser::content_hash(content);
+    if needs_code_metadata_refresh(rel_path, "") {
+        format!("{CODE_RELATION_HASH_PREFIX}{source_hash}")
+    } else {
+        source_hash
+    }
+}
+
 /// Parses a source code file into a structured representation.
 pub fn parse_code_file(rel_path: &str, content: &str) -> ParsedCodeFile {
     let path_obj = Path::new(rel_path);
@@ -1531,7 +2297,18 @@ pub fn parse_code_file(rel_path: &str, content: &str) -> ParsedCodeFile {
         .unwrap_or("unknown")
         .to_string();
 
+    let namespaces = if language == "csharp" {
+        extract_csharp_namespaces(content)
+    } else {
+        Vec::new()
+    };
+    let declared_symbols = if language == "csharp" {
+        extract_csharp_symbols(content)
+    } else {
+        Vec::new()
+    };
     let imports = extract_imports(&language, content);
+    let relations = extract_code_relations(&language, content);
     let chunks = chunk_code_file(rel_path, content);
 
     // Compute summary
@@ -1559,7 +2336,10 @@ pub fn parse_code_file(rel_path: &str, content: &str) -> ParsedCodeFile {
         extension,
         language,
         size_bytes: content.len(),
+        namespaces,
+        declared_symbols,
         imports,
+        relations,
         chunks,
         summary,
     }
@@ -1580,6 +2360,14 @@ mod tests {
         assert_eq!(get_language_from_ext("py"), Some("python"));
         assert_eq!(get_language_from_ext("go"), Some("go"));
         assert_eq!(get_language_from_ext("unknown"), None);
+    }
+
+    #[test]
+    fn test_code_relation_kind_labels_are_stable() {
+        assert_eq!(CodeRelationKind::Import.as_str(), "import");
+        assert_eq!(CodeRelationKind::TypeReference.as_str(), "type");
+        assert_eq!(CodeRelationKind::DiRegistration.as_str(), "registration");
+        assert_eq!(CodeRelationKind::DiInjection.as_str(), "injection");
     }
 
     #[test]
@@ -1675,6 +2463,201 @@ mod tests {
         assert!(targets.contains(&".config"));
         assert!(!targets.contains(&"fake_comment"));
         assert!(!targets.contains(&"fake_docstring"));
+    }
+
+    #[test]
+    fn test_extract_csharp_namespaces() {
+        let code = r#"
+            using System;
+            namespace Example.Services;
+
+            // namespace Ignored.Commented;
+            /*
+            namespace Ignored.Block;
+            */
+            var text = "namespace Ignored.String;";
+            namespace Example.Handlers
+            {
+                public class Handler {}
+            }
+        "#;
+
+        assert_eq!(
+            extract_csharp_namespaces(code),
+            vec!["Example.Services", "Example.Handlers"]
+        );
+    }
+
+    #[test]
+    fn test_extract_csharp_global_and_alias_usings() {
+        let code = r#"
+            global using Example.Services;
+            using Services = Example.Services;
+            using static Example.Services.ServiceDefaults;
+            /*
+            using Example.Fake;
+            */
+            var text = "using Example.StringFake;";
+        "#;
+
+        let imports = extract_imports("csharp", code);
+        let targets: Vec<&str> = imports
+            .iter()
+            .map(|import| import.target.as_str())
+            .collect();
+        assert!(targets.contains(&"Example.Services"));
+        assert!(targets.contains(&"Example.Services.ServiceDefaults"));
+        assert!(!targets.contains(&"Example.Fake"));
+        assert!(!targets.contains(&"Example.StringFake"));
+    }
+
+    #[test]
+    fn test_extract_csharp_di_registration_and_constructor_injection() {
+        let code = r#"
+            services.AddScoped<IUserService, UserService>();
+
+            public class UserController
+            {
+                public UserController(IUserService users, string label) {}
+            }
+
+            // services.AddSingleton<IFake, Fake>();
+            var example = "services.AddTransient<IFake, Fake>()";
+        "#;
+
+        let relations = extract_csharp_relations(code);
+        assert!(relations.iter().any(|relation| {
+            relation.kind == CodeRelationKind::DiRegistration
+                && relation.target == "UserService"
+                && relation.target_symbol.as_deref() == Some("IUserService")
+        }));
+        assert!(relations.iter().any(|relation| {
+            relation.kind == CodeRelationKind::DiInjection
+                && relation.source_symbol.as_deref() == Some("UserController")
+                && relation.target == "IUserService"
+        }));
+        assert!(!relations
+            .iter()
+            .any(|relation| relation.target == "IFake" || relation.target == "Fake"));
+        assert!(!relations.iter().any(|relation| relation.target == "string"));
+    }
+
+    #[test]
+    fn test_extract_csharp_type_symbols_from_multiple_declarations() {
+        let code = "public interface IUserService {}\npublic class UserService : IUserService {}";
+
+        assert_eq!(
+            extract_csharp_symbols(code),
+            vec!["IUserService", "UserService"]
+        );
+    }
+
+    #[test]
+    fn test_extract_di_relations_for_supported_framework_patterns() {
+        let typescript = r#"
+            @Injectable()
+            class UserController {
+                constructor(private readonly service: UserService) {}
+            }
+        "#;
+        let ts_relations = extract_code_relations("typescript", typescript);
+        assert!(ts_relations.iter().any(|relation| {
+            relation.kind == CodeRelationKind::DiInjection
+                && relation.source_symbol.as_deref() == Some("UserController")
+                && relation.target == "UserService"
+        }));
+        let provider = "providers: [{ provide: IUserService, useClass: UserService }]";
+        assert!(extract_code_relations("typescript", provider)
+            .iter()
+            .any(|relation| {
+                relation.kind == CodeRelationKind::DiRegistration
+                    && relation.target == "UserService"
+                    && relation.target_symbol.as_deref() == Some("IUserService")
+            }));
+
+        let java = "class UserController {\n UserController(UserService service) {}\n}";
+        assert!(extract_code_relations("java", java).iter().any(|relation| {
+            relation.kind == CodeRelationKind::DiInjection
+                && relation.source_symbol.as_deref() == Some("UserController")
+                && relation.target == "UserService"
+        }));
+
+        let kotlin = "class UserController(private val service: UserService)";
+        assert!(extract_code_relations("kotlin", kotlin)
+            .iter()
+            .any(|relation| {
+                relation.kind == CodeRelationKind::DiInjection
+                    && relation.source_symbol.as_deref() == Some("UserController")
+                    && relation.target == "UserService"
+            }));
+
+        let swift = "class UserController {\n init(service: UserService) {}\n}";
+        assert!(extract_code_relations("swift", swift)
+            .iter()
+            .any(|relation| {
+                relation.kind == CodeRelationKind::DiInjection
+                    && relation.source_symbol.as_deref() == Some("UserController")
+                    && relation.target == "UserService"
+            }));
+
+        let go = "func NewService(repo UserRepository) *Service { return nil }";
+        assert!(extract_code_relations("go", go).iter().any(|relation| {
+            relation.kind == CodeRelationKind::TypeReference
+                && relation.source_symbol.as_deref() == Some("NewService")
+                && relation.target == "UserRepository"
+        }));
+
+        let rust = "impl Service {\n fn new(repo: Arc<dyn UserRepository>) -> Self { todo!() }\n}";
+        assert!(extract_code_relations("rust", rust).iter().any(|relation| {
+            relation.kind == CodeRelationKind::TypeReference
+                && relation.source_symbol.as_deref() == Some("Service")
+                && relation.target == "UserRepository"
+        }));
+
+        let cpp = "class UserController {\npublic:\n UserController(UserService& service);\n};";
+        assert!(extract_code_relations("cpp", cpp).iter().any(|relation| {
+            relation.kind == CodeRelationKind::DiInjection
+                && relation.source_symbol.as_deref() == Some("UserController")
+                && relation.target == "UserService"
+        }));
+
+        let python = concat!(
+            "def endpoint(service = Depends(get_user_service)):\n",
+            "    return service\n",
+            "# Depends(fake_provider)\n",
+            "note = 'Depends(fake_string)'\n",
+        );
+        let py_relations = extract_code_relations("python", python);
+        assert!(py_relations.iter().any(|relation| {
+            relation.kind == CodeRelationKind::DiInjection
+                && relation.source_symbol.as_deref() == Some("endpoint")
+                && relation.target == "get_user_service"
+        }));
+        assert_eq!(py_relations.len(), 1);
+
+        let php = "$this->app->bind(IUserService::class, UserService::class);";
+        let php_relations = extract_code_relations("php", php);
+        assert!(php_relations.iter().any(|relation| {
+            relation.kind == CodeRelationKind::DiRegistration
+                && relation.target == "UserService"
+                && relation.target_symbol.as_deref() == Some("IUserService")
+        }));
+    }
+
+    #[test]
+    fn test_relation_metadata_hash_forces_one_time_reindex() {
+        let content = "namespace Example.Services;";
+        let source_hash = crate::engine::parser::content_hash(content);
+        let indexed_hash = indexed_code_content_hash("Service.cs", content);
+
+        assert!(needs_code_metadata_refresh("Service.cs", &source_hash));
+        assert!(!needs_code_metadata_refresh("Service.cs", &indexed_hash));
+        assert_eq!(indexed_hash, format!("code-relations-v3:{source_hash}"));
+        assert!(indexed_code_content_hash("Service.ts", content).starts_with("code-relations-v3:"));
+        assert_eq!(
+            indexed_code_content_hash("styles.css", content),
+            source_hash
+        );
     }
 
     #[test]
