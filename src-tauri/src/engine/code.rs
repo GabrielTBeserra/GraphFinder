@@ -15,6 +15,35 @@ pub struct ExtractedImport {
     pub is_relative: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeRelationKind {
+    Import,
+    TypeReference,
+    DiRegistration,
+    DiInjection,
+}
+
+impl CodeRelationKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Import => "import",
+            Self::TypeReference => "type",
+            Self::DiRegistration => "registration",
+            Self::DiInjection => "injection",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedCodeRelation {
+    pub kind: CodeRelationKind,
+    pub raw: String,
+    pub target: String,
+    pub source_symbol: Option<String>,
+    pub target_symbol: Option<String>,
+    pub line: usize,
+}
+
 /// A semantic chunk of code (function, class, struct, or windowed block).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeChunk {
@@ -1580,6 +1609,14 @@ mod tests {
         assert_eq!(get_language_from_ext("py"), Some("python"));
         assert_eq!(get_language_from_ext("go"), Some("go"));
         assert_eq!(get_language_from_ext("unknown"), None);
+    }
+
+    #[test]
+    fn test_code_relation_kind_labels_are_stable() {
+        assert_eq!(CodeRelationKind::Import.as_str(), "import");
+        assert_eq!(CodeRelationKind::TypeReference.as_str(), "type");
+        assert_eq!(CodeRelationKind::DiRegistration.as_str(), "registration");
+        assert_eq!(CodeRelationKind::DiInjection.as_str(), "injection");
     }
 
     #[test]
