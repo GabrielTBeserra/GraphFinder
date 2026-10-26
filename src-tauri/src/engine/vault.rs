@@ -619,6 +619,7 @@ impl Engine {
             let deleted_code = db.delete_missing_code_files(&found_code_ids)?;
             if count > 0 || deleted_code > 0 {
                 let _ = db.resolve_pending_code_links(&project_files_set, &project_files_by_name);
+                db.resolve_pending_code_relations()?;
                 let _ = db.resolve_call_graph();
             }
             if notes_deleted || deleted_code > 0 || count > 0 {

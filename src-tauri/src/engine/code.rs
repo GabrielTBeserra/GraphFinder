@@ -65,6 +65,7 @@ pub struct ParsedCodeFile {
     pub language: String,
     pub size_bytes: usize,
     pub namespaces: Vec<String>,
+    pub declared_symbols: Vec<String>,
     pub imports: Vec<ExtractedImport>,
     pub relations: Vec<ExtractedCodeRelation>,
     pub chunks: Vec<CodeChunk>,
@@ -1016,6 +1017,11 @@ static CSHARP_TYPE_RE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("valid regex for csharp type")
 });
 
+static CSHARP_DECLARED_SYMBOL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:class|interface|record|struct|enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+        .expect("valid regex for csharp declared symbol")
+});
+
 static CSHARP_CONSTRUCTOR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?m)^[ \t]*(?:(?:public|internal|protected|private)\s+)*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)",
@@ -1214,6 +1220,22 @@ pub fn extract_csharp_namespaces(content: &str) -> Vec<String> {
     }
 
     namespaces
+}
+
+pub fn extract_csharp_symbols(content: &str) -> Vec<String> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut symbols = Vec::new();
+    let mut seen = HashSet::new();
+
+    for cap in CSHARP_DECLARED_SYMBOL_RE.captures_iter(&cleaned) {
+        if let Some(symbol) = cap.get(1).map(|m| m.as_str()) {
+            if seen.insert(symbol.to_string()) {
+                symbols.push(symbol.to_string());
+            }
+        }
+    }
+
+    symbols
 }
 
 pub fn extract_csharp_relations(content: &str) -> Vec<ExtractedCodeRelation> {
@@ -1717,6 +1739,11 @@ pub fn parse_code_file(rel_path: &str, content: &str) -> ParsedCodeFile {
     } else {
         Vec::new()
     };
+    let declared_symbols = if language == "csharp" {
+        extract_csharp_symbols(content)
+    } else {
+        Vec::new()
+    };
     let imports = extract_imports(&language, content);
     let relations = if language == "csharp" {
         extract_csharp_relations(content)
@@ -1751,6 +1778,7 @@ pub fn parse_code_file(rel_path: &str, content: &str) -> ParsedCodeFile {
         language,
         size_bytes: content.len(),
         namespaces,
+        declared_symbols,
         imports,
         relations,
         chunks,
@@ -1940,6 +1968,16 @@ mod tests {
             .iter()
             .any(|relation| relation.target == "IFake" || relation.target == "Fake"));
         assert!(!relations.iter().any(|relation| relation.target == "string"));
+    }
+
+    #[test]
+    fn test_extract_csharp_type_symbols_from_multiple_declarations() {
+        let code = "public interface IUserService {}\npublic class UserService : IUserService {}";
+
+        assert_eq!(
+            extract_csharp_symbols(code),
+            vec!["IUserService", "UserService"]
+        );
     }
 
     #[test]
