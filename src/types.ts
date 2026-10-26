@@ -35,6 +35,16 @@ export interface ProjectInfo {
   is_active: boolean;
 }
 
+export interface SyncProgress {
+  phase: 'scanning' | 'indexing' | 'finalizing' | 'complete';
+  completed: number;
+  total: number;
+  percent: number | null;
+  eta_seconds: number | null;
+  elapsed_ms: number;
+  current_file: string | null;
+}
+
 export interface NoteRecord {
   id: string;
   path: string;
@@ -266,5 +276,4 @@ export interface ExportSummary {
   communities_count: number;
   god_nodes_count: number;
 }
-
 

@@ -1,6 +1,6 @@
 {
   "name": "graphfinder",
-  "version": "0.0.1",
+  "version": "0.12.0",
   "description": "Neural Knowledge Graph & High-Density Semantic Vault for Humans & AI Agents",
   "license": "MIT",
   "type": "module",

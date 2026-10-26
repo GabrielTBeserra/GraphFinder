@@ -411,8 +411,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
       .height(height)
       .backgroundColor(themeRef.current === 'light' ? '#f8fafc' : '#090a0f')
       .autoPauseRedraw(false)
-      .minZoom(0.25)
-      .maxZoom(2.2)
+      .minZoom(0.05)
+      .maxZoom(8)
       .nodeRelSize(4)
       .nodeVal((node: any) => Math.max(4, Math.min(12, 4 + (node.degree || 0) * 1.2)))
       .linkColor((link: any) => {
