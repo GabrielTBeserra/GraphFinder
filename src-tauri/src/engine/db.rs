@@ -200,6 +200,7 @@ pub struct FileContext {
 pub struct CodeRelationInfo {
     pub source_id: String,
     pub target_id: String,
+    pub target_name: String,
     pub kind: String,
     pub raw: String,
     pub source_symbol: Option<String>,
@@ -439,6 +440,7 @@ impl DbManager {
             CREATE TABLE IF NOT EXISTS code_relations (
                 source_id TEXT NOT NULL,
                 target_id TEXT NOT NULL,
+                target_name TEXT NOT NULL DEFAULT '',
                 relation_kind TEXT NOT NULL,
                 raw TEXT NOT NULL,
                 source_symbol TEXT,
@@ -495,6 +497,14 @@ impl DbManager {
         );
         let _ = self.conn.execute(
             "ALTER TABLE notes ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE code_relations ADD COLUMN target_name TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = self.conn.execute(
+            "UPDATE code_relations SET target_name = target_id WHERE target_name = ''",
             [],
         );
 
@@ -1659,8 +1669,8 @@ impl DbManager {
             let mut stmt_ins_relation = tx.prepare_cached(
                 r#"
                 INSERT OR IGNORE INTO code_relations
-                    (source_id, target_id, relation_kind, raw, source_symbol, target_symbol, line, is_external)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)
+                    (source_id, target_id, target_name, relation_kind, raw, source_symbol, target_symbol, line, is_external)
+                VALUES (?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, 1)
                 "#,
             )?;
             let mut stmt_del_calls =
@@ -1846,67 +1856,91 @@ impl DbManager {
         project_files_set: &HashSet<String>,
         project_files_by_name: &HashMap<String, Vec<String>>,
     ) -> Result<usize> {
-        let pending: Vec<(String, String, String)> = {
+        let rows: Vec<(String, String, String, bool)> = {
             let mut stmt = self.conn.prepare(
-                "SELECT source_id, target_id, raw_import FROM code_links WHERE is_external = 1",
+                "SELECT source_id, target_id, raw_import, is_external FROM code_links",
             )?;
-            let rows = stmt.query_map([], |r| {
+            let rows = stmt.query_map([], |row| {
                 Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get::<_, i64>(3)? == 1,
                 ))
             })?;
-            rows.filter_map(|r| r.ok()).collect()
+            rows.collect::<Result<Vec<_>>>()?
         };
 
-        let mut resolved_updates = Vec::new();
-        for (source_id, old_target, raw_import) in pending {
-            if let Some(new_target) = crate::engine::code::resolve_import_path(
+        let mut grouped: HashMap<(String, String), Vec<(String, bool)>> = HashMap::new();
+        for (source_id, target_id, raw_import, is_external) in rows {
+            grouped
+                .entry((source_id, raw_import))
+                .or_default()
+                .push((target_id, is_external));
+        }
+
+        let mut updates = Vec::new();
+        for ((source_id, raw_import), mut current_targets) in grouped {
+            current_targets.sort();
+            current_targets.dedup();
+            let mut desired_targets = if let Some(target_file) = crate::engine::code::resolve_import_path(
                 &source_id,
                 &raw_import,
                 project_files_set,
                 project_files_by_name,
             ) {
-                resolved_updates.push((source_id, old_target, raw_import, new_target));
-                continue;
-            }
-
-            let namespace_targets: Vec<String> = {
-                let mut stmt = self
-                    .conn
-                    .prepare("SELECT file_id FROM code_namespaces WHERE namespace = ?1")?;
-                let rows = stmt.query_map(params![raw_import], |row| row.get(0))?;
-                rows.filter_map(|row| row.ok()).collect()
-            };
-            for new_target in namespace_targets {
-                if new_target != source_id {
-                    resolved_updates.push((
-                        source_id.clone(),
-                        old_target.clone(),
-                        raw_import.clone(),
-                        new_target,
-                    ));
+                vec![(target_file, false)]
+            } else {
+                let namespace_targets: Vec<String> = {
+                    let mut stmt = self
+                        .conn
+                        .prepare("SELECT file_id FROM code_namespaces WHERE namespace = ?1")?;
+                    let rows = stmt.query_map(params![raw_import], |row| row.get(0))?;
+                    rows.collect::<Result<Vec<String>>>()?
+                        .into_iter()
+                        .filter(|target| target != &source_id)
+                        .collect()
+                };
+                if namespace_targets.is_empty() {
+                    vec![(raw_import.clone(), true)]
+                } else {
+                    namespace_targets
+                        .into_iter()
+                        .map(|target| (target, false))
+                        .collect()
                 }
+            };
+            desired_targets.sort();
+            desired_targets.dedup();
+
+            if current_targets != desired_targets {
+                updates.push((source_id, raw_import, desired_targets));
             }
         }
 
-        if resolved_updates.is_empty() {
+        if updates.is_empty() {
             return Ok(0);
         }
 
-        let count = resolved_updates.len();
+        let count = updates.len();
         let tx = self.conn.transaction()?;
         {
             let mut del_stmt = tx.prepare_cached(
-                "DELETE FROM code_links WHERE source_id = ?1 AND target_id = ?2 AND raw_import = ?3",
+                "DELETE FROM code_links WHERE source_id = ?1 AND raw_import = ?2",
             )?;
             let mut ins_stmt = tx.prepare_cached(
-                "INSERT OR IGNORE INTO code_links (source_id, target_id, raw_import, is_external) VALUES (?1, ?2, ?3, 0)",
+                "INSERT OR IGNORE INTO code_links (source_id, target_id, raw_import, is_external) VALUES (?1, ?2, ?3, ?4)",
             )?;
-            for (source_id, old_target, raw_import, new_target) in resolved_updates {
-                del_stmt.execute(params![source_id, old_target, raw_import])?;
-                ins_stmt.execute(params![source_id, new_target, raw_import])?;
+            for (source_id, raw_import, targets) in updates {
+                del_stmt.execute(params![source_id, raw_import])?;
+                for (target_id, is_external) in targets {
+                    ins_stmt.execute(params![
+                        source_id,
+                        target_id,
+                        raw_import,
+                        if is_external { 1 } else { 0 }
+                    ])?;
+                }
             }
         }
         tx.commit()?;
@@ -1914,9 +1948,9 @@ impl DbManager {
     }
 
     pub fn resolve_pending_code_relations(&mut self) -> Result<usize> {
-        let pending: Vec<(String, String, String, String)> = {
+        let pending: Vec<(String, String, String, String, String, bool)> = {
             let mut stmt = self.conn.prepare(
-                "SELECT source_id, target_id, relation_kind, raw FROM code_relations WHERE is_external = 1",
+                "SELECT source_id, target_id, target_name, relation_kind, raw, is_external FROM code_relations",
             )?;
             let rows = stmt.query_map([], |row| {
                 Ok((
@@ -1924,28 +1958,36 @@ impl DbManager {
                     row.get(1)?,
                     row.get(2)?,
                     row.get(3)?,
+                    row.get(4)?,
+                    row.get::<_, i64>(5)? == 1,
                 ))
             })?;
             rows.collect::<Result<Vec<_>>>()?
         };
 
         let mut resolved = Vec::new();
-        for (source_id, symbol_name, relation_kind, raw) in pending {
+        for (source_id, current_target, target_name, relation_kind, raw, was_external) in pending {
             let candidates: Vec<String> = {
                 let mut stmt = self.conn.prepare(
                     "SELECT file_id FROM code_symbols WHERE symbol_name = ?1 AND file_id != ?2",
                 )?;
-                let rows = stmt.query_map(params![symbol_name, source_id], |row| row.get(0))?;
+                let rows = stmt.query_map(params![target_name, source_id], |row| row.get(0))?;
                 rows.collect::<Result<Vec<_>>>()?
             };
 
-            if let [target_id] = candidates.as_slice() {
+            let (target_id, is_external) = if let [target_id] = candidates.as_slice() {
+                (target_id.clone(), false)
+            } else {
+                (target_name, true)
+            };
+            if current_target != target_id || was_external != is_external {
                 resolved.push((
                     source_id,
-                    symbol_name,
+                    current_target,
                     relation_kind,
                     raw,
-                    target_id.clone(),
+                    target_id,
+                    is_external,
                 ));
             }
         }
@@ -1959,12 +2001,19 @@ impl DbManager {
             let mut stmt = tx.prepare_cached(
                 r#"
                 UPDATE code_relations
-                SET target_id = ?1, is_external = 0
-                WHERE source_id = ?2 AND target_id = ?3 AND relation_kind = ?4 AND raw = ?5
+                SET target_id = ?1, is_external = ?2
+                WHERE source_id = ?3 AND target_id = ?4 AND relation_kind = ?5 AND raw = ?6
                 "#,
             )?;
-            for (source_id, old_target, kind, raw, target_id) in &resolved {
-                stmt.execute(params![target_id, source_id, old_target, kind, raw])?;
+            for (source_id, old_target, kind, raw, target_id, is_external) in &resolved {
+                stmt.execute(params![
+                    target_id,
+                    if *is_external { 1 } else { 0 },
+                    source_id,
+                    old_target,
+                    kind,
+                    raw
+                ])?;
             }
         }
         tx.commit()?;
@@ -1982,6 +2031,14 @@ impl DbManager {
         let tx = self.conn.transaction()?;
         for id in existing_ids {
             if !current_ids.contains(&id) {
+                tx.execute(
+                    "UPDATE OR IGNORE code_links SET target_id = raw_import, is_external = 1 WHERE target_id = ?1 AND source_id != ?1",
+                    params![id],
+                )?;
+                tx.execute(
+                    "UPDATE OR IGNORE code_relations SET target_id = target_name, is_external = 1 WHERE target_id = ?1 AND source_id != ?1 AND is_external = 0",
+                    params![id],
+                )?;
                 tx.execute("DELETE FROM code_files WHERE id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_fts WHERE file_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_chunks WHERE file_id = ?1", params![id])?;
@@ -1990,7 +2047,7 @@ impl DbManager {
                 tx.execute("DELETE FROM code_symbols WHERE file_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_links WHERE source_id = ?1 OR target_id = ?1", params![id])?;
                 tx.execute(
-                    "DELETE FROM code_relations WHERE source_id = ?1 OR (target_id = ?1 AND is_external = 0)",
+                    "DELETE FROM code_relations WHERE source_id = ?1 OR target_id = ?1",
                     params![id],
                 )?;
                 tx.execute("DELETE FROM code_calls WHERE caller_file_id = ?1 OR callee_file_id = ?1", params![id])?;
@@ -2530,7 +2587,7 @@ impl DbManager {
         if direction == "imports" || direction == "both" {
             let mut stmt = self.conn.prepare(
                 r#"
-                SELECT source_id, target_id, relation_kind, raw, source_symbol, target_symbol, line, is_external
+                SELECT source_id, target_id, target_name, relation_kind, raw, source_symbol, target_symbol, line, is_external
                 FROM code_relations WHERE source_id = ?1 ORDER BY relation_kind, target_id
                 "#,
             )?;
@@ -2538,12 +2595,13 @@ impl DbManager {
                 Ok(CodeRelationInfo {
                     source_id: row.get(0)?,
                     target_id: row.get(1)?,
-                    kind: row.get(2)?,
-                    raw: row.get(3)?,
-                    source_symbol: row.get(4)?,
-                    target_symbol: row.get(5)?,
-                    line: row.get::<_, i64>(6)? as usize,
-                    is_external: row.get::<_, i64>(7)? == 1,
+                    target_name: row.get(2)?,
+                    kind: row.get(3)?,
+                    raw: row.get(4)?,
+                    source_symbol: row.get(5)?,
+                    target_symbol: row.get(6)?,
+                    line: row.get::<_, i64>(7)? as usize,
+                    is_external: row.get::<_, i64>(8)? == 1,
                 })
             })?;
             relations.extend(rows.collect::<Result<Vec<_>>>()?);
@@ -2552,7 +2610,7 @@ impl DbManager {
         if direction == "imported_by" || direction == "both" {
             let mut stmt = self.conn.prepare(
                 r#"
-                SELECT source_id, target_id, relation_kind, raw, source_symbol, target_symbol, line, is_external
+                SELECT source_id, target_id, target_name, relation_kind, raw, source_symbol, target_symbol, line, is_external
                 FROM code_relations WHERE target_id = ?1 AND is_external = 0
                 ORDER BY relation_kind, source_id
                 "#,
@@ -2561,12 +2619,13 @@ impl DbManager {
                 Ok(CodeRelationInfo {
                     source_id: row.get(0)?,
                     target_id: row.get(1)?,
-                    kind: row.get(2)?,
-                    raw: row.get(3)?,
-                    source_symbol: row.get(4)?,
-                    target_symbol: row.get(5)?,
-                    line: row.get::<_, i64>(6)? as usize,
-                    is_external: row.get::<_, i64>(7)? == 1,
+                    target_name: row.get(2)?,
+                    kind: row.get(3)?,
+                    raw: row.get(4)?,
+                    source_symbol: row.get(5)?,
+                    target_symbol: row.get(6)?,
+                    line: row.get::<_, i64>(7)? as usize,
+                    is_external: row.get::<_, i64>(8)? == 1,
                 })
             })?;
             relations.extend(rows.collect::<Result<Vec<_>>>()?);
@@ -3133,5 +3192,359 @@ mod tests {
                 && link.target == "src/Services.cs"
                 && link.label.as_deref() == Some("registration")
         }));
+    }
+
+    #[test]
+    fn test_pending_di_relation_resolves_when_target_is_indexed_later() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+        let controller = crate::engine::code::parse_code_file(
+            "src/Controller.cs",
+            "public class Controller {\n public Controller(IUserService service) {}\n}",
+        );
+        db.save_code_file_batch(
+            &controller,
+            "controller",
+            1,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save controller");
+        assert_eq!(db.resolve_pending_code_relations().expect("first resolution"), 0);
+        assert!(db
+            .get_code_dependencies("src/Controller.cs", "imports")
+            .expect("pending relation")
+            .relations[0]
+            .is_external);
+
+        let service = crate::engine::code::parse_code_file(
+            "src/Service.cs",
+            "public interface IUserService {}",
+        );
+        db.save_code_file_batch(
+            &service,
+            "service",
+            2,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save service");
+        assert_eq!(db.resolve_pending_code_relations().expect("second resolution"), 1);
+
+        let relation = &db
+            .get_code_dependencies("src/Controller.cs", "imports")
+            .expect("resolved relation")
+            .relations[0];
+        assert_eq!(relation.target_id, "src/Service.cs");
+        assert!(!relation.is_external);
+    }
+
+    #[test]
+    fn test_ambiguous_di_symbol_stays_unresolved() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+        let consumer = crate::engine::code::parse_code_file(
+            "src/Consumer.cs",
+            "public class Consumer {\n public Consumer(IRepository repo) {}\n}",
+        );
+        db.save_code_file_batch(
+            &consumer,
+            "consumer",
+            1,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save consumer");
+
+        for (path, hash) in [
+            ("src/FirstRepository.cs", "first"),
+            ("src/SecondRepository.cs", "second"),
+        ] {
+            let repository =
+                crate::engine::code::parse_code_file(path, "public interface IRepository {}");
+            db.save_code_file_batch(
+                &repository,
+                hash,
+                2,
+                std::slice::from_ref(&dummy_vec),
+                &[],
+            )
+            .expect("save repository");
+        }
+
+        assert_eq!(db.resolve_pending_code_relations().expect("resolve"), 0);
+        let deps = db
+            .get_code_dependencies("src/Consumer.cs", "imports")
+            .expect("read dependencies");
+        assert_eq!(deps.relations.len(), 1);
+        assert!(deps.relations[0].is_external);
+        assert_eq!(deps.relations[0].target_id, "IRepository");
+    }
+
+    #[test]
+    fn test_resolved_di_relation_becomes_pending_when_target_symbol_disappears() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+        let consumer = crate::engine::code::parse_code_file(
+            "src/Consumer.cs",
+            "public class Consumer {\n public Consumer(IRepository repo) {}\n}",
+        );
+        let repository = crate::engine::code::parse_code_file(
+            "src/Repository.cs",
+            "public interface IRepository {}",
+        );
+        db.save_code_file_batch(
+            &consumer,
+            "consumer",
+            1,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save consumer");
+        db.save_code_file_batch(
+            &repository,
+            "repository-v1",
+            2,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save repository");
+        assert_eq!(db.resolve_pending_code_relations().expect("resolve"), 1);
+
+        let changed_repository =
+            crate::engine::code::parse_code_file("src/Repository.cs", "public class Storage {}");
+        db.save_code_file_batch(
+            &changed_repository,
+            "repository-v2",
+            3,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("update repository");
+
+        assert_eq!(db.resolve_pending_code_relations().expect("re-resolve"), 1);
+        let relation = &db
+            .get_code_dependencies("src/Consumer.cs", "imports")
+            .expect("read relation")
+            .relations[0];
+        assert!(relation.is_external);
+        assert_eq!(relation.target_id, "IRepository");
+    }
+
+    #[test]
+    fn test_resolved_csharp_namespace_link_updates_when_namespace_changes() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+        let consumer = crate::engine::code::parse_code_file(
+            "src/Consumer.cs",
+            "using Example.Services;\npublic class Consumer {}",
+        );
+        let service_v1 = crate::engine::code::parse_code_file(
+            "src/Service.cs",
+            "namespace Example.Services;\npublic class UserService {}",
+        );
+        db.save_code_file_batch(
+            &consumer,
+            "consumer",
+            1,
+            std::slice::from_ref(&dummy_vec),
+            &[(
+                "src/Consumer.cs".to_string(),
+                "Example.Services".to_string(),
+                true,
+            )],
+        )
+        .expect("save consumer");
+        db.save_code_file_batch(
+            &service_v1,
+            "service-v1",
+            2,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save service");
+        let files = HashSet::from([
+            "src/Consumer.cs".to_string(),
+            "src/Service.cs".to_string(),
+        ]);
+        db.resolve_pending_code_links(&files, &HashMap::new())
+            .expect("resolve initial namespace");
+
+        let service_v2 = crate::engine::code::parse_code_file(
+            "src/Service.cs",
+            "namespace Example.Other;\npublic class UserService {}",
+        );
+        db.save_code_file_batch(
+            &service_v2,
+            "service-v2",
+            3,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("update service namespace");
+        assert_eq!(
+            db.resolve_pending_code_links(&files, &HashMap::new())
+                .expect("re-resolve namespace"),
+            1
+        );
+
+        let deps = db
+            .get_code_dependencies("src/Consumer.cs", "imports")
+            .expect("read dependencies");
+        assert!(deps.imports.is_empty());
+        assert_eq!(deps.external, vec!["Example.Services"]);
+    }
+
+    #[test]
+    fn test_code_relations_migration_preserves_unresolved_symbol_names() {
+        let conn = Connection::open_in_memory().expect("open database");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE code_relations (
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                relation_kind TEXT NOT NULL,
+                raw TEXT NOT NULL,
+                source_symbol TEXT,
+                target_symbol TEXT,
+                line INTEGER NOT NULL,
+                is_external INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (source_id, target_id, relation_kind, raw)
+            );
+            INSERT INTO code_relations
+                (source_id, target_id, relation_kind, raw, line, is_external)
+            VALUES ('src/Controller.cs', 'IUserService', 'injection', 'ctor', 1, 1);
+            "#,
+        )
+        .expect("create legacy schema");
+        let db = DbManager { conn };
+
+        db.init_schema().expect("migrate schema");
+        let target_name: String = db
+            .conn
+            .query_row(
+                "SELECT target_name FROM code_relations WHERE source_id = 'src/Controller.cs'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read migrated symbol name");
+        assert_eq!(target_name, "IUserService");
+    }
+
+    #[test]
+    fn test_deleted_code_target_keeps_dependencies_pending_for_reindex() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+        let consumer = crate::engine::code::parse_code_file(
+            "src/Consumer.cs",
+            "using Example.Services;\npublic class Consumer {\n public Consumer(IUserService service) {}\n}",
+        );
+        let service = crate::engine::code::parse_code_file(
+            "src/Service.cs",
+            "namespace Example.Services;\npublic interface IUserService {}",
+        );
+        db.save_code_file_batch(
+            &consumer,
+            "consumer",
+            1,
+            std::slice::from_ref(&dummy_vec),
+            &[(
+                "src/Consumer.cs".to_string(),
+                "Example.Services".to_string(),
+                true,
+            )],
+        )
+        .expect("save consumer");
+        db.save_code_file_batch(
+            &service,
+            "service-v1",
+            2,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save service");
+        let all_files = HashSet::from([
+            "src/Consumer.cs".to_string(),
+            "src/Service.cs".to_string(),
+        ]);
+        db.resolve_pending_code_links(&all_files, &HashMap::new())
+            .expect("resolve namespace");
+        db.resolve_pending_code_relations()
+            .expect("resolve injection");
+
+        db.delete_missing_code_files(&HashSet::from(["src/Consumer.cs".to_string()]))
+            .expect("delete target");
+        let pending = db
+            .get_code_dependencies("src/Consumer.cs", "imports")
+            .expect("read pending dependencies");
+        assert_eq!(pending.external, vec!["Example.Services"]);
+        assert!(pending.relations[0].is_external);
+
+        db.save_code_file_batch(
+            &service,
+            "service-v2",
+            3,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("reindex service");
+        db.resolve_pending_code_links(&all_files, &HashMap::new())
+            .expect("resolve namespace again");
+        db.resolve_pending_code_relations()
+            .expect("resolve injection again");
+
+        let restored = db
+            .get_code_dependencies("src/Consumer.cs", "imports")
+            .expect("read restored dependencies");
+        assert_eq!(restored.imports, vec!["src/Service.cs"]);
+        assert_eq!(restored.relations[0].target_id, "src/Service.cs");
+        assert!(!restored.relations[0].is_external);
+    }
+
+    #[test]
+    fn test_cross_language_injection_relations_resolve_to_symbols() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+        let files = [
+            crate::engine::code::parse_code_file(
+                "src/UserController.ts",
+                "class UserController {\n constructor(private readonly service: UserService) {}\n}",
+            ),
+            crate::engine::code::parse_code_file(
+                "src/UserService.ts",
+                "export class UserService {}",
+            ),
+            crate::engine::code::parse_code_file(
+                "src/api.py",
+                "def endpoint(service = Depends(get_user_service)):\n    return service",
+            ),
+            crate::engine::code::parse_code_file(
+                "src/providers.py",
+                "def get_user_service():\n    return UserService()",
+            ),
+        ];
+
+        for (index, file) in files.iter().enumerate() {
+            db.save_code_file_batch(
+                file,
+                &format!("hash-{index}"),
+                index as i64,
+                std::slice::from_ref(&dummy_vec),
+                &[],
+            )
+            .expect("save code file");
+        }
+
+        assert_eq!(db.resolve_pending_code_relations().expect("resolve"), 2);
+        let ts_deps = db
+            .get_code_dependencies("src/UserController.ts", "imports")
+            .expect("read TypeScript dependencies");
+        assert_eq!(ts_deps.relations[0].target_id, "src/UserService.ts");
+
+        let python_deps = db
+            .get_code_dependencies("src/api.py", "imports")
+            .expect("read Python dependencies");
+        assert_eq!(python_deps.relations[0].target_id, "src/providers.py");
+        assert!(!python_deps.relations[0].is_external);
     }
 }
