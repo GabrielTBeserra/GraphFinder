@@ -86,6 +86,7 @@ Traditional RAG systems slice documents arbitrarily into fixed-length windows or
 * **AST-Lite Import Graph**: Resolves local imports (`import`, `require`, `use`, `include`, `mod`) and builds bidirectional dependencies between project files.
 * **Semantic Code Relations**: Resolves C# namespaces and extracts explicit DI patterns from C#, TypeScript/NestJS, Java/Kotlin constructors, FastAPI `Depends`, Laravel bindings, Swift/C++ constructors, and Go/Rust factories.
 * **Static-Analysis Boundaries**: DI edges are emitted only for recognized, statically resolvable syntax; dynamic Ruby/JavaScript wiring and markup/style languages remain import-only.
+* **Index Upgrade**: The first sync after this parser update reindexes supported code files once to backfill namespace, symbol, and relation metadata.
 * **Cybernetic Visual Graph**: Code files are rendered with language-coded concentric rings (TypeScript `#38bdf8`, Rust `#f97316`, Python `#10b981`, Go `#06b6d4`, etc.) and instant filter buttons (`[All]`, `[Notes]`, `[Code]`).
 * **Interactive Code Inspector**: Click any code node to inspect top-level symbols (functions, structs, classes), line ranges, token estimates, and jump between imported files.
 
