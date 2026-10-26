@@ -802,8 +802,8 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Explores dependency and import graph of a code file (imports, dependents, external modules).
-    #[tool(description = "Explores dependency and import graph of a code file (imports, dependents, external modules).")]
+    /// Explores imports, dependents, external modules, and resolved semantic code relations.
+    #[tool(description = "Explores imports, dependents, external modules, and resolved semantic code relations such as dependency injection.")]
     async fn get_code_dependencies(&self, Parameters(args): Parameters<GetCodeDependenciesArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let direction = args.direction.as_deref().unwrap_or("both");
@@ -1056,5 +1056,4 @@ GraphFinder is a neural knowledge graph and universal codebase intelligence engi
 
     names
 }
-
 

@@ -84,6 +84,8 @@ Traditional RAG systems slice documents arbitrarily into fixed-length windows or
 ### 6. Multi-Language Codebase Indexing & AST Dependency Graph
 * **Full-Repo Codebase Scanning**: Automatically parses 15+ languages (Rust, TypeScript, JavaScript, Python, Go, C/C++, Java, Kotlin, C#, PHP, Ruby, Swift, CSS, Shell).
 * **AST-Lite Import Graph**: Resolves local imports (`import`, `require`, `use`, `include`, `mod`) and builds bidirectional dependencies between project files.
+* **Semantic Code Relations**: Resolves C# namespaces and extracts explicit DI patterns from C#, TypeScript/NestJS, Java/Kotlin constructors, FastAPI `Depends`, Laravel bindings, Swift/C++ constructors, and Go/Rust factories.
+* **Static-Analysis Boundaries**: DI edges are emitted only for recognized, statically resolvable syntax; dynamic Ruby/JavaScript wiring and markup/style languages remain import-only.
 * **Cybernetic Visual Graph**: Code files are rendered with language-coded concentric rings (TypeScript `#38bdf8`, Rust `#f97316`, Python `#10b981`, Go `#06b6d4`, etc.) and instant filter buttons (`[All]`, `[Notes]`, `[Code]`).
 * **Interactive Code Inspector**: Click any code node to inspect top-level symbols (functions, structs, classes), line ranges, token estimates, and jump between imported files.
 

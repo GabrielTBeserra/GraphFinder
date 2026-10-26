@@ -1704,6 +1704,9 @@ impl DbManager {
                 for symbol in &file.declared_symbols {
                     stmt_ins_symbol.execute(params![file.path, symbol])?;
                 }
+                for symbol in file.chunks.iter().filter_map(|chunk| chunk.symbol_name.as_ref()) {
+                    stmt_ins_symbol.execute(params![file.path, symbol])?;
+                }
 
                 for (i, chunk) in file.chunks.iter().enumerate() {
                     let chunk_id = if let Some(ref sym) = chunk.symbol_name {

@@ -1,5 +1,5 @@
 {
-  "description": "Explores dependency and import graph of a code file (imports, dependents, external modules).",
+  "description": "Explores imports, dependents, external modules, and resolved semantic code relations such as dependency injection.",
   "name": "get_code_dependencies",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
