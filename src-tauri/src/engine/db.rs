@@ -961,16 +961,11 @@ impl DbManager {
             ))
         })?;
 
+        let mut code_edges: HashMap<(String, String), String> = HashMap::new();
+
         for r in code_link_rows {
             let (source_id, target_id, _raw_import) = r?;
-            *degree_map.entry(source_id.clone()).or_insert(0) += 1;
-            *degree_map.entry(target_id.clone()).or_insert(0) += 1;
-
-            links.push(GraphLink {
-                source: source_id,
-                target: target_id,
-                label: Some("import".to_string()),
-            });
+            code_edges.insert((source_id, target_id), "import".to_string());
         }
 
         // 5. Load resolved semantic code relations such as DI registration and injection.
@@ -987,12 +982,16 @@ impl DbManager {
 
         for row in relation_rows {
             let (source_id, target_id, relation_kind) = row?;
+            code_edges.insert((source_id, target_id), relation_kind);
+        }
+
+        for ((source_id, target_id), label) in code_edges {
             *degree_map.entry(source_id.clone()).or_insert(0) += 1;
             *degree_map.entry(target_id.clone()).or_insert(0) += 1;
             links.push(GraphLink {
                 source: source_id,
                 target: target_id,
-                label: Some(relation_kind),
+                label: Some(label),
             });
         }
 
@@ -1880,6 +1879,9 @@ impl DbManager {
         }
 
         let mut updates = Vec::new();
+        let mut file_tokens_cache: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut target_symbols_cache: HashMap<String, (Option<String>, Vec<String>)> = HashMap::new();
+
         for ((source_id, raw_import), mut current_targets) in grouped {
             current_targets.sort();
             current_targets.dedup();
@@ -1905,10 +1907,57 @@ impl DbManager {
                 if namespace_targets.is_empty() {
                     vec![(raw_import.clone(), true)]
                 } else {
-                    namespace_targets
-                        .into_iter()
-                        .map(|target| (target, false))
-                        .collect()
+                    let source_tokens = file_tokens_cache
+                        .entry(source_id.clone())
+                        .or_insert_with(|| {
+                            let mut tokens = HashSet::new();
+                            if let Ok(mut stmt) = self.conn.prepare("SELECT content FROM code_chunks WHERE file_id = ?1") {
+                                if let Ok(rows) = stmt.query_map(params![source_id], |r| r.get::<_, String>(0)) {
+                                    for chunk in rows.flatten() {
+                                        for token in chunk.split(|c: char| !c.is_alphanumeric() && c != '_') {
+                                            if !token.is_empty() {
+                                                tokens.insert(token.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            tokens
+                        });
+
+                    let mut matched_targets = Vec::new();
+                    for target_file in namespace_targets {
+                        let (stem, symbols) = target_symbols_cache
+                            .entry(target_file.clone())
+                            .or_insert_with(|| {
+                                let stem = std::path::Path::new(&target_file)
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .map(|s| s.to_string());
+                                let mut symbols = Vec::new();
+                                if let Ok(mut stmt) = self.conn.prepare("SELECT symbol_name FROM code_symbols WHERE file_id = ?1") {
+                                    if let Ok(rows) = stmt.query_map(params![target_file], |r| r.get::<_, String>(0)) {
+                                        for sym in rows.flatten() {
+                                            symbols.push(sym);
+                                        }
+                                    }
+                                }
+                                (stem, symbols)
+                            });
+
+                        let has_match = stem.as_ref().map_or(false, |s| source_tokens.contains(s))
+                            || symbols.iter().any(|sym| source_tokens.contains(sym));
+
+                        if has_match {
+                            matched_targets.push((target_file, false));
+                        }
+                    }
+
+                    if matched_targets.is_empty() {
+                        vec![(raw_import.clone(), true)]
+                    } else {
+                        matched_targets
+                    }
                 }
             };
             desired_targets.sort();
@@ -3101,11 +3150,15 @@ mod tests {
         let dummy_vec = vec![1.0f32, 0.0, 0.0];
         let consumer = crate::engine::code::parse_code_file(
             "src/Consumer.cs",
-            "using Example.Services;\nnamespace Example.Controllers;\nclass Consumer {}",
+            "using Example.Services;\nnamespace Example.Controllers;\nclass Consumer { UserService service; }",
         );
         let service = crate::engine::code::parse_code_file(
             "src/Services/UserService.cs",
             "namespace Example.Services { public class UserService {} }",
+        );
+        let other_service = crate::engine::code::parse_code_file(
+            "src/Services/OtherService.cs",
+            "namespace Example.Services { public class OtherService {} }",
         );
         db.save_code_file_batch(
             &consumer,
@@ -3127,10 +3180,19 @@ mod tests {
             &[],
         )
         .expect("save service");
+        db.save_code_file_batch(
+            &other_service,
+            "other_service",
+            3,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save other service");
 
         let files = HashSet::from([
             "src/Consumer.cs".to_string(),
             "src/Services/UserService.cs".to_string(),
+            "src/Services/OtherService.cs".to_string(),
         ]);
         let updated = db
             .resolve_pending_code_links(&files, &HashMap::new())
@@ -3141,6 +3203,7 @@ mod tests {
             .get_code_dependencies("src/Consumer.cs", "imports")
             .expect("read dependencies");
         assert_eq!(deps.imports, vec!["src/Services/UserService.cs"]);
+        assert!(!deps.imports.contains(&"src/Services/OtherService.cs".to_string()));
         assert!(deps.external.is_empty());
     }
 
@@ -3347,7 +3410,7 @@ mod tests {
         let dummy_vec = vec![1.0f32, 0.0, 0.0];
         let consumer = crate::engine::code::parse_code_file(
             "src/Consumer.cs",
-            "using Example.Services;\npublic class Consumer {}",
+            "using Example.Services;\npublic class Consumer { UserService service; }",
         );
         let service_v1 = crate::engine::code::parse_code_file(
             "src/Service.cs",

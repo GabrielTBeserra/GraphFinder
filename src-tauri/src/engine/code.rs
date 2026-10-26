@@ -2244,7 +2244,7 @@ pub fn estimate_code_tokens(text: &str) -> usize {
     (text.len() / 4).max(1)
 }
 
-const CODE_RELATION_HASH_PREFIX: &str = "code-relations-v2:";
+const CODE_RELATION_HASH_PREFIX: &str = "code-relations-v3:";
 
 pub fn needs_code_metadata_refresh(rel_path: &str, stored_hash: &str) -> bool {
     let extension = Path::new(rel_path)
@@ -2652,8 +2652,8 @@ mod tests {
 
         assert!(needs_code_metadata_refresh("Service.cs", &source_hash));
         assert!(!needs_code_metadata_refresh("Service.cs", &indexed_hash));
-        assert_eq!(indexed_hash, format!("code-relations-v2:{source_hash}"));
-        assert!(indexed_code_content_hash("Service.ts", content).starts_with("code-relations-v2:"));
+        assert_eq!(indexed_hash, format!("code-relations-v3:{source_hash}"));
+        assert!(indexed_code_content_hash("Service.ts", content).starts_with("code-relations-v3:"));
         assert_eq!(
             indexed_code_content_hash("styles.css", content),
             source_hash
