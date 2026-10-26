@@ -1857,9 +1857,9 @@ impl DbManager {
         project_files_by_name: &HashMap<String, Vec<String>>,
     ) -> Result<usize> {
         let rows: Vec<(String, String, String, bool)> = {
-            let mut stmt = self.conn.prepare(
-                "SELECT source_id, target_id, raw_import, is_external FROM code_links",
-            )?;
+            let mut stmt = self
+                .conn
+                .prepare("SELECT source_id, target_id, raw_import, is_external FROM code_links")?;
             let rows = stmt.query_map([], |row| {
                 Ok((
                     row.get(0)?,
@@ -1883,12 +1883,13 @@ impl DbManager {
         for ((source_id, raw_import), mut current_targets) in grouped {
             current_targets.sort();
             current_targets.dedup();
-            let mut desired_targets = if let Some(target_file) = crate::engine::code::resolve_import_path(
-                &source_id,
-                &raw_import,
-                project_files_set,
-                project_files_by_name,
-            ) {
+            let mut desired_targets = if let Some(target_file) =
+                crate::engine::code::resolve_import_path(
+                    &source_id,
+                    &raw_import,
+                    project_files_set,
+                    project_files_by_name,
+                ) {
                 vec![(target_file, false)]
             } else {
                 let namespace_targets: Vec<String> = {
@@ -2042,15 +2043,27 @@ impl DbManager {
                 tx.execute("DELETE FROM code_files WHERE id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_fts WHERE file_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_chunks WHERE file_id = ?1", params![id])?;
-                tx.execute("DELETE FROM code_chunks_fts WHERE file_id = ?1", params![id])?;
-                tx.execute("DELETE FROM code_namespaces WHERE file_id = ?1", params![id])?;
+                tx.execute(
+                    "DELETE FROM code_chunks_fts WHERE file_id = ?1",
+                    params![id],
+                )?;
+                tx.execute(
+                    "DELETE FROM code_namespaces WHERE file_id = ?1",
+                    params![id],
+                )?;
                 tx.execute("DELETE FROM code_symbols WHERE file_id = ?1", params![id])?;
-                tx.execute("DELETE FROM code_links WHERE source_id = ?1 OR target_id = ?1", params![id])?;
+                tx.execute(
+                    "DELETE FROM code_links WHERE source_id = ?1 OR target_id = ?1",
+                    params![id],
+                )?;
                 tx.execute(
                     "DELETE FROM code_relations WHERE source_id = ?1 OR target_id = ?1",
                     params![id],
                 )?;
-                tx.execute("DELETE FROM code_calls WHERE caller_file_id = ?1 OR callee_file_id = ?1", params![id])?;
+                tx.execute(
+                    "DELETE FROM code_calls WHERE caller_file_id = ?1 OR callee_file_id = ?1",
+                    params![id],
+                )?;
                 deleted += 1;
             }
         }
@@ -3153,14 +3166,8 @@ mod tests {
             (&service, "service"),
             (&controller, "controller"),
         ] {
-            db.save_code_file_batch(
-                file,
-                hash,
-                1,
-                std::slice::from_ref(&dummy_vec),
-                &[],
-            )
-            .expect("save code file");
+            db.save_code_file_batch(file, hash, 1, std::slice::from_ref(&dummy_vec), &[])
+                .expect("save code file");
         }
 
         let updated = db
@@ -3210,12 +3217,17 @@ mod tests {
             &[],
         )
         .expect("save controller");
-        assert_eq!(db.resolve_pending_code_relations().expect("first resolution"), 0);
-        assert!(db
-            .get_code_dependencies("src/Controller.cs", "imports")
-            .expect("pending relation")
-            .relations[0]
-            .is_external);
+        assert_eq!(
+            db.resolve_pending_code_relations()
+                .expect("first resolution"),
+            0
+        );
+        assert!(
+            db.get_code_dependencies("src/Controller.cs", "imports")
+                .expect("pending relation")
+                .relations[0]
+                .is_external
+        );
 
         let service = crate::engine::code::parse_code_file(
             "src/Service.cs",
@@ -3229,7 +3241,11 @@ mod tests {
             &[],
         )
         .expect("save service");
-        assert_eq!(db.resolve_pending_code_relations().expect("second resolution"), 1);
+        assert_eq!(
+            db.resolve_pending_code_relations()
+                .expect("second resolution"),
+            1
+        );
 
         let relation = &db
             .get_code_dependencies("src/Controller.cs", "imports")
@@ -3262,14 +3278,8 @@ mod tests {
         ] {
             let repository =
                 crate::engine::code::parse_code_file(path, "public interface IRepository {}");
-            db.save_code_file_batch(
-                &repository,
-                hash,
-                2,
-                std::slice::from_ref(&dummy_vec),
-                &[],
-            )
-            .expect("save repository");
+            db.save_code_file_batch(&repository, hash, 2, std::slice::from_ref(&dummy_vec), &[])
+                .expect("save repository");
         }
 
         assert_eq!(db.resolve_pending_code_relations().expect("resolve"), 0);
@@ -3363,10 +3373,7 @@ mod tests {
             &[],
         )
         .expect("save service");
-        let files = HashSet::from([
-            "src/Consumer.cs".to_string(),
-            "src/Service.cs".to_string(),
-        ]);
+        let files = HashSet::from(["src/Consumer.cs".to_string(), "src/Service.cs".to_string()]);
         db.resolve_pending_code_links(&files, &HashMap::new())
             .expect("resolve initial namespace");
 
@@ -3463,10 +3470,8 @@ mod tests {
             &[],
         )
         .expect("save service");
-        let all_files = HashSet::from([
-            "src/Consumer.cs".to_string(),
-            "src/Service.cs".to_string(),
-        ]);
+        let all_files =
+            HashSet::from(["src/Consumer.cs".to_string(), "src/Service.cs".to_string()]);
         db.resolve_pending_code_links(&all_files, &HashMap::new())
             .expect("resolve namespace");
         db.resolve_pending_code_relations()
