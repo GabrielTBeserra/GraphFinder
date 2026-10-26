@@ -66,6 +66,7 @@ pub struct ParsedCodeFile {
     pub size_bytes: usize,
     pub namespaces: Vec<String>,
     pub imports: Vec<ExtractedImport>,
+    pub relations: Vec<ExtractedCodeRelation>,
     pub chunks: Vec<CodeChunk>,
     pub summary: String,
 }
@@ -1003,6 +1004,25 @@ static CSHARP_NAMESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("valid regex for csharp namespace")
 });
 
+static CSHARP_DI_REGISTRATION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\bAdd(?:Scoped|Transient|Singleton)\s*<\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*,\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*>\s*\(",
+    )
+    .expect("valid regex for csharp DI registration")
+});
+
+static CSHARP_TYPE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:class|record|struct)\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+        .expect("valid regex for csharp type")
+});
+
+static CSHARP_CONSTRUCTOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^[ \t]*(?:(?:public|internal|protected|private)\s+)*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)",
+    )
+    .expect("valid regex for csharp constructor")
+});
+
 // PHP: require 'foo.php'; include 'foo.php'; use Foo\Bar;
 static PHP_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?m)(?:require|require_once|include|include_once)\s*\(?['"]([^'"]+)['"]\)?|^\s*use\s+([a-zA-Z0-9_\\]+)\s*;"#)
@@ -1194,6 +1214,91 @@ pub fn extract_csharp_namespaces(content: &str) -> Vec<String> {
     }
 
     namespaces
+}
+
+pub fn extract_csharp_relations(content: &str) -> Vec<ExtractedCodeRelation> {
+    let cleaned = strip_rust_comments_and_strings(content);
+    let mut relations = Vec::new();
+
+    for cap in CSHARP_DI_REGISTRATION_RE.captures_iter(&cleaned) {
+        let Some(interface_name) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+        let Some(implementation_name) = cap.get(2).map(|m| m.as_str()) else {
+            continue;
+        };
+        let target = implementation_name.rsplit('.').next().unwrap_or(implementation_name);
+        let interface = interface_name.rsplit('.').next().unwrap_or(interface_name);
+        let start = cap.get(0).map(|m| m.start()).unwrap_or_default();
+
+        relations.push(ExtractedCodeRelation {
+            kind: CodeRelationKind::DiRegistration,
+            raw: cap[0].to_string(),
+            target: target.to_string(),
+            source_symbol: None,
+            target_symbol: Some(interface.to_string()),
+            line: cleaned[..start].lines().count() + 1,
+        });
+    }
+
+    let type_declarations: Vec<(usize, String)> = CSHARP_TYPE_RE
+        .captures_iter(&cleaned)
+        .filter_map(|cap| {
+            Some((
+                cap.get(0)?.start(),
+                cap.get(1)?.as_str().to_string(),
+            ))
+        })
+        .collect();
+
+    for cap in CSHARP_CONSTRUCTOR_RE.captures_iter(&cleaned) {
+        let Some(constructor_name) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+        let Some(constructor) = cap.get(0) else {
+            continue;
+        };
+        let Some((_, owner_name)) = type_declarations
+            .iter()
+            .rev()
+            .find(|(start, _)| *start < constructor.start())
+        else {
+            continue;
+        };
+        if constructor_name != owner_name {
+            continue;
+        }
+        let Some(parameters) = cap.get(2).map(|m| m.as_str()) else {
+            continue;
+        };
+
+        for parameter in parameters.split(',') {
+            let type_name = parameter
+                .split_whitespace()
+                .find(|token| !token.starts_with('[') && !matches!(*token, "ref" | "out" | "in" | "params"));
+            let Some(type_name) = type_name else {
+                continue;
+            };
+            let type_name = type_name.trim_end_matches('?');
+            let interface_name = type_name.rsplit('.').next().unwrap_or(type_name);
+            let mut chars = interface_name.chars();
+            if !matches!((chars.next(), chars.next()), (Some('I'), Some(c)) if c.is_ascii_uppercase()) {
+                continue;
+            }
+
+            let parameter_start = cap.get(0).map(|m| m.start()).unwrap_or_default();
+            relations.push(ExtractedCodeRelation {
+                kind: CodeRelationKind::DiInjection,
+                raw: constructor.as_str().to_string(),
+                target: interface_name.to_string(),
+                source_symbol: Some(owner_name.clone()),
+                target_symbol: None,
+                line: cleaned[..parameter_start].lines().count() + 1,
+            });
+        }
+    }
+
+    relations
 }
 
 // ==========================================
@@ -1613,6 +1718,11 @@ pub fn parse_code_file(rel_path: &str, content: &str) -> ParsedCodeFile {
         Vec::new()
     };
     let imports = extract_imports(&language, content);
+    let relations = if language == "csharp" {
+        extract_csharp_relations(content)
+    } else {
+        Vec::new()
+    };
     let chunks = chunk_code_file(rel_path, content);
 
     // Compute summary
@@ -1642,6 +1752,7 @@ pub fn parse_code_file(rel_path: &str, content: &str) -> ParsedCodeFile {
         size_bytes: content.len(),
         namespaces,
         imports,
+        relations,
         chunks,
         summary,
     }
@@ -1798,6 +1909,37 @@ mod tests {
         let targets: Vec<&str> = imports.iter().map(|import| import.target.as_str()).collect();
         assert!(targets.contains(&"Example.Services"));
         assert!(targets.contains(&"Example.Services.ServiceDefaults"));
+    }
+
+    #[test]
+    fn test_extract_csharp_di_registration_and_constructor_injection() {
+        let code = r#"
+            services.AddScoped<IUserService, UserService>();
+
+            public class UserController
+            {
+                public UserController(IUserService users, string label) {}
+            }
+
+            // services.AddSingleton<IFake, Fake>();
+            var example = "services.AddTransient<IFake, Fake>()";
+        "#;
+
+        let relations = extract_csharp_relations(code);
+        assert!(relations.iter().any(|relation| {
+            relation.kind == CodeRelationKind::DiRegistration
+                && relation.target == "UserService"
+                && relation.target_symbol.as_deref() == Some("IUserService")
+        }));
+        assert!(relations.iter().any(|relation| {
+            relation.kind == CodeRelationKind::DiInjection
+                && relation.source_symbol.as_deref() == Some("UserController")
+                && relation.target == "IUserService"
+        }));
+        assert!(!relations
+            .iter()
+            .any(|relation| relation.target == "IFake" || relation.target == "Fake"));
+        assert!(!relations.iter().any(|relation| relation.target == "string"));
     }
 
     #[test]

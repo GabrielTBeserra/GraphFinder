@@ -2612,6 +2612,7 @@ mod tests {
             size_bytes: 85,
             namespaces: Vec::new(),
             imports: Vec::new(),
+            relations: Vec::new(),
             chunks: vec![chunk],
             summary: "typescript file (user.ts) defining: fetchUserData".to_string(),
         };
