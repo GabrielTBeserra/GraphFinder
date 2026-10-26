@@ -402,6 +402,12 @@ impl DbManager {
                 vector BLOB NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS code_namespaces (
+                file_id TEXT NOT NULL,
+                namespace TEXT NOT NULL,
+                PRIMARY KEY (file_id, namespace)
+            );
+
             CREATE TABLE IF NOT EXISTS code_links (
                 source_id TEXT NOT NULL,
                 target_id TEXT NOT NULL,
@@ -443,6 +449,7 @@ impl DbManager {
             CREATE INDEX IF NOT EXISTS idx_code_chunks_symbol ON code_chunks(symbol_name);
             CREATE INDEX IF NOT EXISTS idx_code_links_source ON code_links(source_id);
             CREATE INDEX IF NOT EXISTS idx_code_links_target ON code_links(target_id);
+            CREATE INDEX IF NOT EXISTS idx_code_namespaces_name ON code_namespaces(namespace);
             "#,
         )?;
 
@@ -1571,6 +1578,11 @@ impl DbManager {
                 VALUES (?1, ?2, ?3, ?4, ?5)
                 "#,
             )?;
+            let mut stmt_del_namespaces =
+                tx.prepare_cached("DELETE FROM code_namespaces WHERE file_id = ?1")?;
+            let mut stmt_ins_namespace = tx.prepare_cached(
+                "INSERT OR IGNORE INTO code_namespaces (file_id, namespace) VALUES (?1, ?2)",
+            )?;
             let mut stmt_del_links =
                 tx.prepare_cached("DELETE FROM code_links WHERE source_id = ?1")?;
             let mut stmt_ins_link = tx.prepare_cached(
@@ -1612,6 +1624,10 @@ impl DbManager {
 
                 stmt_del_chunks.execute(params![file.path])?;
                 stmt_del_chunks_fts.execute(params![file.path])?;
+                stmt_del_namespaces.execute(params![file.path])?;
+                for namespace in &file.namespaces {
+                    stmt_ins_namespace.execute(params![file.path, namespace])?;
+                }
 
                 for (i, chunk) in file.chunks.iter().enumerate() {
                     let chunk_id = if let Some(ref sym) = chunk.symbol_name {
@@ -1761,6 +1777,25 @@ impl DbManager {
                 project_files_by_name,
             ) {
                 resolved_updates.push((source_id, old_target, raw_import, new_target));
+                continue;
+            }
+
+            let namespace_targets: Vec<String> = {
+                let mut stmt = self
+                    .conn
+                    .prepare("SELECT file_id FROM code_namespaces WHERE namespace = ?1")?;
+                let rows = stmt.query_map(params![raw_import], |row| row.get(0))?;
+                rows.filter_map(|row| row.ok()).collect()
+            };
+            for new_target in namespace_targets {
+                if new_target != source_id {
+                    resolved_updates.push((
+                        source_id.clone(),
+                        old_target.clone(),
+                        raw_import.clone(),
+                        new_target,
+                    ));
+                }
             }
         }
 
@@ -1801,6 +1836,7 @@ impl DbManager {
                 tx.execute("DELETE FROM code_fts WHERE file_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_chunks WHERE file_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_chunks_fts WHERE file_id = ?1", params![id])?;
+                tx.execute("DELETE FROM code_namespaces WHERE file_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_links WHERE source_id = ?1 OR target_id = ?1", params![id])?;
                 tx.execute("DELETE FROM code_calls WHERE caller_file_id = ?1 OR callee_file_id = ?1", params![id])?;
                 deleted += 1;
@@ -2574,6 +2610,7 @@ mod tests {
             extension: "ts".to_string(),
             language: "typescript".to_string(),
             size_bytes: 85,
+            namespaces: Vec::new(),
             imports: Vec::new(),
             chunks: vec![chunk],
             summary: "typescript file (user.ts) defining: fetchUserData".to_string(),
@@ -2780,5 +2817,54 @@ mod tests {
         let deps_after = db.get_code_dependencies("src/App.tsx", "both").expect("deps after");
         assert_eq!(deps_after.imports, vec!["src/components/GraphView.tsx"]);
         assert!(deps_after.external.is_empty());
+    }
+
+    #[test]
+    fn test_csharp_using_resolves_to_files_in_declared_namespace() {
+        let mut db = DbManager::memory().expect("in-memory db");
+        let dummy_vec = vec![1.0f32, 0.0, 0.0];
+        let consumer = crate::engine::code::parse_code_file(
+            "src/Consumer.cs",
+            "using Example.Services;\nnamespace Example.Controllers;\nclass Consumer {}",
+        );
+        let service = crate::engine::code::parse_code_file(
+            "src/Services/UserService.cs",
+            "namespace Example.Services { public class UserService {} }",
+        );
+        db.save_code_file_batch(
+            &consumer,
+            "consumer",
+            1,
+            std::slice::from_ref(&dummy_vec),
+            &[(
+                "src/Consumer.cs".to_string(),
+                "Example.Services".to_string(),
+                true,
+            )],
+        )
+        .expect("save consumer");
+        db.save_code_file_batch(
+            &service,
+            "service",
+            2,
+            std::slice::from_ref(&dummy_vec),
+            &[],
+        )
+        .expect("save service");
+
+        let files = HashSet::from([
+            "src/Consumer.cs".to_string(),
+            "src/Services/UserService.cs".to_string(),
+        ]);
+        let updated = db
+            .resolve_pending_code_links(&files, &HashMap::new())
+            .expect("resolve namespace import");
+
+        assert_eq!(updated, 1);
+        let deps = db
+            .get_code_dependencies("src/Consumer.cs", "imports")
+            .expect("read dependencies");
+        assert_eq!(deps.imports, vec!["src/Services/UserService.cs"]);
+        assert!(deps.external.is_empty());
     }
 }

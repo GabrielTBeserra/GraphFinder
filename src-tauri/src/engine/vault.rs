@@ -346,7 +346,13 @@ impl Engine {
             )> = Vec::new();
             for (path, rel_path, updated_at) in code_entries {
                 if let Some((existing_mtime, existing_hash)) = existing_code_meta.get(&rel_path) {
-                    if *existing_mtime == updated_at && !existing_hash.is_empty() {
+                    if *existing_mtime == updated_at
+                        && !existing_hash.is_empty()
+                        && !crate::engine::code::needs_code_metadata_refresh(
+                            &rel_path,
+                            existing_hash,
+                        )
+                    {
                         continue;
                     }
                 }
@@ -354,7 +360,7 @@ impl Engine {
                     Ok(c) => c,
                     Err(_) => continue,
                 };
-                let hash = crate::engine::parser::content_hash(&content);
+                let hash = crate::engine::code::indexed_code_content_hash(&rel_path, &content);
                 if let Some((_, existing_hash)) = existing_code_meta.get(&rel_path) {
                     if existing_hash == &hash && !existing_hash.is_empty() {
                         continue;

@@ -64,6 +64,7 @@ pub struct ParsedCodeFile {
     pub extension: String,
     pub language: String,
     pub size_bytes: usize,
+    pub namespaces: Vec<String>,
     pub imports: Vec<ExtractedImport>,
     pub chunks: Vec<CodeChunk>,
     pub summary: String,
@@ -991,8 +992,15 @@ static JAVA_KT_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static CSHARP_USING_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^\s*using\s+(?:static\s+)?([a-zA-Z0-9_.]+)\s*;"#)
+    Regex::new(
+        r#"(?m)^\s*(?:global\s+)?using\s+(?:static\s+)?(?:[A-Za-z_][A-Za-z0-9_]*\s*=\s*)?(?:global::)?([a-zA-Z0-9_.]+)\s*;"#,
+    )
         .expect("valid regex for csharp using")
+});
+
+static CSHARP_NAMESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*namespace\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:;|\{)")
+        .expect("valid regex for csharp namespace")
 });
 
 // PHP: require 'foo.php'; include 'foo.php'; use Foo\Bar;
@@ -1171,6 +1179,21 @@ pub fn extract_imports(language: &str, content: &str) -> Vec<ExtractedImport> {
     }
 
     results
+}
+
+pub fn extract_csharp_namespaces(content: &str) -> Vec<String> {
+    let mut namespaces = Vec::new();
+    let mut seen = HashSet::new();
+
+    for cap in CSHARP_NAMESPACE_RE.captures_iter(content) {
+        if let Some(namespace) = cap.get(1).map(|m| m.as_str()) {
+            if seen.insert(namespace.to_string()) {
+                namespaces.push(namespace.to_string());
+            }
+        }
+    }
+
+    namespaces
 }
 
 // ==========================================
@@ -1543,6 +1566,30 @@ pub fn estimate_code_tokens(text: &str) -> usize {
     (text.len() / 4).max(1)
 }
 
+const CSHARP_NAMESPACE_HASH_PREFIX: &str = "csharp-namespaces-v1:";
+
+pub fn needs_code_metadata_refresh(rel_path: &str, stored_hash: &str) -> bool {
+    let extension = Path::new(rel_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
+    get_language_from_ext(extension) == Some("csharp")
+        && !stored_hash.starts_with(CSHARP_NAMESPACE_HASH_PREFIX)
+}
+
+pub fn indexed_code_content_hash(rel_path: &str, content: &str) -> String {
+    let source_hash = crate::engine::parser::content_hash(content);
+    let extension = Path::new(rel_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
+    if get_language_from_ext(extension) == Some("csharp") {
+        format!("{CSHARP_NAMESPACE_HASH_PREFIX}{source_hash}")
+    } else {
+        source_hash
+    }
+}
+
 /// Parses a source code file into a structured representation.
 pub fn parse_code_file(rel_path: &str, content: &str) -> ParsedCodeFile {
     let path_obj = Path::new(rel_path);
@@ -1560,6 +1607,11 @@ pub fn parse_code_file(rel_path: &str, content: &str) -> ParsedCodeFile {
         .unwrap_or("unknown")
         .to_string();
 
+    let namespaces = if language == "csharp" {
+        extract_csharp_namespaces(content)
+    } else {
+        Vec::new()
+    };
     let imports = extract_imports(&language, content);
     let chunks = chunk_code_file(rel_path, content);
 
@@ -1588,6 +1640,7 @@ pub fn parse_code_file(rel_path: &str, content: &str) -> ParsedCodeFile {
         extension,
         language,
         size_bytes: content.len(),
+        namespaces,
         imports,
         chunks,
         summary,
@@ -1712,6 +1765,57 @@ mod tests {
         assert!(targets.contains(&".config"));
         assert!(!targets.contains(&"fake_comment"));
         assert!(!targets.contains(&"fake_docstring"));
+    }
+
+    #[test]
+    fn test_extract_csharp_namespaces() {
+        let code = r#"
+            using System;
+            namespace Example.Services;
+
+            // namespace Ignored.Commented;
+            namespace Example.Handlers
+            {
+                public class Handler {}
+            }
+        "#;
+
+        assert_eq!(
+            extract_csharp_namespaces(code),
+            vec!["Example.Services", "Example.Handlers"]
+        );
+    }
+
+    #[test]
+    fn test_extract_csharp_global_and_alias_usings() {
+        let code = r#"
+            global using Example.Services;
+            using Services = Example.Services;
+            using static Example.Services.ServiceDefaults;
+        "#;
+
+        let imports = extract_imports("csharp", code);
+        let targets: Vec<&str> = imports.iter().map(|import| import.target.as_str()).collect();
+        assert!(targets.contains(&"Example.Services"));
+        assert!(targets.contains(&"Example.Services.ServiceDefaults"));
+    }
+
+    #[test]
+    fn test_csharp_metadata_hash_forces_one_time_reindex() {
+        let content = "namespace Example.Services;";
+        let source_hash = crate::engine::parser::content_hash(content);
+        let indexed_hash = indexed_code_content_hash("Service.cs", content);
+
+        assert!(needs_code_metadata_refresh("Service.cs", &source_hash));
+        assert!(!needs_code_metadata_refresh("Service.cs", &indexed_hash));
+        assert_eq!(
+            indexed_hash,
+            format!("csharp-namespaces-v1:{source_hash}")
+        );
+        assert_eq!(
+            indexed_code_content_hash("Service.ts", content),
+            source_hash
+        );
     }
 
     #[test]
