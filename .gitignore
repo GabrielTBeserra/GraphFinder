@@ -7,36 +7,82 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+tauri-private-key*
+*.privatekey
+
 # Dependencies
 node_modules/
+.pnp/
+.pnp.js
 
 # Frontend Builds
 dist/
 dist-ssr/
 *.local
+*.tsbuildinfo
+.eslintcache
+.cache/
+
+# Test & Coverage Artifacts
+coverage/
+*.lcov
+.nyc_output/
+test-results/
 
 # Rust & Tauri Builds
 src-tauri/target/
 target/
+src-tauri/gen/schemas
+Cargo.lock.orig
+
+# Python (Spec Kit / uv tooling)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.python-version
 
 # Local Vector Databases & SQLite WAL
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
 index.db
 
 # Machine Learning & Embeddings Local Caches
 .fastembed_cache/
 models/
 
+# Devin / Agent Local Config (skills are shared; local config & credentials are not)
+.devin/config.local.json
+.devin/mcp_config.local.json
+.devin/*.local.json
+
 # Editor & OS Files
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json.example
 .idea/
+.fleet/
+.vs/
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
 *.suo
 *.ntvs*
+*~
+*.swp
+*.swo
+
 # Exported Graph Artifacts
 graphfinder-out/
 src-tauri/graphfinder-out/
@@ -44,3 +90,8 @@ src-tauri/graphfinder-out/
 # Local User Projects & Vaults Metadata
 vaults/projects.json
 vaults/*/
+
+# Temporary & Backup Files
+*.tmp
+*.bak
+*.orig

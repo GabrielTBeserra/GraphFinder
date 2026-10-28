@@ -26,6 +26,7 @@ interface GraphViewProps {
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string) => void;
   onSelectCode?: (fileId: string) => void;
+  onClearSelection?: () => void;
   onRefresh: () => void;
   glowingNode?: { id: string; timestamp: number } | null;
   theme?: 'dark' | 'light';
@@ -189,6 +190,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   selectedNodeId,
   onSelectNode,
   onSelectCode,
+  onClearSelection,
   onRefresh,
   glowingNode,
   theme = 'dark',
@@ -213,6 +215,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const egoDepthRef = useRef<number>(egoDepth);
   const onSelectNodeRef = useRef(onSelectNode);
   const onSelectCodeRef = useRef(onSelectCode);
+  const onClearSelectionRef = useRef(onClearSelection);
   const themeRef = useRef<'dark' | 'light'>(theme);
   const colorModeRef = useRef<'communities' | 'default'>('communities');
   const highlightGodNodesRef = useRef<boolean>(true);
@@ -294,6 +297,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
     onSelectCodeRef.current = onSelectCode;
   }, [onSelectCode]);
 
+  useEffect(() => {
+    onClearSelectionRef.current = onClearSelection;
+  }, [onClearSelection]);
+
   // Telemetry stats
   const stats = useMemo(() => {
     let notes = 0;
@@ -311,6 +318,19 @@ export const GraphView: React.FC<GraphViewProps> = ({
       connectedNodeIdsRef.current = new Set();
       return;
     }
+
+    const nodes = graphDataRef.current.nodes;
+    const resolvedTarget = nodes.find(
+      (n) =>
+        n.id === targetId ||
+        n.id.toLowerCase() === targetId.toLowerCase() ||
+        n.id.replace(/\.md$/i, '').toLowerCase() === targetId.replace(/\.md$/i, '').toLowerCase() ||
+        (n.title && n.title.toLowerCase() === targetId.toLowerCase()) ||
+        (n.title && n.title.replace(/\.md$/i, '').toLowerCase() === targetId.replace(/\.md$/i, '').toLowerCase()) ||
+        (n.path && (n.path === targetId || n.path.toLowerCase() === targetId.toLowerCase()))
+    );
+    const startId = resolvedTarget ? resolvedTarget.id : targetId;
+
     const hops = maxHops ?? egoDepthRef.current;
     const adj = new Map<string, string[]>();
     for (const link of graphDataRef.current.links) {
@@ -322,8 +342,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
       adj.get(t)!.push(s);
     }
 
-    const visited = new Set<string>([targetId]);
-    let frontier = [targetId];
+    const visited = new Set<string>([startId]);
+    let frontier = [startId];
     for (let d = 0; d < hops && frontier.length > 0; d++) {
       const nextFrontier: string[] = [];
       for (const curr of frontier) {
@@ -535,7 +555,15 @@ export const GraphView: React.FC<GraphViewProps> = ({
         if (!node || !isFinite(node.x) || !isFinite(node.y)) return;
 
         const isLight = themeRef.current === 'light';
-        const isSelected = node.id === selectedNodeIdRef.current;
+        const currentSel = selectedNodeIdRef.current;
+        const isSelected =
+          currentSel !== null &&
+          (node.id === currentSel ||
+            node.id.toLowerCase() === currentSel.toLowerCase() ||
+            node.id.replace(/\.md$/i, '').toLowerCase() === currentSel.replace(/\.md$/i, '').toLowerCase() ||
+            (node.title && node.title.toLowerCase() === currentSel.toLowerCase()) ||
+            (node.title && node.title.replace(/\.md$/i, '').toLowerCase() === currentSel.replace(/\.md$/i, '').toLowerCase()) ||
+            (node.path && (node.path === currentSel || node.path.toLowerCase() === currentSel.toLowerCase())));
         const isHovered = node.id === hoverNodeIdRef.current;
         const connected = connectedNodeIdsRef.current;
         const isConnected = connected.has(node.id);
@@ -813,17 +841,35 @@ export const GraphView: React.FC<GraphViewProps> = ({
           return;
         }
 
+        // Immediately mark the clicked node and recompute neighbors
+        selectedNodeIdRef.current = node.id;
+        recomputeConnected(node.id, egoDepthRef.current);
+        requestCanvasRepaint();
+
         if (node.node_type === 'code' && onSelectCodeRef.current) {
           onSelectCodeRef.current(node.path || node.id);
-        } else {
-          onSelectNodeRef.current(node.id);
         }
+        onSelectNodeRef.current(node.id);
+      })
+      .onBackgroundClick(() => {
+        selectedNodeIdRef.current = null;
+        hoverNodeIdRef.current = null;
+        connectedNodeIdsRef.current = new Set();
+        if (pathModeRef.current) {
+          setPathStartNode(null);
+          pathStartNodeRef.current = null;
+          setPathResult(null);
+          pathResultRef.current = null;
+        }
+        onClearSelectionRef.current?.();
+        requestCanvasRepaint();
       })
       .onNodeHover((node: any) => {
         const nextId = node ? node.id : null;
         if (hoverNodeIdRef.current === nextId) return;
         hoverNodeIdRef.current = nextId;
-        recomputeConnected(nextId || selectedNodeIdRef.current);
+        recomputeConnected(nextId || selectedNodeIdRef.current, egoDepthRef.current);
+        requestCanvasRepaint();
       })
       .showPointerCursor((node: any) => !!node);
 
@@ -893,7 +939,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
   useEffect(() => {
     selectedNodeIdRef.current = selectedNodeId;
     recomputeConnected(hoverNodeIdRef.current || selectedNodeId);
-  }, [selectedNodeId, recomputeConnected]);
+    requestCanvasRepaint();
+  }, [selectedNodeId, recomputeConnected, requestCanvasRepaint]);
 
   // Reset filters and camera state when switching projects
   useEffect(() => {

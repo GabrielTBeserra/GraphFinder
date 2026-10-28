@@ -33,6 +33,9 @@ import { McpModal } from './components/McpModal';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { NewProjectModal } from './components/NewProjectModal';
 import { OmnisearchModal } from './components/OmnisearchModal';
+import { UpdateBanner } from './components/UpdateBanner';
+import { ReleaseModal } from './components/ReleaseModal';
+import { checkForUpdates, type ReleaseInfo } from './services/updater';
 import {
   ArrowClockwise,
   SidebarSimple,
@@ -42,6 +45,7 @@ import {
   Sun,
   Moon,
   WarningCircle,
+  Sparkle,
 } from '@phosphor-icons/react';
 
 interface Toast {
@@ -97,6 +101,9 @@ export const App: React.FC = () => {
     'Initializing neural embedding engine...'
   );
   const [engineError, setEngineError] = useState<boolean>(false);
+  const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo | null>(null);
+  const [isReleaseModalOpen, setIsReleaseModalOpen] = useState(false);
+  const [isBannerDismissed, setIsBannerDismissed] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       const saved = localStorage.getItem('gf_theme');
@@ -140,6 +147,37 @@ export const App: React.FC = () => {
     },
     []
   );
+
+  const handleDismissBanner = useCallback(() => {
+    setIsBannerDismissed(true);
+    if (releaseInfo?.tagName) {
+      try {
+        sessionStorage.setItem('gf_dismissed_update_tag', releaseInfo.tagName);
+      } catch {
+        // ignore
+      }
+    }
+  }, [releaseInfo?.tagName]);
+
+  useEffect(() => {
+    checkForUpdates()
+      .then((info) => {
+        setReleaseInfo(info);
+        if (info.hasUpdate) {
+          try {
+            const dismissed = sessionStorage.getItem('gf_dismissed_update_tag');
+            if (dismissed === info.tagName) {
+              setIsBannerDismissed(true);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn('[Updater] Initial check error:', err);
+      });
+  }, []);
 
   const handleSelectNote = useCallback(async (idOrTitle: string) => {
     const clean = idOrTitle.replace(/^unresolved:/, '').split('#')[0].trim();
@@ -187,8 +225,15 @@ export const App: React.FC = () => {
 
   const handleSelectCodeFile = useCallback((path: string, symbol?: string) => {
     setSelectedCodePath(path);
+    setSelectedNoteId(path);
     setSelectedCodeSymbol(symbol || null);
     setIsCodeInspectorOpen(true);
+  }, []);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedNoteId(null);
+    setSelectedCodePath(null);
+    setSelectedCodeSymbol(null);
   }, []);
 
   const handleNavigateNote = useCallback((titleOrId: string) => {
@@ -724,6 +769,23 @@ export const App: React.FC = () => {
             <span className="text-[11px]">{isSyncing ? 'Sync...' : 'Sync'}</span>
           </button>
 
+          {/* Release Update Pill if available */}
+          {releaseInfo?.hasUpdate && (
+            <button
+              type="button"
+              onClick={() => setIsReleaseModalOpen(true)}
+              className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                isLight
+                  ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800 shadow-2xs'
+                  : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-400'
+              }`}
+              title={`New version ${releaseInfo.tagName} available`}
+            >
+              <Sparkle size={12} weight="fill" className="text-emerald-500 animate-pulse" />
+              <span className="text-[11px] font-mono">{releaseInfo.tagName}</span>
+            </button>
+          )}
+
           {/* MCP Status & Settings */}
           <button
             type="button"
@@ -746,6 +808,15 @@ export const App: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {releaseInfo?.hasUpdate && !isBannerDismissed && (
+        <UpdateBanner
+          release={releaseInfo}
+          theme={theme}
+          onDismiss={handleDismissBanner}
+          onOpenDetails={() => setIsReleaseModalOpen(true)}
+        />
+      )}
 
       {syncProgress && (
         <div
@@ -829,6 +900,9 @@ export const App: React.FC = () => {
           isSearching={isSearching}
           isCollapsed={!isSidebarOpen}
           theme={theme}
+          appVersion={releaseInfo?.currentVersion || '0.14.0'}
+          hasUpdate={releaseInfo?.hasUpdate}
+          onOpenReleases={() => setIsReleaseModalOpen(true)}
         />
 
         <main
@@ -842,6 +916,7 @@ export const App: React.FC = () => {
             selectedNodeId={selectedNoteId}
             onSelectNode={handleSelectNote}
             onSelectCode={handleSelectCodeFile}
+            onClearSelection={handleClearSelection}
             onRefresh={loadData}
             glowingNode={glowingNode}
             theme={theme}
@@ -889,6 +964,13 @@ export const App: React.FC = () => {
         isOpen={isNewProjectModalOpen}
         onClose={() => setIsNewProjectModalOpen(false)}
         onCreate={handleCreateProject}
+      />
+      <ReleaseModal
+        isOpen={isReleaseModalOpen}
+        onClose={() => setIsReleaseModalOpen(false)}
+        releaseInfo={releaseInfo}
+        onUpdateReleaseInfo={(info) => setReleaseInfo(info)}
+        theme={theme}
       />
 
       {/* Toast Notifications */}
