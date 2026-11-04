@@ -7,11 +7,19 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
+/// Model identity stamped into the DB meta table so migrations can detect
+/// when vault vectors were produced by a different embedder.
+pub const MODEL_ID_E5_SMALL: &str = "multilingual-e5-small";
+pub const MODEL_ID_MINILM: &str = "all-MiniLM-L6-v2";
+
 #[derive(Clone)]
 pub struct EmbeddingEngine {
     model: Arc<Mutex<Option<TextEmbedding>>>,
     reranker: Arc<Mutex<Option<TextRerank>>>,
     status: Arc<Mutex<String>>,
+    model_id: Arc<Mutex<String>>,
+    /// E5-family models require "query: "/"passage: " prefixes.
+    needs_prefix: Arc<Mutex<bool>>,
 }
 
 impl EmbeddingEngine {
@@ -20,16 +28,28 @@ impl EmbeddingEngine {
             model: Arc::new(Mutex::new(None)),
             reranker: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new("initializing".to_string())),
+            model_id: Arc::new(Mutex::new("unknown".to_string())),
+            needs_prefix: Arc::new(Mutex::new(false)),
         }
     }
 
     pub fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let model = Self::load_model_internal()?;
+        let (model, model_id, needs_prefix) = Self::load_model_internal()?;
         Ok(Self {
             model: Arc::new(Mutex::new(Some(model))),
             reranker: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new("ready".to_string())),
+            model_id: Arc::new(Mutex::new(model_id.to_string())),
+            needs_prefix: Arc::new(Mutex::new(needs_prefix)),
         })
+    }
+
+    /// Identity of the currently loaded embedder (used for the DB stamp).
+    pub fn model_id(&self) -> String {
+        self.model_id
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_else(|_| "unknown".to_string())
     }
 
     pub fn is_ready(&self) -> bool {
@@ -43,10 +63,17 @@ impl EmbeddingEngine {
             .unwrap_or_else(|_| "unknown".to_string())
     }
 
-    pub fn load_model_internal() -> Result<TextEmbedding, Box<dyn std::error::Error + Send + Sync>> {
+    /// Loads the embedder and reports which model actually loaded so the
+    /// engine can stamp it into the DB and decide on E5-style prefixes.
+    /// Resolution order: explicit env model > local E5 dir > fastembed
+    /// MultilingualE5Small (auto-download) > local MiniLM dir > MiniLM download.
+    pub fn load_model_internal() -> Result<
+        (TextEmbedding, &'static str, bool),
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let mut local_dir = None;
 
-        // 1. Explicit env var
+        // 1. Explicit env var (honored verbatim — user picks the folder)
         if let Ok(m) = std::env::var("GRAPHFINDER_MODELS") {
             let p = PathBuf::from(m);
             if p.join("model.onnx").exists() {
@@ -54,53 +81,35 @@ impl EmbeddingEngine {
             }
         }
 
-        // 2. Relative to GRAPHFINDER_VAULT parent
+        // 2. Search candidates for local offline model files (E5 preferred)
         if local_dir.is_none() {
+            let mut candidates: Vec<PathBuf> = Vec::new();
             if let Ok(v) = std::env::var("GRAPHFINDER_VAULT") {
                 if let Some(parent) = PathBuf::from(v).parent() {
-                    let p = parent.join("models/all-MiniLM-L6-v2");
-                    if p.join("model.onnx").exists() && p.join("tokenizer.json").exists() {
-                        local_dir = Some(p);
+                    candidates.push(parent.join("models/multilingual-e5-small"));
+                    candidates.push(parent.join("models/all-MiniLM-L6-v2"));
+                }
+            }
+            for name in ["multilingual-e5-small", "all-MiniLM-L6-v2"] {
+                for base in ["models", "../models", "../../models", "../../../models"] {
+                    candidates.push(PathBuf::from(format!("{}/{}", base, name)));
+                }
+            }
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(parent) = exe_path.parent() {
+                    for name in ["multilingual-e5-small", "all-MiniLM-L6-v2"] {
+                        candidates.push(parent.join(format!("models/{}", name)));
+                        candidates.push(parent.join(format!("resources/models/{}", name)));
+                        for up in ["..", "../..", "../../..", "../../../.."] {
+                            candidates.push(parent.join(format!("{}/models/{}", up, name)));
+                        }
                     }
                 }
             }
-        }
-
-        // 3. Search candidates for local offline model files from CWD
-        if local_dir.is_none() {
-            let candidates = [
-                PathBuf::from("models/all-MiniLM-L6-v2"),
-                PathBuf::from("../models/all-MiniLM-L6-v2"),
-                PathBuf::from("../../models/all-MiniLM-L6-v2"),
-                PathBuf::from("../../../models/all-MiniLM-L6-v2"),
-            ];
-
             for c in &candidates {
                 if c.join("model.onnx").exists() && c.join("tokenizer.json").exists() {
                     local_dir = Some(c.clone());
                     break;
-                }
-            }
-        }
-
-        // 4. Also check relative to executable directory (for installed bundles and dev builds)
-        if local_dir.is_none() {
-            if let Ok(exe_path) = std::env::current_exe() {
-                if let Some(parent) = exe_path.parent() {
-                    let exe_candidates = [
-                        parent.join("models/all-MiniLM-L6-v2"),
-                        parent.join("resources/models/all-MiniLM-L6-v2"),
-                        parent.join("../models/all-MiniLM-L6-v2"),
-                        parent.join("../../models/all-MiniLM-L6-v2"),
-                        parent.join("../../../models/all-MiniLM-L6-v2"),
-                        parent.join("../../../../models/all-MiniLM-L6-v2"),
-                    ];
-                    for c in &exe_candidates {
-                        if c.join("model.onnx").exists() && c.join("tokenizer.json").exists() {
-                            local_dir = Some(c.clone());
-                            break;
-                        }
-                    }
                 }
             }
         }
@@ -110,14 +119,28 @@ impl EmbeddingEngine {
             .unwrap_or_else(|_| "auto".to_string())
             .to_lowercase();
 
-        let model = if selected_model == "multilingual"
-            || selected_model == "multilingual-e5-small"
-            || selected_model == "e5"
-        {
-            eprintln!("[GraphFinder] Loading multilingual model MultilingualE5Small...");
-            let options = InitOptions::new(EmbeddingModel::MultilingualE5Small);
-            TextEmbedding::try_new(options)?
-        } else if let Some(dir) = local_dir {
+        let wants_minilm = matches!(
+            selected_model.as_str(),
+            "minilm" | "all-minilm-l6-v2" | "l6"
+        );
+        let wants_e5 = matches!(
+            selected_model.as_str(),
+            "multilingual" | "multilingual-e5-small" | "e5"
+        );
+
+        let (model, model_id, needs_prefix) = if wants_minilm {
+            eprintln!("[GraphFinder] Loading legacy all-MiniLM-L6-v2 (env override)...");
+            (
+                TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?,
+                MODEL_ID_MINILM,
+                false,
+            )
+        } else if let Some(dir) = local_dir.filter(|_| !wants_e5) {
+            // Local dir wins when no explicit e5 request; detect E5 by folder name
+            let is_e5_dir = dir
+                .file_name()
+                .map(|n| n.to_string_lossy().contains("e5"))
+                .unwrap_or(false);
             eprintln!(
                 "[GraphFinder] Loading local offline model from {}...",
                 dir.display()
@@ -130,14 +153,29 @@ impl EmbeddingEngine {
                 tokenizer_config_file: std::fs::read(dir.join("tokenizer_config.json"))?,
             };
             let user_model = UserDefinedEmbeddingModel::new(onnx_file, tokenizer_files);
-            TextEmbedding::try_new_from_user_defined(user_model, InitOptionsUserDefined::default())?
+            (
+                TextEmbedding::try_new_from_user_defined(
+                    user_model,
+                    InitOptionsUserDefined::default(),
+                )?,
+                if is_e5_dir {
+                    MODEL_ID_E5_SMALL
+                } else {
+                    MODEL_ID_MINILM
+                },
+                is_e5_dir,
+            )
         } else {
-            eprintln!("[GraphFinder] Loading default neural model (all-MiniLM-L6-v2)...");
-            let options = InitOptions::new(EmbeddingModel::AllMiniLML6V2);
-            TextEmbedding::try_new(options)?
+            // Default: multilingual-e5-small via fastembed (auto-download once)
+            eprintln!("[GraphFinder] Loading multilingual-e5-small (PT/EN, 384d)...");
+            (
+                TextEmbedding::try_new(InitOptions::new(EmbeddingModel::MultilingualE5Small))?,
+                MODEL_ID_E5_SMALL,
+                true,
+            )
         };
 
-        Ok(model)
+        Ok((model, model_id, needs_prefix))
     }
 
     pub async fn init_model(
@@ -168,10 +206,16 @@ impl EmbeddingEngine {
         }
 
         let model_res = tokio::task::spawn_blocking(move || Self::load_model_internal()).await?;
-        let model = model_res?;
+        let (model, model_id, needs_prefix) = model_res?;
 
         if let Ok(mut guard) = self.model.lock() {
             *guard = Some(model);
+        }
+        if let Ok(mut guard) = self.model_id.lock() {
+            *guard = model_id.to_string();
+        }
+        if let Ok(mut guard) = self.needs_prefix.lock() {
+            *guard = needs_prefix;
         }
         if let Ok(mut st) = self.status.lock() {
             *st = "ready".to_string();
@@ -202,6 +246,51 @@ impl EmbeddingEngine {
             self.init_model(None).await?;
         }
         Ok(())
+    }
+
+    /// Applies the E5 "query: "/"passage: " prefix when the loaded model
+    /// requires it; returns the text unchanged for legacy models.
+    fn prefixed(&self, text: String, role: &str) -> String {
+        let needs = self
+            .needs_prefix
+            .lock()
+            .map(|g| *g)
+            .unwrap_or(false);
+        if needs {
+            format!("{}: {}", role, text)
+        } else {
+            text
+        }
+    }
+
+    /// Embed a search query ("query: " prefix on E5 models).
+    pub async fn embed_query(
+        &self,
+        text: &str,
+    ) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+        self.embed_text(&self.prefixed(text.to_string(), "query"))
+            .await
+    }
+
+    /// Embed one document for indexing ("passage: " prefix on E5 models).
+    pub async fn embed_passage(
+        &self,
+        text: &str,
+    ) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+        self.embed_text(&self.prefixed(text.to_string(), "passage"))
+            .await
+    }
+
+    /// Embed documents for indexing in batch ("passage: " prefix on E5).
+    pub async fn embed_passages(
+        &self,
+        texts: Vec<String>,
+    ) -> Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
+        let prefixed: Vec<String> = texts
+            .into_iter()
+            .map(|t| self.prefixed(t, "passage"))
+            .collect();
+        self.embed_batch(prefixed).await
     }
 
     pub async fn embed_text(

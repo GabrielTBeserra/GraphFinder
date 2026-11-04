@@ -71,7 +71,7 @@ pub struct SuggestLinksArgs {
     pub text: String,
     /// Current note title or ID to exclude self-referencing (optional)
     pub current_note: Option<String>,
-    /// Minimum cosine similarity threshold (0.0 to 1.0, default: 0.60)
+    /// Minimum cosine similarity threshold (0.0 to 1.0, default: 0.65)
     pub threshold: Option<f32>,
     /// Target project/vault ID (optional)
     pub project: Option<String>,
@@ -468,7 +468,7 @@ impl GraphFinderMcpServer {
     async fn suggest_links(&self, Parameters(args): Parameters<SuggestLinksArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let current_note = args.current_note.as_deref().unwrap_or("");
-        let threshold = args.threshold.unwrap_or(0.60);
+        let threshold = args.threshold.unwrap_or(0.65);
 
         let suggestions = match engine.suggest_links(&args.text, current_note, threshold, 4).await {
             Ok(s) => s,

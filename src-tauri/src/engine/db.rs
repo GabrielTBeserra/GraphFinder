@@ -296,6 +296,31 @@ impl DbManager {
         Ok(map)
     }
 
+    pub fn get_meta(&self, key: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM meta WHERE key = ?1")?;
+        let mut rows = stmt.query_map([key], |r| r.get::<_, String>(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Wipes content hashes so the next sync re-embeds every note and
+    /// code file — used when swapping embedding models.
+    pub fn clear_all_hashes(&self) -> Result<()> {
+        self.conn
+            .execute_batch("UPDATE notes SET content_hash = ''; UPDATE code_files SET content_hash = '';")?;
+        Ok(())
+    }
+
     pub fn get_all_notes_meta(&self) -> Result<HashMap<String, (i64, String)>> {
         let mut stmt = self
             .conn
