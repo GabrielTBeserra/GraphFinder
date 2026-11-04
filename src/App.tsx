@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
   fetchGraph,
@@ -26,15 +26,26 @@ import type {
   SyncProgress,
 } from './types';
 import { GraphView } from './components/GraphView';
-import { NoteEditor } from './components/NoteEditor';
-import { CodeInspector } from './components/CodeInspector';
 import { Sidebar } from './components/Sidebar';
-import { McpModal } from './components/McpModal';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
-import { NewProjectModal } from './components/NewProjectModal';
 import { OmnisearchModal } from './components/OmnisearchModal';
 import { UpdateBanner } from './components/UpdateBanner';
-import { ReleaseModal } from './components/ReleaseModal';
+
+const NoteEditorLazy = React.lazy(() =>
+  import('./components/NoteEditor').then((m) => ({ default: m.NoteEditor }))
+);
+const CodeInspectorLazy = React.lazy(() =>
+  import('./components/CodeInspector').then((m) => ({ default: m.CodeInspector }))
+);
+const McpModal = React.lazy(() =>
+  import('./components/McpModal').then((m) => ({ default: m.McpModal }))
+);
+const NewProjectModal = React.lazy(() =>
+  import('./components/NewProjectModal').then((m) => ({ default: m.NewProjectModal }))
+);
+const ReleaseModal = React.lazy(() =>
+  import('./components/ReleaseModal').then((m) => ({ default: m.ReleaseModal }))
+);
 import { checkForUpdates, type ReleaseInfo } from './services/updater';
 import {
   ArrowClockwise,
@@ -228,6 +239,10 @@ export const App: React.FC = () => {
     setSelectedNoteId(path);
     setSelectedCodeSymbol(symbol || null);
     setIsCodeInspectorOpen(true);
+  }, []);
+
+  const handleRevealNode = useCallback((id: string) => {
+    setGlowingNode({ id, timestamp: Date.now() });
   }, []);
 
   const handleClearSelection = useCallback(() => {
@@ -923,7 +938,8 @@ export const App: React.FC = () => {
           />
 
           {isEditorOpen && (
-            <NoteEditor
+            <Suspense fallback={null}>
+            <NoteEditorLazy
               note={activeNote}
               onSave={handleSaveNote}
               onDelete={handleDeleteNote}
@@ -932,10 +948,12 @@ export const App: React.FC = () => {
               availableNotes={notes}
               theme={theme}
             />
+            </Suspense>
           )}
 
           {isCodeInspectorOpen && selectedCodePath && (
-            <CodeInspector
+            <Suspense fallback={null}>
+            <CodeInspectorLazy
               fileId={selectedCodePath}
               initialSymbol={selectedCodeSymbol}
               onClose={() => setIsCodeInspectorOpen(false)}
@@ -945,6 +963,7 @@ export const App: React.FC = () => {
               }}
               theme={theme}
             />
+            </Suspense>
           )}
         </main>
       </div>
@@ -957,21 +976,33 @@ export const App: React.FC = () => {
         codeFiles={codeFiles}
         onSelectNote={handleSelectNote}
         onSelectCodeFile={handleSelectCodeFile}
+        onRevealNode={handleRevealNode}
+        onNewNote={handleNewNote}
+        onSync={handleSync}
+        onToggleTheme={toggleTheme}
         theme={theme}
       />
-      <McpModal isOpen={isMcpModalOpen} onClose={() => setIsMcpModalOpen(false)} />
-      <NewProjectModal
-        isOpen={isNewProjectModalOpen}
-        onClose={() => setIsNewProjectModalOpen(false)}
-        onCreate={handleCreateProject}
-      />
-      <ReleaseModal
-        isOpen={isReleaseModalOpen}
-        onClose={() => setIsReleaseModalOpen(false)}
-        releaseInfo={releaseInfo}
-        onUpdateReleaseInfo={(info) => setReleaseInfo(info)}
-        theme={theme}
-      />
+      <Suspense fallback={null}>
+        {isMcpModalOpen && (
+          <McpModal isOpen={isMcpModalOpen} onClose={() => setIsMcpModalOpen(false)} />
+        )}
+        {isNewProjectModalOpen && (
+          <NewProjectModal
+            isOpen={isNewProjectModalOpen}
+            onClose={() => setIsNewProjectModalOpen(false)}
+            onCreate={handleCreateProject}
+          />
+        )}
+        {isReleaseModalOpen && (
+          <ReleaseModal
+            isOpen={isReleaseModalOpen}
+            onClose={() => setIsReleaseModalOpen(false)}
+            releaseInfo={releaseInfo}
+            onUpdateReleaseInfo={(info) => setReleaseInfo(info)}
+            theme={theme}
+          />
+        )}
+      </Suspense>
 
       {/* Toast Notifications */}
       {toasts.length > 0 && (
