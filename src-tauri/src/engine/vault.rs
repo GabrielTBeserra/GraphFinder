@@ -1086,6 +1086,25 @@ impl Engine {
         Ok(db.get_section(target, section)?)
     }
 
+    /// Surgically replaces the body of a `##`/`###` section, keeping the
+    /// heading line intact and re-indexing the note afterwards.
+    pub async fn update_section(
+        &self,
+        target: &str,
+        heading: &str,
+        content: &str,
+    ) -> Result<NoteRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let note = self
+            .get_note(target)
+            .await?
+            .ok_or_else(|| format!("Note '{}' not found", target))?;
+        let new_content = replace_section_body(&note.content, heading, content).ok_or_else(|| {
+            format!("Section '{}' not found in note '{}'", heading, note.title)
+        })?;
+        self.save_note(&note.title, &new_content, Some(&note.path))
+            .await
+    }
+
 
     pub async fn link_notes(
         &self,
@@ -1173,5 +1192,97 @@ impl Engine {
     ) -> Result<Vec<CodeFileRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let db = self.db.lock().await;
         Ok(db.list_code_files(limit)?)
+    }
+}
+
+/// Returns (level, title) if a line is a markdown heading `##` through `######`.
+fn heading_level(line: &str) -> Option<(usize, String)> {
+    let t = line.trim_end();
+    let level = t.chars().take_while(|c| *c == '#').count();
+    if (2..=6).contains(&level) && t.chars().nth(level) == Some(' ') {
+        Some((level, t[level..].trim().to_string()))
+    } else {
+        None
+    }
+}
+
+/// Replaces the body of a `##`/`###` section (including its nested
+/// subsections), preserving the heading line and everything else.
+fn replace_section_body(md: &str, heading: &str, body: &str) -> Option<String> {
+    let target = heading
+        .trim()
+        .trim_start_matches('#')
+        .trim()
+        .to_lowercase();
+    if target.is_empty() {
+        return None;
+    }
+
+    let lines: Vec<&str> = md.lines().collect();
+    let mut start: Option<(usize, usize)> = None;
+
+    // Pass 1: exact heading match (case-insensitive)
+    for (i, l) in lines.iter().enumerate() {
+        if let Some((lvl, text)) = heading_level(l) {
+            if text.to_lowercase() == target {
+                start = Some((i, lvl));
+                break;
+            }
+        }
+    }
+    // Pass 2: contains fallback
+    if start.is_none() {
+        for (i, l) in lines.iter().enumerate() {
+            if let Some((lvl, text)) = heading_level(l) {
+                if text.to_lowercase().contains(&target) {
+                    start = Some((i, lvl));
+                    break;
+                }
+            }
+        }
+    }
+
+    let (start_idx, level) = start?;
+    let mut end_idx = lines.len();
+    for (i, l) in lines.iter().enumerate().skip(start_idx + 1) {
+        if let Some((lvl, _)) = heading_level(l) {
+            if lvl <= level {
+                end_idx = i;
+                break;
+            }
+        }
+    }
+
+    let mut out: Vec<String> = lines[..=start_idx].iter().map(|s| s.to_string()).collect();
+    out.push(String::new());
+    out.push(body.trim().to_string());
+    if end_idx < lines.len() {
+        out.push(String::new());
+        out.extend(lines[end_idx..].iter().map(|s| s.to_string()));
+    }
+    out.push(String::new());
+    Some(out.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replaces_body_keeps_heading_and_following_sections() {
+        let md = "# T\n\nIntro.\n\n## Alpha\nold body\n\n### AlphaSub\nsub\n\n## Beta\nbeta body\n";
+        let out = replace_section_body(md, "Alpha", "new body").unwrap();
+        assert!(out.contains("## Alpha\n\nnew body"));
+        assert!(out.contains("## Beta\nbeta body"));
+        assert!(!out.contains("old body"));
+        assert!(!out.contains("AlphaSub"));
+    }
+
+    #[test]
+    fn contains_match_and_eof() {
+        let md = "# T\n\n## SQLite WAL Config\nA\n";
+        let out = replace_section_body(md, "wal", "B").unwrap();
+        assert!(out.ends_with("## SQLite WAL Config\n\nB\n"));
+        assert!(replace_section_body(md, "missing", "B").is_none());
     }
 }

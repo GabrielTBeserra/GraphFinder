@@ -78,6 +78,30 @@ pub struct SuggestLinksArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct UpdateSectionArgs {
+    /// Note title or ID
+    #[serde(alias = "note", alias = "title")]
+    pub target: String,
+    /// Section heading (## or ### text) to replace — matched case-insensitively
+    pub heading: String,
+    /// New body content for the section (the heading line itself is preserved)
+    pub content: String,
+    /// Target project/vault ID (optional)
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ValidateVaultArgs {
+    /// Validate a single note title/ID instead of the whole vault (optional)
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Target project/vault ID (optional)
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct StoreContextArgs {
     /// Main concept or note title
     pub title: String,
@@ -423,7 +447,19 @@ impl GraphFinderMcpServer {
                 }
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
-            None => Ok(CallToolResult::success(vec![ContentBlock::text(format!("Note '{}' not found.", args.target))])),
+            None => {
+                let hint = match self
+                    .did_you_mean(args.project.as_deref(), &args.target)
+                    .await
+                {
+                    Some(s) => format!(" Did you mean [[{}]]?", s),
+                    None => String::new(),
+                };
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+                    "Note '{}' not found.{}",
+                    args.target, hint
+                ))]))
+            }
         }
     }
 
@@ -623,10 +659,30 @@ impl GraphFinderMcpServer {
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
-            Ok(None) => Ok(CallToolResult::success(vec![ContentBlock::text(format!(
-                "Section '{}' not found in note '{}'. Use get_compressed_context to view available sections.",
-                args.section, args.target
-            ))])),
+            Ok(None) => {
+                let hint = engine
+                    .get_compressed_context(&args.target)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|c| {
+                        format!(
+                            " Available sections: {}",
+                            c.sections
+                                .iter()
+                                .map(|s| s.heading.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        " Use get_compressed_context to view available sections.".to_string()
+                    });
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+                    "Section '{}' not found in note '{}'.{}",
+                    args.section, args.target, hint
+                ))]))
+            }
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error reading section: {}", e))])),
         }
     }
@@ -895,7 +951,19 @@ impl GraphFinderMcpServer {
                 }
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
-            Ok(None) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Node `{}` not found in graph.", args.target))])),
+            Ok(None) => {
+                let hint = match self
+                    .did_you_mean(args.project.as_deref(), &args.target)
+                    .await
+                {
+                    Some(s) => format!(" Did you mean `{}`?", s),
+                    None => String::new(),
+                };
+                Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "Node `{}` not found in graph.{}",
+                    args.target, hint
+                ))]))
+            }
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error explaining node: {}", e))])),
         }
     }
@@ -955,6 +1023,257 @@ impl GraphFinderMcpServer {
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error exporting graph: {}", e))])),
         }
     }
+    /// Surgically replaces the body of a `##`/`###` section, keeping the heading and re-indexing the note.
+    #[tool(description = "Surgically replaces the body of a ## or ### section in a note (heading line preserved), re-indexing vectors. Prefer over store_context for edits to existing notes.", annotations(idempotent_hint = true, open_world_hint = false))]
+    async fn update_section(&self, Parameters(args): Parameters<UpdateSectionArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        match engine
+            .update_section(&args.target, &args.heading, &args.content)
+            .await
+        {
+            Ok(note) => {
+                if let Some(app) = &self.app_handle {
+                    let _ = app.emit("vault-sync-complete", 1);
+                    let _ = app.emit("mcp-node-updated", &note.id);
+                }
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+                    "Section '{}' updated in [[{}]]. File: {}",
+                    args.heading, note.title, note.path
+                ))]))
+            }
+            Err(e) => {
+                let hint = if e.to_string().contains("not found") {
+                    match self
+                        .did_you_mean(args.project.as_deref(), &args.target)
+                        .await
+                    {
+                        Some(s) => format!(" Did you mean [[{}]]?", s),
+                        None => String::new(),
+                    }
+                } else {
+                    String::new()
+                };
+                Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "Failed to update section: {}.{}",
+                    e, hint
+                ))]))
+            }
+        }
+    }
+
+    /// Audits vault notes against the AGENTS.md schema (summary, 40-150 token sections, wikilinks, tags, orphans).
+    #[tool(description = "Audits vault notes against the GraphFinder schema: missing H1/executive summary, sections outside the 40-150 token band, broken wikilinks, orphan notes, and missing tags. Accepts optional 'target' for a single note.", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn validate_vault(&self, Parameters(args): Parameters<ValidateVaultArgs>) -> Result<CallToolResult, McpError> {
+        let engine = self.manager.get_engine(args.project.as_deref()).await;
+        let summaries = match engine.list_notes().await {
+            Ok(n) => n,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "Failed to list notes: {}",
+                    e
+                ))]))
+            }
+        };
+        let graph = engine.get_graph().await.ok();
+
+        // Known link targets: note titles and ids (with and without .md)
+        let mut known: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for n in &summaries {
+            known.insert(n.title.to_lowercase());
+            known.insert(n.title.trim_end_matches(".md").to_lowercase());
+            known.insert(n.id.to_lowercase());
+            known.insert(n.id.trim_end_matches(".md").to_lowercase());
+        }
+
+        // Degree map for orphan detection
+        let mut degrees: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        if let Some(g) = &graph {
+            for n in &g.nodes {
+                degrees.insert(n.id.to_lowercase(), n.degree);
+                degrees.insert(n.title.to_lowercase(), n.degree);
+            }
+        }
+
+        let mut errors: Vec<String> = Vec::new();
+        let mut warnings: Vec<String> = Vec::new();
+        let mut checked = 0usize;
+
+        for s in &summaries {
+            if let Some(ref t) = args.target {
+                if !s.id.eq_ignore_ascii_case(t)
+                    && !s.title.eq_ignore_ascii_case(t)
+                    && !s.id.trim_end_matches(".md").eq_ignore_ascii_case(t)
+                    && !s.title.trim_end_matches(".md").eq_ignore_ascii_case(t)
+                {
+                    continue;
+                }
+            }
+            checked += 1;
+            let note = match engine.get_note(&s.id).await {
+                Ok(Some(n)) => n,
+                _ => continue,
+            };
+            let label = note.title.trim_end_matches(".md");
+
+            // --- H1 + executive summary ---
+            let lines: Vec<&str> = note.content.lines().collect();
+            let h1_idx = lines.iter().position(|l| l.starts_with("# "));
+            if h1_idx.is_none() {
+                errors.push(format!("[[{}]]: missing H1 title", label));
+            }
+            let first_h2 = lines.iter().position(|l| l.starts_with("## "));
+            let summary_start = h1_idx.map(|i| i + 1).unwrap_or(0);
+            let summary_end = first_h2.unwrap_or(lines.len());
+            let summary_text: String = lines[summary_start..summary_end.min(lines.len())]
+                .join(" ")
+                .trim()
+                .to_string();
+            if summary_text.is_empty() {
+                errors.push(format!("[[{}]]: missing executive summary after H1", label));
+            } else if summary_text.len() / 4 > 120 {
+                warnings.push(format!(
+                    "[[{}]]: executive summary too long (~{} tokens, keep 2-3 lines)",
+                    label,
+                    summary_text.len() / 4
+                ));
+            }
+
+            // --- Section token bands (40-150 tokens) ---
+            let mut sec_start: Option<(usize, String)> = None;
+            for (i, l) in lines.iter().enumerate() {
+                if l.starts_with("## ") || l.starts_with("### ") {
+                    if let Some((si, heading)) = sec_start.take() {
+                        let body: String = lines[si + 1..i].join(" ");
+                        let tokens = body.trim().len() / 4;
+                        if tokens < 40 {
+                            warnings.push(format!(
+                                "[[{}]]: section \"{}\" too small (~{} tokens, min 40)",
+                                label, heading, tokens
+                            ));
+                        } else if tokens > 150 {
+                            warnings.push(format!(
+                                "[[{}]]: section \"{}\" too large (~{} tokens, max 150)",
+                                label, heading, tokens
+                            ));
+                        }
+                    }
+                    let heading = l.trim_start_matches('#').trim().to_string();
+                    sec_start = Some((i, heading));
+                }
+            }
+            if let Some((si, heading)) = sec_start {
+                let body: String = lines[si + 1..].join(" ");
+                let tokens = body.trim().len() / 4;
+                if tokens < 40 {
+                    warnings.push(format!(
+                        "[[{}]]: section \"{}\" too small (~{} tokens, min 40)",
+                        label, heading, tokens
+                    ));
+                } else if tokens > 150 {
+                    warnings.push(format!(
+                        "[[{}]]: section \"{}\" too large (~{} tokens, max 150)",
+                        label, heading, tokens
+                    ));
+                }
+            }
+
+            // --- Broken wikilinks ---
+            let mut rest = note.content.as_str();
+            while let Some(open) = rest.find("[[") {
+                if let Some(close) = rest[open..].find("]]") {
+                    let link = &rest[open + 2..open + close];
+                    let target = link
+                        .split('#')
+                        .next()
+                        .unwrap_or("")
+                        .split('|')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_lowercase();
+                    if !target.is_empty() && !known.contains(&target) {
+                        errors.push(format!(
+                            "[[{}]]: broken wikilink [[{}]]",
+                            label,
+                            link.split('|').next().unwrap_or(link)
+                        ));
+                    }
+                    rest = &rest[open + close + 2..];
+                } else {
+                    break;
+                }
+            }
+
+            // --- Tags ---
+            if note.tags.is_empty() {
+                warnings.push(format!("[[{}]]: no tags", label));
+            }
+
+            // --- Orphan check ---
+            let deg = degrees
+                .get(&note.id.to_lowercase())
+                .or_else(|| degrees.get(&note.title.to_lowercase()))
+                .copied()
+                .unwrap_or(0);
+            if deg == 0 {
+                warnings.push(format!(
+                    "[[{}]]: orphan note (0 graph connections — add wikilinks)",
+                    label
+                ));
+            }
+        }
+
+        if checked == 0 {
+            let hint = match args.target.as_deref() {
+                Some(t) => match self.did_you_mean(args.project.as_deref(), t).await {
+                    Some(s) => format!(" Did you mean [[{}]]?", s),
+                    None => String::new(),
+                },
+                None => String::new(),
+            };
+            return Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+                "No notes matched target.{hint}"
+            ))]));
+        }
+
+        let mut out = format!(
+            "Vault Validation — {} note(s) checked\n\nErrors ({}):\n",
+            checked,
+            errors.len()
+        );
+        if errors.is_empty() {
+            out.push_str("- none\n");
+        } else {
+            for e in &errors {
+                out.push_str(&format!("- {}\n", e));
+            }
+        }
+        out.push_str(&format!("\nWarnings ({}):\n", warnings.len()));
+        if warnings.is_empty() {
+            out.push_str("- none\n");
+        } else {
+            for w in &warnings {
+                out.push_str(&format!("- {}\n", w));
+            }
+        }
+        let ok_count = checked
+            .saturating_sub(
+                errors
+                    .iter()
+                    .map(|e| e.split("]]:").next().unwrap_or(""))
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+                    .max(1),
+            )
+            .max(0);
+        out.push_str(&format!(
+            "\nResult: {} error(s), {} warning(s). {} note(s) fully compliant.",
+            errors.len(),
+            warnings.len(),
+            ok_count
+        ));
+        Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
+    }
 }
 
 const AGENT_RULES_RESOURCE: &str = r#"# GraphFinder Agent Rules (AGENTS.md)
@@ -1001,6 +1320,11 @@ impl GraphFinderMcpServer {
                         .with_required(true),
                 ]),
             ),
+            Prompt::new(
+                "audit_vault",
+                Some("Audit vault notes against the AGENTS.md schema and fix violations."),
+                None,
+            ),
         ]
     }
 
@@ -1011,9 +1335,26 @@ impl GraphFinderMcpServer {
             "answer_question" => format!("Answer this question using the GraphFinder vault with maximum token economy:\n\n\"{}\"\n\nPipeline:\n1. Run `search_semantic(query)` for the top atomic chunks.\n2. If structure is needed, run `get_compressed_context(note_id)` or `read_section(note, heading)`.\n3. Respond concisely, citing every fact as `[[Note#Section]]`.", get("question")),
             "investigate_code" => format!("Investigate \"{}\" in the indexed codebase:\n1. `search_code(query)` for candidate symbols/files (hybrid BM25 + neural).\n2. `get_file_context(file)` for structural overview (imports, dependents, symbols).\n3. `read_code_chunk(file, symbol)` for the surgical implementation.\n4. `get_code_dependencies(file)` to assess blast radius before changes.\nCite locations as `[[file#symbol]]` or file:line ranges.", get("feature")),
             "write_note" => format!("Write a vault note about \"{}\" following the GraphFinder schema:\n- Single `# Title` + 2-3 line executive summary.\n- `##`/`###` sections of 40-150 tokens with descriptive titles.\n- 1-3 explicit `[[wikilinks]]` to notes consulted (run `suggest_links` on the draft first).\n- Lowercase `#tags` at the end.\nSave via `store_context`; for edits to existing sections use `update_section`.", get("topic")),
+            "audit_vault" => "Audit vault compliance against the GraphFinder note schema:\n1. Run `validate_vault()` for the full report (missing summaries, oversized/undersized sections, broken wikilinks, orphans, missing tags).\n2. Fix each violation with `update_section` (surgical) or `store_context`, adding `[[wikilinks]]` to orphan notes via `suggest_links` + `link_notes`.\n3. Re-run `validate_vault()` to confirm a clean report.".to_string(),
             _ => return None,
         };
         Some(text)
+    }
+
+    /// Fuzzy "did you mean" suggestion for failed note lookups.
+    async fn did_you_mean(&self, project: Option<&str>, target: &str) -> Option<String> {
+        let engine = self.manager.get_engine(project).await;
+        let notes = engine.list_notes().await.ok()?;
+        let mut best: Option<(f64, String)> = None;
+        for n in notes {
+            for cand in [n.title.as_str(), n.id.as_str()] {
+                let s = similarity_score(target, cand);
+                if s > 0.45 && best.as_ref().map_or(true, |(bs, _)| s > *bs) {
+                    best = Some((s, n.title.clone()));
+                }
+            }
+        }
+        best.map(|(_, t)| t)
     }
 
     fn uri_encode(s: &str) -> String {
@@ -1317,3 +1658,28 @@ GraphFinder is a neural knowledge graph and universal codebase intelligence engi
     names
 }
 
+
+/// Normalized similarity (bigram Jaccard + prefix bonus) for fuzzy "did you mean" suggestions.
+fn similarity_score(a: &str, b: &str) -> f64 {
+    let norm = |s: &str| s.trim().trim_end_matches(".md").to_lowercase();
+    let (a, b) = (norm(a), norm(b));
+    if a == b {
+        return 1.0;
+    }
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let bigrams = |s: &str| -> std::collections::HashSet<(char, char)> {
+        s.chars().zip(s.chars().skip(1)).collect()
+    };
+    let (sa, sb) = (bigrams(&a), bigrams(&b));
+    let inter = sa.intersection(&sb).count() as f64;
+    let union = (sa.len() + sb.len()) as f64 - inter;
+    let jaccard = if union > 0.0 { inter / union } else { 0.0 };
+    let prefix = if b.starts_with(&a) || a.starts_with(&b) {
+        0.25
+    } else {
+        0.0
+    };
+    (jaccard + prefix).min(1.0)
+}
