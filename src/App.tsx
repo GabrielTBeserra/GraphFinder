@@ -942,7 +942,7 @@ export const App: React.FC = () => {
           isSearching={isSearching}
           isCollapsed={!isSidebarOpen}
           theme={theme}
-          appVersion={releaseInfo?.currentVersion || '0.14.0'}
+          appVersion={releaseInfo?.currentVersion || '0.15.0'}
           hasUpdate={releaseInfo?.hasUpdate}
           onOpenReleases={() => setIsReleaseModalOpen(true)}
         />
