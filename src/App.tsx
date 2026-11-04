@@ -101,7 +101,13 @@ export const App: React.FC = () => {
   const [isOmnisearchOpen, setIsOmnisearchOpen] = useState(false);
   const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('gf_sidebar') !== '0';
+    } catch {
+      return true;
+    }
+  });
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null);
   const loadGenRef = useRef<number>(0);
@@ -135,6 +141,14 @@ export const App: React.FC = () => {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gf_sidebar', isSidebarOpen ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, [isSidebarOpen]);
 
   useEffect(() => {
     if (theme === 'light') {
@@ -199,6 +213,11 @@ export const App: React.FC = () => {
       if (note) {
         setActiveNote(note);
         setSelectedNoteId(note.id);
+        try {
+          localStorage.setItem('gf_last_note', note.id);
+        } catch {
+          // ignore
+        }
         return;
       }
       // If not found directly by id, search in notes list
@@ -320,10 +339,17 @@ export const App: React.FC = () => {
             if (!isCancelled) {
               setNotes(nData);
               if (nData.length > 0) {
-                setSelectedNoteId(nData[0].id);
+                let initialId = nData[0].id;
+                try {
+                  const last = localStorage.getItem('gf_last_note');
+                  if (last && nData.some((n) => n.id === last)) initialId = last;
+                } catch {
+                  // ignore
+                }
+                setSelectedNoteId(initialId);
                 setIsEditorOpen(false);
                 try {
-                  const firstNote = await fetchNote(nData[0].id);
+                  const firstNote = await fetchNote(initialId);
                   if (!isCancelled && firstNote) {
                     setActiveNote(firstNote);
                   }
