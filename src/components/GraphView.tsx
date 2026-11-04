@@ -196,6 +196,28 @@ export const GraphView: React.FC<GraphViewProps> = ({
     return d / 0.01 || 1;
   }, []);
 
+  // ---- halo sprites (pre-rendered radial gradients → cheap drawImage) ---------
+  const haloSpritesRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const haloSprite = useCallback((color: string, isLight: boolean): HTMLCanvasElement => {
+    const key = `${color}|${isLight ? 'l' : 'd'}`;
+    let c = haloSpritesRef.current.get(key);
+    if (!c) {
+      const s = 128;
+      c = document.createElement('canvas');
+      c.width = s;
+      c.height = s;
+      const g = c.getContext('2d')!;
+      const grad = g.createRadialGradient(s / 2, s / 2, s * 0.16, s / 2, s / 2, s / 2);
+      grad.addColorStop(0, `${color}${isLight ? '55' : '59'}`);
+      grad.addColorStop(0.45, `${color}${isLight ? '22' : '2b'}`);
+      grad.addColorStop(1, 'transparent');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, s, s);
+      haloSpritesRef.current.set(key, c);
+    }
+    return c;
+  }, []);
+
   const paintUnderlay = useCallback(() => {
     const canvas = underlayRef.current;
     const sigma = sigmaRef.current;
@@ -217,20 +239,40 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
     const isLight = themeRef.current === 'light';
     const connected = connectedNodeIdsRef.current;
+    const scale = pxPerUnit();
     const groups = new Map<number, { pts: Point2D[]; sumX: number; minY: number; anyConnected: boolean }>();
 
     graph.forEachNode((id, attrs) => {
-      if (typeof attrs.community !== 'number') return;
       const pos = nodeViewPos(id);
       if (!pos) return;
+      const { x, y } = pos;
+      const r = Math.max(3, pos.size * scale * 0.5);
+      const isDimmed = connected.size > 0 && !connected.has(id);
+      const accent = getNodeColor(attrs, isLight, colorModeRef.current);
+
+      // Celestial halo for note nodes with degree >= 2 (GPU-cached sprite)
+      if (attrs.node_type !== 'code' && (attrs.degree || 0) >= 2 && !isDimmed) {
+        const hr = r * 2.8;
+        ctx.drawImage(haloSprite(accent, isLight), x - hr, y - hr, hr * 2, hr * 2);
+      }
+
+      // Golden halo for god nodes / hubs
+      const isGod =
+        highlightGodNodesRef.current && (attrs.is_god_node || (attrs.degree || 0) >= 12);
+      if (isGod && !isDimmed) {
+        const hr = r * 3.4;
+        ctx.drawImage(haloSprite('#f59e0b', isLight), x - hr, y - hr, hr * 2, hr * 2);
+      }
+
+      if (typeof attrs.community !== 'number') return;
       let g = groups.get(attrs.community);
       if (!g) {
         g = { pts: [], sumX: 0, minY: Infinity, anyConnected: false };
         groups.set(attrs.community, g);
       }
-      g.pts.push({ x: pos.x, y: pos.y });
-      g.sumX += pos.x;
-      if (pos.y < g.minY) g.minY = pos.y;
+      g.pts.push({ x, y });
+      g.sumX += x;
+      if (y < g.minY) g.minY = y;
       if (connected.size > 0 && connected.has(id)) g.anyConnected = true;
     });
 
@@ -252,18 +294,18 @@ export const GraphView: React.FC<GraphViewProps> = ({
       const color = communityColor(commId, isLight);
       ctx.save();
       drawSmoothHull(ctx, hull);
-      ctx.fillStyle = `${color}14`;
+      ctx.fillStyle = `${color}20`;
       ctx.fill();
-      ctx.lineWidth = 1;
-      ctx.setLineDash([5, 4]);
-      ctx.strokeStyle = `${color}50`;
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = `${color}70`;
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.font = `600 9.5px 'JetBrains Mono', monospace`;
+      ctx.font = `600 10px 'JetBrains Mono', monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillStyle = `${color}b0`;
-      ctx.fillText(`#${commId} · ${g.pts.length}`, g.sumX / g.pts.length, g.minY - pad - 4);
+      ctx.fillStyle = color;
+      ctx.fillText(`Cluster #${commId} (${g.pts.length})`, g.sumX / g.pts.length, g.minY - pad - 5);
       ctx.restore();
     });
   }, [nodeViewPos]);
@@ -327,14 +369,14 @@ export const GraphView: React.FC<GraphViewProps> = ({
           attrs.title?.toLowerCase() === glowing.id.toLowerCase() ||
           id.replace(/\.md$/i, '').toLowerCase() === glowing.id.replace(/\.md$/, '').toLowerCase());
 
-      // God node dashed ring
+      // God node dashed ring (vibrant amber)
       const isGod = highlightGodNodesRef.current && (attrs.is_god_node || (attrs.degree || 0) >= 12);
       if (isGod && !isDimmed) {
         ctx.save();
         ctx.beginPath();
-        ctx.arc(x, y, r + 7, 0, 2 * Math.PI);
-        ctx.strokeStyle = 'rgba(217, 160, 95, 0.55)';
-        ctx.lineWidth = 1;
+        ctx.arc(x, y, Math.max(r + 8, (attrs.degree || 0) * 0.9 + 10), 0, 2 * Math.PI);
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.65)';
+        ctx.lineWidth = 1.6;
         ctx.setLineDash([3, 3]);
         ctx.stroke();
         ctx.restore();
@@ -346,36 +388,63 @@ export const GraphView: React.FC<GraphViewProps> = ({
         ctx.save();
         ctx.beginPath();
         ctx.arc(x, y, r + 6, 0, 2 * Math.PI);
-        ctx.strokeStyle = isPathStart ? '#5fa8d9' : '#4fb8c8';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = isPathStart ? '#38bdf8' : '#06b6d4';
+        ctx.lineWidth = 2.4;
         if (isPathStart) ctx.setLineDash([4, 2]);
         ctx.stroke();
         ctx.restore();
       }
 
-      // Code node outer ring
+      // Code node: dark fill + accent ring + inner core dot
       if (isCode && !isDimmed) {
         ctx.save();
         ctx.beginPath();
-        ctx.arc(x, y, r + 3, 0, 2 * Math.PI);
+        ctx.arc(x, y, r, 0, 2 * Math.PI);
+        ctx.fillStyle = isLight ? '#ffffff' : 'rgba(15, 23, 42, 0.9)';
+        ctx.fill();
+        ctx.lineWidth = isConnected ? 2 : 1.3;
         ctx.strokeStyle = accent;
-        ctx.lineWidth = isConnected ? 1.6 : 1;
         ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(2, r * 0.45), 0, 2 * Math.PI);
+        ctx.fillStyle = accent;
+        ctx.fill();
         ctx.restore();
       }
 
-      // Selection / hover ring
+      // Note node: specular dot + rim (depth on the flat WebGL circle)
+      if (!isCode && !isDimmed && !matchesSel && !isHovered) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, 2 * Math.PI);
+        ctx.lineWidth = isConnected ? 2 : 1;
+        ctx.strokeStyle = isLight ? '#ffffff' : 'rgba(255, 255, 255, 0.35)';
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(1.5, r * 0.32), 0, 2 * Math.PI);
+        ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.85)';
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Selection / hover: aura + dark core + accent ring + center dot
       if (matchesSel || isHovered) {
         ctx.save();
         ctx.beginPath();
         ctx.arc(x, y, r + 8, 0, 2 * Math.PI);
-        ctx.fillStyle = `${accent}22`;
+        ctx.fillStyle = isLight ? `${accent}22` : `${accent}33`;
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(x, y, r + 4, 0, 2 * Math.PI);
+        ctx.arc(x, y, r + 3, 0, 2 * Math.PI);
+        ctx.fillStyle = isLight ? '#ffffff' : isCode ? 'rgba(15, 23, 42, 0.9)' : '#1e1b4b';
+        ctx.fill();
+        ctx.lineWidth = 2.5;
         ctx.strokeStyle = accent;
-        ctx.lineWidth = 2;
         ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(2.5, r * 0.35), 0, 2 * Math.PI);
+        ctx.fillStyle = accent;
+        ctx.fill();
         ctx.restore();
       }
 
@@ -387,17 +456,17 @@ export const GraphView: React.FC<GraphViewProps> = ({
         ctx.save();
         ctx.beginPath();
         ctx.arc(x, y, 12 + progress * 40, 0, 2 * Math.PI);
-        ctx.strokeStyle = `rgba(79, 176, 140, ${alpha * 0.9})`;
+        ctx.strokeStyle = `rgba(16, 185, 129, ${alpha * 0.9})`;
         ctx.lineWidth = Math.max(1, 3.5 * (1 - progress));
         ctx.stroke();
         ctx.beginPath();
         ctx.arc(x, y, 16, 0, 2 * Math.PI);
-        ctx.fillStyle = `rgba(79, 176, 140, ${alpha * 0.3})`;
+        ctx.fillStyle = `rgba(16, 185, 129, ${alpha * 0.3})`;
         ctx.fill();
         ctx.font = `600 9px 'JetBrains Mono', monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
-        ctx.fillStyle = `rgba(79, 176, 140, ${alpha})`;
+        ctx.fillStyle = `rgba(16, 185, 129, ${alpha})`;
         ctx.fillText('MCP LIVE', x, y - 18);
         ctx.restore();
       }
@@ -425,30 +494,36 @@ export const GraphView: React.FC<GraphViewProps> = ({
         }
         ctx.fillStyle = isDimmed
           ? isLight
-            ? 'rgba(241, 240, 235, 0.7)'
-            : 'rgba(22, 25, 34, 0.4)'
+            ? 'rgba(241, 245, 249, 0.7)'
+            : 'rgba(24, 27, 36, 0.4)'
           : isLight
-          ? 'rgba(255, 255, 255, 0.92)'
-          : 'rgba(16, 18, 22, 0.88)';
+          ? 'rgba(255, 255, 255, 0.95)'
+          : 'rgba(15, 20, 32, 0.92)';
         ctx.fill();
         ctx.lineWidth = 1;
         ctx.strokeStyle = isGlowing
-          ? '#4fb08c'
+          ? '#10b981'
           : matchesSel
           ? accent
           : isDimmed
           ? 'rgba(120, 125, 140, 0.25)'
-          : `${accent}55`;
+          : isLight
+          ? `${accent}55`
+          : `${accent}44`;
         ctx.stroke();
         ctx.fillStyle = isGlowing
-          ? '#4fb08c'
+          ? '#10b981'
           : isDimmed
           ? isLight
-            ? '#a8a49c'
-            : 'rgba(120, 125, 140, 0.45)'
+            ? '#94a3b8'
+            : 'rgba(100, 116, 139, 0.4)'
+          : matchesSel
+          ? isLight
+            ? '#0f172a'
+            : '#ffffff'
           : isLight
-          ? '#2f3437'
-          : '#edeef0';
+          ? '#1e293b'
+          : '#f1f5f9';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, x, ty);
@@ -508,7 +583,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
             );
           });
           if (onPath) {
-            data.color = isLight ? '#1f6c9f' : '#5fa8d9';
+            data.color = '#38bdf8';
             data.size = 2.5;
             return data;
           }
@@ -516,10 +591,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         if (connected.size > 0) {
           if (connected.has(s) && connected.has(t)) {
-            data.color = isLight ? 'rgba(79, 91, 192, 0.65)' : 'rgba(109, 122, 224, 0.6)';
-            data.size = 1.4;
+            data.color = 'rgba(99, 102, 241, 0.7)';
+            data.size = 1.6;
           } else {
-            data.color = isLight ? 'rgba(168, 164, 156, 0.18)' : 'rgba(86, 94, 107, 0.1)';
+            data.color = isLight ? 'rgba(148, 163, 184, 0.18)' : 'rgba(71, 85, 105, 0.12)';
             data.size = 0.8;
           }
           return data;
@@ -528,11 +603,11 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const isImports = attrs.label === 'imports';
         data.color = isImports
           ? isLight
-            ? 'rgba(31, 108, 159, 0.3)'
-            : 'rgba(95, 168, 217, 0.22)'
+            ? 'rgba(2, 132, 199, 0.35)'
+            : 'rgba(56, 189, 248, 0.28)'
           : isLight
-          ? 'rgba(79, 91, 192, 0.25)'
-          : 'rgba(109, 122, 224, 0.18)';
+          ? 'rgba(79, 70, 229, 0.28)'
+          : 'rgba(99, 102, 241, 0.22)';
         data.size = 0.9;
         return data;
       },

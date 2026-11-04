@@ -1,41 +1,44 @@
-// Muted palette aligned with the design tokens (desaturated accents)
-export const COMMUNITY_DARK = [
-  '#6d7ae0', '#4fb08c', '#5fa8d9', '#d9a05f', '#e07c9b',
-  '#9b8ae0', '#4fb8c8', '#e08b5f', '#66b8a0', '#d96f8a',
-  '#a3b86a', '#b08be0', '#6a9fd8', '#d8bd6a',
+// Vibrant palette restored from the pre-sigma renderer (same values).
+export const COMMUNITY_PALETTE = [
+  '#6366f1', '#10b981', '#38bdf8', '#f59e0b', '#ec4899',
+  '#8b5cf6', '#06b6d4', '#f97316', '#14b8a6', '#e11d48',
+  '#84cc16', '#a855f7', '#0ea5e9', '#eab308',
 ];
 
-export const COMMUNITY_LIGHT = [
-  '#4f5bc0', '#346538', '#1f6c9f', '#956400', '#b03a5f',
-  '#6d54b8', '#0f7f86', '#b25a2e', '#2e7f6b', '#b03a5f',
-  '#6f8a2e', '#7d54c0', '#2e6db0', '#9a7d1e',
-];
-
-export function communityColor(id: number, isLight: boolean): string {
-  const p = isLight ? COMMUNITY_LIGHT : COMMUNITY_DARK;
-  return p[Math.abs(id) % p.length];
+export function communityColor(id: number, _isLight: boolean): string {
+  return COMMUNITY_PALETTE[Math.abs(id) % COMMUNITY_PALETTE.length];
 }
 
 export const LANG_COLORS: Record<string, string> = {
-  typescript: '#5fa8d9',
-  javascript: '#d8bd6a',
-  rust: '#e08b5f',
-  python: '#4fb08c',
-  go: '#4fb8c8',
-  c: '#6a9fd8',
-  cpp: '#4f5bc0',
-  csharp: '#9b8ae0',
-  java: '#d96f5f',
-  kotlin: '#8a7ae0',
-  php: '#6d7ae0',
-  ruby: '#d96f8a',
-  swift: '#e07c7c',
-  css: '#e07c9b',
-  shell: '#66b8a0',
+  typescript: '#38bdf8',
+  javascript: '#facc15',
+  rust: '#f97316',
+  python: '#10b981',
+  go: '#06b6d4',
+  c: '#3b82f6',
+  cpp: '#2563eb',
+  csharp: '#a855f7',
+  java: '#ea580c',
+  kotlin: '#8b5cf6',
+  php: '#6366f1',
+  ruby: '#e11d48',
+  swift: '#f43f5e',
+  css: '#ec4899',
+  shell: '#14b8a6',
 };
 
-const ACCENTS_DARK = COMMUNITY_DARK.slice(0, 10);
-const ACCENTS_LIGHT = COMMUNITY_LIGHT.slice(0, 10);
+const VIBRANT_ACCENTS: { dark: string; light: string }[] = [
+  { dark: '#6366f1', light: '#4f46e5' }, // Indigo
+  { dark: '#10b981', light: '#059669' }, // Emerald
+  { dark: '#38bdf8', light: '#0284c7' }, // Sky
+  { dark: '#f59e0b', light: '#d97706' }, // Amber
+  { dark: '#8b5cf6', light: '#7c3aed' }, // Violet
+  { dark: '#ec4899', light: '#db2777' }, // Pink
+  { dark: '#06b6d4', light: '#0891b2' }, // Cyan
+  { dark: '#f97316', light: '#ea580c' }, // Orange
+  { dark: '#14b8a6', light: '#0d9488' }, // Teal
+  { dark: '#e11d48', light: '#be123c' }, // Rose
+];
 
 export function hashStringToColor(str: string, isLight: boolean): string {
   let hash = 0;
@@ -43,30 +46,30 @@ export function hashStringToColor(str: string, isLight: boolean): string {
     hash = (hash << 5) - hash + str.charCodeAt(i);
     hash |= 0;
   }
-  const index = Math.abs(hash) % ACCENTS_DARK.length;
-  return isLight ? ACCENTS_LIGHT[index] : ACCENTS_DARK[index];
+  const index = Math.abs(hash) % VIBRANT_ACCENTS.length;
+  return isLight ? VIBRANT_ACCENTS[index].light : VIBRANT_ACCENTS[index].dark;
 }
 
 const TAG_PALETTES: Record<string, { dark: string; light: string }> = {
-  architecture: { dark: '#6d7ae0', light: '#4f5bc0' },
-  system: { dark: '#6d7ae0', light: '#4f5bc0' },
-  design: { dark: '#6d7ae0', light: '#4f5bc0' },
-  rust: { dark: '#e08b5f', light: '#b25a2e' },
-  embeddings: { dark: '#4fb08c', light: '#346538' },
-  rag: { dark: '#4fb8c8', light: '#0f7f86' },
-  ai: { dark: '#4fb08c', light: '#346538' },
-  mcp: { dark: '#9b8ae0', light: '#6d54b8' },
-  neural: { dark: '#4fb8c8', light: '#0f7f86' },
-  guide: { dark: '#d9a05f', light: '#956400' },
-  tutorial: { dark: '#d9a05f', light: '#956400' },
-  welcome: { dark: '#e07c9b', light: '#b03a5f' },
-  onboarding: { dark: '#e07c9b', light: '#b03a5f' },
-  sqlite: { dark: '#9b8ae0', light: '#6d54b8' },
-  database: { dark: '#9b8ae0', light: '#6d54b8' },
-  storage: { dark: '#b08be0', light: '#7d54c0' },
-  security: { dark: '#e07c7c', light: '#9f2f2d' },
-  auth: { dark: '#e07c9b', light: '#b03a5f' },
-  docs: { dark: '#5fa8d9', light: '#1f6c9f' },
+  architecture: { dark: '#6366f1', light: '#4f46e5' },
+  system: { dark: '#6366f1', light: '#4f46e5' },
+  design: { dark: '#6366f1', light: '#4f46e5' },
+  rust: { dark: '#f97316', light: '#ea580c' },
+  embeddings: { dark: '#10b981', light: '#059669' },
+  rag: { dark: '#06b6d4', light: '#0891b2' },
+  ai: { dark: '#10b981', light: '#059669' },
+  mcp: { dark: '#8b5cf6', light: '#7c3aed' },
+  neural: { dark: '#06b8d4', light: '#0891b2' },
+  guide: { dark: '#f59e0b', light: '#d97706' },
+  tutorial: { dark: '#f59e0b', light: '#d97706' },
+  welcome: { dark: '#e11d48', light: '#be123c' },
+  onboarding: { dark: '#ec4899', light: '#db2777' },
+  sqlite: { dark: '#8b5cf6', light: '#7c3aed' },
+  database: { dark: '#8b5cf6', light: '#7c3aed' },
+  storage: { dark: '#a855f7', light: '#9333ea' },
+  security: { dark: '#ef4444', light: '#dc2626' },
+  auth: { dark: '#f43f5e', light: '#e11d48' },
+  docs: { dark: '#38bdf8', light: '#0284c7' },
 };
 
 export function getNodeColor(
@@ -75,14 +78,14 @@ export function getNodeColor(
   colorMode: 'communities' | 'default',
 ): string {
   if (colorMode === 'communities' && typeof node.community === 'number') {
-    return communityColor(node.community, isLight);
+    return COMMUNITY_PALETTE[Math.abs(node.community) % COMMUNITY_PALETTE.length];
   }
   if (node.node_type === 'code') {
     const lang = (node.tags && node.tags[0]) || '';
-    return LANG_COLORS[lang.toLowerCase()] || (isLight ? '#1f6c9f' : '#5fa8d9');
+    return LANG_COLORS[lang.toLowerCase()] || (isLight ? '#0284c7' : '#38bdf8');
   }
   if (node.node_type === 'unresolved') {
-    return isLight ? '#a8a49c' : '#565e6b';
+    return isLight ? '#94a3b8' : '#64748b';
   }
   if (node.tags && Array.isArray(node.tags)) {
     for (const t of node.tags) {
