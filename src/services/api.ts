@@ -487,7 +487,7 @@ export async function getCodeDependencies(file: string): Promise<CodeDependencie
   return { file_id: file, imports: [], imported_by: [], external: [] };
 }
 
-export async function listCodeFiles(limit: number = 200): Promise<CodeFileRecord[]> {
+export async function listCodeFiles(limit: number = 5000): Promise<CodeFileRecord[]> {
   if (isTauri) {
     try {
       return await invoke<CodeFileRecord[]>('list_code_files', { limit });
