@@ -1010,7 +1010,11 @@ export const App: React.FC = () => {
       />
       <Suspense fallback={null}>
         {isMcpModalOpen && (
-          <McpModal isOpen={isMcpModalOpen} onClose={() => setIsMcpModalOpen(false)} />
+          <McpModal
+            isOpen={isMcpModalOpen}
+            onClose={() => setIsMcpModalOpen(false)}
+            theme={theme}
+          />
         )}
         {isNewProjectModalOpen && (
           <NewProjectModal

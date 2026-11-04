@@ -16,7 +16,7 @@ import {
   Sparkle,
 } from '@phosphor-icons/react';
 import type { ChunkHit, CodeChunkHit, CodeFileRecord, NoteSummary } from '../types';
-import { getLanguageStyle } from './CodeInspector';
+import { getLanguageStyle } from './languageStyle';
 
 interface SidebarProps {
   projectId?: string;

@@ -549,3 +549,46 @@ export async function exportArtifacts(outDir?: string): Promise<ExportSummary | 
 
 
 
+
+const MCP_HTTP = 'http://127.0.0.1:45123';
+
+export interface McpToolInfo {
+  name: string;
+  description?: string;
+  annotations: {
+    readOnly: boolean;
+    destructive: boolean;
+    idempotent: boolean;
+    openWorld: boolean;
+  };
+}
+
+export interface McpCallEntry {
+  ts_ms: number;
+  method: string;
+  tool: string | null;
+  status: number;
+  duration_ms: number;
+}
+
+export async function fetchMcpTools(): Promise<McpToolInfo[]> {
+  try {
+    const res = await fetch(`${MCP_HTTP}/api/tools`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.tools as McpToolInfo[]) || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchMcpActivity(): Promise<McpCallEntry[]> {
+  try {
+    const res = await fetch(`${MCP_HTTP}/api/mcp-activity`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.calls as McpCallEntry[]) || [];
+  } catch {
+    return [];
+  }
+}
