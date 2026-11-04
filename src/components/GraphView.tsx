@@ -1,7 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import Sigma from 'sigma';
-import Graph from 'graphology';
-import { forceSimulation, forceManyBody, forceLink, forceX, forceY } from 'd3-force';
+import ForceGraph from 'force-graph';
 import {
   MagnifyingGlassPlus,
   MagnifyingGlassMinus,
@@ -18,11 +16,9 @@ import {
   SquaresFour,
   X,
 } from '@phosphor-icons/react';
-import type { GraphData, PathResult } from '../types';
+import type { GraphData, PathResult, PathStep } from '../types';
 import { findPath } from '../services/api';
 import { ArchitecturalReportModal } from './ArchitecturalReportModal';
-import { getNodeColor, communityColor } from './graph/palettes';
-import { computeConvexHull, drawSmoothHull, type Point2D } from './graph/hulls';
 
 interface GraphViewProps {
   projectId?: string;
@@ -36,13 +32,156 @@ interface GraphViewProps {
   theme?: 'dark' | 'light';
 }
 
-interface SimNode {
-  id: string;
-  x?: number;
-  y?: number;
-  vx?: number;
-  vy?: number;
-  [key: string]: any;
+const COMMUNITY_PALETTE = [
+  '#6366f1', '#10b981', '#38bdf8', '#f59e0b', '#ec4899',
+  '#8b5cf6', '#06b6d4', '#f97316', '#14b8a6', '#e11d48',
+  '#84cc16', '#a855f7', '#0ea5e9', '#eab308'
+];
+
+const LANG_COLORS: Record<string, string> = {
+  typescript: '#38bdf8',
+  javascript: '#facc15',
+  rust: '#f97316',
+  python: '#10b981',
+  go: '#06b6d4',
+  c: '#3b82f6',
+  cpp: '#2563eb',
+  csharp: '#a855f7',
+  java: '#ea580c',
+  kotlin: '#8b5cf6',
+  php: '#6366f1',
+  ruby: '#e11d48',
+  swift: '#f43f5e',
+  css: '#ec4899',
+  shell: '#14b8a6',
+};
+
+const TAG_PALETTES: Record<string, { dark: string; light: string }> = {
+  architecture: { dark: '#6366f1', light: '#4f46e5' }, // Indigo
+  system: { dark: '#6366f1', light: '#4f46e5' },
+  design: { dark: '#6366f1', light: '#4f46e5' },
+  rust: { dark: '#f97316', light: '#ea580c' },        // Orange
+  embeddings: { dark: '#10b981', light: '#059669' },  // Emerald
+  rag: { dark: '#06b6d4', light: '#0891b2' },         // Cyan
+  ai: { dark: '#10b981', light: '#059669' },          // Emerald
+  mcp: { dark: '#8b5cf6', light: '#7c3aed' },         // Violet
+  neural: { dark: '#06b6d4', light: '#0891b2' },      // Cyan
+  guide: { dark: '#f59e0b', light: '#d97706' },       // Amber
+  tutorial: { dark: '#f59e0b', light: '#d97706' },    // Amber
+  welcome: { dark: '#e11d48', light: '#be123c' },     // Rose
+  onboarding: { dark: '#ec4899', light: '#db2777' },  // Pink
+  sqlite: { dark: '#8b5cf6', light: '#7c3aed' },      // Purple
+  database: { dark: '#8b5cf6', light: '#7c3aed' },    // Purple
+  storage: { dark: '#a855f7', light: '#9333ea' },
+  security: { dark: '#ef4444', light: '#dc2626' },    // Red
+  auth: { dark: '#f43f5e', light: '#e11d48' },
+  docs: { dark: '#38bdf8', light: '#0284c7' },
+};
+
+const VIBRANT_ACCENTS = [
+  { dark: '#6366f1', light: '#4f46e5' }, // Indigo
+  { dark: '#10b981', light: '#059669' }, // Emerald
+  { dark: '#38bdf8', light: '#0284c7' }, // Sky
+  { dark: '#f59e0b', light: '#d97706' }, // Amber
+  { dark: '#8b5cf6', light: '#7c3aed' }, // Violet
+  { dark: '#ec4899', light: '#db2777' }, // Pink
+  { dark: '#06b6d4', light: '#0891b2' }, // Cyan
+  { dark: '#f97316', light: '#ea580c' }, // Orange
+  { dark: '#14b8a6', light: '#0d9488' }, // Teal
+  { dark: '#e11d48', light: '#be123c' }, // Rose
+];
+
+function hashStringToColor(str: string, isLight: boolean): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const index = Math.abs(hash) % VIBRANT_ACCENTS.length;
+  return isLight ? VIBRANT_ACCENTS[index].light : VIBRANT_ACCENTS[index].dark;
+}
+
+interface Point2D {
+  x: number;
+  y: number;
+}
+
+function computeConvexHull(points: Point2D[]): Point2D[] {
+  if (points.length <= 2) return points.slice();
+  const sorted = points
+    .slice()
+    .sort((a, b) => (a.x !== b.x ? a.x - b.x : a.y - b.y));
+
+  const cross = (o: Point2D, a: Point2D, b: Point2D) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  const lower: Point2D[] = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  const upper: Point2D[] = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  upper.pop();
+  lower.pop();
+  return lower.concat(upper);
+}
+
+function drawSmoothHull(ctx: CanvasRenderingContext2D, hull: Point2D[]) {
+  if (hull.length < 3) return;
+  ctx.beginPath();
+  const len = hull.length;
+  const firstMidX = (hull[len - 1].x + hull[0].x) / 2;
+  const firstMidY = (hull[len - 1].y + hull[0].y) / 2;
+  ctx.moveTo(firstMidX, firstMidY);
+  for (let i = 0; i < len; i++) {
+    const p1 = hull[i];
+    const p2 = hull[(i + 1) % len];
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    ctx.quadraticCurveTo(p1.x, p1.y, midX, midY);
+  }
+  ctx.closePath();
+}
+
+function getNodeColor(node: any, isLight: boolean = false, colorMode: 'communities' | 'default' = 'communities'): string {
+  if (colorMode === 'communities' && typeof node.community === 'number') {
+    return COMMUNITY_PALETTE[node.community % COMMUNITY_PALETTE.length];
+  }
+  if (node.node_type === 'code') {
+    const lang = (node.tags && node.tags[0]) || '';
+    return LANG_COLORS[lang.toLowerCase()] || (isLight ? '#0284c7' : '#38bdf8');
+  }
+  if (node.node_type === 'unresolved') {
+    return isLight ? '#94a3b8' : '#64748b';
+  }
+  // Check tags
+  if (node.tags && Array.isArray(node.tags)) {
+    for (const t of node.tags) {
+      const cleanTag = t.toLowerCase().replace(/^#/, '');
+      if (TAG_PALETTES[cleanTag]) {
+        return isLight ? TAG_PALETTES[cleanTag].light : TAG_PALETTES[cleanTag].dark;
+      }
+    }
+  }
+  // Check title
+  const title = (node.title || node.id || '').replace(/\.md$/, '').toLowerCase();
+  for (const [key, palette] of Object.entries(TAG_PALETTES)) {
+    if (title.includes(key)) {
+      return isLight ? palette.light : palette.dark;
+    }
+  }
+  return hashStringToColor(node.id || 'note', isLight);
 }
 
 export const GraphView: React.FC<GraphViewProps> = ({
@@ -57,14 +196,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
   theme = 'dark',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const underlayRef = useRef<HTMLCanvasElement>(null);
-  const overlayRef = useRef<HTMLCanvasElement>(null);
-  const sigmaRef = useRef<Sigma | null>(null);
-  const graphRef = useRef<Graph | null>(null);
-  const simRef = useRef<any>(null);
-  const simNodesRef = useRef<Map<string, SimNode>>(new Map());
+  const graphInstanceRef = useRef<any>(null);
   const prevProjectIdRef = useRef<string | undefined>(projectId);
-
   const [localOnly, setLocalOnly] = useState<boolean>(false);
   const [egoDepth, setEgoDepth] = useState<number>(1);
   const [filterMode, setFilterMode] = useState<'all' | 'notes' | 'code'>('all');
@@ -75,7 +208,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const [pathResult, setPathResult] = useState<PathResult | null>(null);
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
 
-  // Interaction refs
+  // Interaction refs: keep rendering independent of React state to prevent canvas flickers
   const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
   const hoverNodeIdRef = useRef<string | null>(null);
   const connectedNodeIdsRef = useRef<Set<string>>(new Set());
@@ -89,36 +222,86 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const pathModeRef = useRef<boolean>(false);
   const pathStartNodeRef = useRef<any | null>(null);
   const pathResultRef = useRef<PathResult | null>(null);
-  const glowingStateRef = useRef<{ id: string; startTime: number; duration: number } | null>(null);
-  const graphDataRef = useRef<GraphData>(graphData);
-  const lastRenderedKeyRef = useRef<string>('');
-  const glowRafRef = useRef<number>(0);
 
-  const refreshGraph = useCallback(() => {
-    sigmaRef.current?.refresh();
+  const requestCanvasRepaint = useCallback(() => {
+    const fg = graphInstanceRef.current;
+    if (!fg) return;
+    try {
+      if (typeof fg.linkColor === 'function') {
+        fg.linkColor(fg.linkColor());
+      }
+    } catch {
+      // ignore repaint errors
+    }
   }, []);
 
   useEffect(() => {
-    onSelectNodeRef.current = onSelectNode;
-    onSelectCodeRef.current = onSelectCode;
-    onClearSelectionRef.current = onClearSelection;
-  }, [onSelectNode, onSelectCode, onClearSelection]);
+    colorModeRef.current = colorMode;
+    requestCanvasRepaint();
+  }, [colorMode, requestCanvasRepaint]);
 
+  useEffect(() => {
+    highlightGodNodesRef.current = highlightGodNodes;
+    requestCanvasRepaint();
+  }, [highlightGodNodes, requestCanvasRepaint]);
+
+  useEffect(() => {
+    pathModeRef.current = pathMode;
+    if (!pathMode) {
+      setPathStartNode(null);
+      setPathResult(null);
+      pathStartNodeRef.current = null;
+      pathResultRef.current = null;
+      requestCanvasRepaint();
+    }
+  }, [pathMode, requestCanvasRepaint]);
+
+  useEffect(() => {
+    pathStartNodeRef.current = pathStartNode;
+    requestCanvasRepaint();
+  }, [pathStartNode, requestCanvasRepaint]);
+
+  useEffect(() => {
+    pathResultRef.current = pathResult;
+    requestCanvasRepaint();
+  }, [pathResult, requestCanvasRepaint]);
+
+  useEffect(() => {
+    themeRef.current = theme;
+    if (graphInstanceRef.current) {
+      try {
+        graphInstanceRef.current.backgroundColor(theme === 'light' ? '#f8fafc' : '#090a0f');
+        requestCanvasRepaint();
+      } catch (err) {
+        console.warn('Error updating graph theme:', err);
+      }
+    }
+  }, [theme, requestCanvasRepaint]);
+
+  // Glowing animation ref
+  const glowingStateRef = useRef<{ id: string; startTime: number; duration: number } | null>(null);
+
+  // Graph data ref to avoid re-triggering effects when links change
+  const graphDataRef = useRef<GraphData>(graphData);
   useEffect(() => {
     graphDataRef.current = graphData;
   }, [graphData]);
 
-  useEffect(() => {
-    colorModeRef.current = colorMode;
-    highlightGodNodesRef.current = highlightGodNodes;
-    pathModeRef.current = pathMode;
-    pathStartNodeRef.current = pathStartNode;
-    pathResultRef.current = pathResult;
-    themeRef.current = theme;
-    egoDepthRef.current = egoDepth;
-    refreshGraph();
-  }, [colorMode, highlightGodNodes, pathMode, pathStartNode, pathResult, theme, egoDepth, refreshGraph]);
+  const lastRenderedKeyRef = useRef<string>('');
 
+  useEffect(() => {
+    onSelectNodeRef.current = onSelectNode;
+  }, [onSelectNode]);
+
+  useEffect(() => {
+    onSelectCodeRef.current = onSelectCode;
+  }, [onSelectCode]);
+
+  useEffect(() => {
+    onClearSelectionRef.current = onClearSelection;
+  }, [onClearSelection]);
+
+  // Telemetry stats
   const stats = useMemo(() => {
     let notes = 0;
     let code = 0;
@@ -129,11 +312,13 @@ export const GraphView: React.FC<GraphViewProps> = ({
     return { notes, code, total: graphData.nodes.length, links: graphData.links.length };
   }, [graphData]);
 
+  // Recompute N-hop ego network connected node IDs based on active target (hover or selected)
   const recomputeConnected = useCallback((targetId: string | null, maxHops?: number) => {
     if (!targetId) {
       connectedNodeIdsRef.current = new Set();
       return;
     }
+
     const nodes = graphDataRef.current.nodes;
     const resolvedTarget = nodes.find(
       (n) =>
@@ -145,6 +330,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
         (n.path && (n.path === targetId || n.path.toLowerCase() === targetId.toLowerCase()))
     );
     const startId = resolvedTarget ? resolvedTarget.id : targetId;
+
     const hops = maxHops ?? egoDepthRef.current;
     const adj = new Map<string, string[]>();
     for (const link of graphDataRef.current.links) {
@@ -155,607 +341,616 @@ export const GraphView: React.FC<GraphViewProps> = ({
       adj.get(s)!.push(t);
       adj.get(t)!.push(s);
     }
+
     const visited = new Set<string>([startId]);
     let frontier = [startId];
     for (let d = 0; d < hops && frontier.length > 0; d++) {
-      const next: string[] = [];
+      const nextFrontier: string[] = [];
       for (const curr of frontier) {
-        for (const nb of adj.get(curr) || []) {
+        const neighbors = adj.get(curr) || [];
+        for (const nb of neighbors) {
           if (!visited.has(nb)) {
             visited.add(nb);
-            next.push(nb);
+            nextFrontier.push(nb);
           }
         }
       }
-      frontier = next;
+      frontier = nextFrontier;
     }
     connectedNodeIdsRef.current = visited;
   }, []);
 
   useEffect(() => {
+    egoDepthRef.current = egoDepth;
     recomputeConnected(hoverNodeIdRef.current || selectedNodeIdRef.current, egoDepth);
-    refreshGraph();
-  }, [egoDepth, recomputeConnected, refreshGraph]);
-
-  // ---- overlay + underlay painters -------------------------------------------
-  const nodeViewPos = useCallback((id: string): { x: number; y: number; size: number } | null => {
-    const sigma = sigmaRef.current;
-    if (!sigma) return null;
-    const dd = sigma.getNodeDisplayData(id);
-    if (!dd) return null;
-    const p = sigma.framedGraphToViewport({ x: dd.x, y: dd.y });
-    return { x: p.x, y: p.y, size: dd.size };
-  }, []);
-
-  const pxPerUnit = useCallback((): number => {
-    const sigma = sigmaRef.current;
-    if (!sigma) return 1;
-    const a = sigma.framedGraphToViewport({ x: 0, y: 0 });
-    const b = sigma.framedGraphToViewport({ x: 0.01, y: 0 });
-    const d = Math.hypot(b.x - a.x, b.y - a.y);
-    return d / 0.01 || 1;
-  }, []);
-
-  // ---- halo sprites (pre-rendered radial gradients → cheap drawImage) ---------
-  const haloSpritesRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
-  const haloSprite = useCallback((color: string, isLight: boolean): HTMLCanvasElement => {
-    const key = `${color}|${isLight ? 'l' : 'd'}`;
-    let c = haloSpritesRef.current.get(key);
-    if (!c) {
-      const s = 128;
-      c = document.createElement('canvas');
-      c.width = s;
-      c.height = s;
-      const g = c.getContext('2d')!;
-      const grad = g.createRadialGradient(s / 2, s / 2, s * 0.16, s / 2, s / 2, s / 2);
-      grad.addColorStop(0, `${color}${isLight ? '55' : '59'}`);
-      grad.addColorStop(0.45, `${color}${isLight ? '22' : '2b'}`);
-      grad.addColorStop(1, 'transparent');
-      g.fillStyle = grad;
-      g.fillRect(0, 0, s, s);
-      haloSpritesRef.current.set(key, c);
+    if (localOnly) {
+      graphInstanceRef.current?.d3ReheatSimulation();
+    } else {
+      requestCanvasRepaint();
     }
-    return c;
-  }, []);
+  }, [egoDepth, localOnly, recomputeConnected, requestCanvasRepaint]);
 
-  const paintUnderlay = useCallback(() => {
-    const canvas = underlayRef.current;
-    const sigma = sigmaRef.current;
-    const graph = graphRef.current;
-    if (!canvas || !sigma || !graph) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
+  // Handle Glowing Node and Camera Auto-Centering
+  useEffect(() => {
+    if (!glowingNode || !glowingNode.id) return;
+    const targetId = glowingNode.id;
 
-    if (colorModeRef.current !== 'communities') return;
+    glowingStateRef.current = {
+      id: targetId,
+      startTime: Date.now(),
+      duration: 3500, // 3.5 seconds neon animation
+    };
 
-    const isLight = themeRef.current === 'light';
-    const connected = connectedNodeIdsRef.current;
-    const scale = pxPerUnit();
-    const groups = new Map<number, { pts: Point2D[]; sumX: number; minY: number; anyConnected: boolean }>();
+    // Auto-center camera onto the newly updated node
+    const attemptCenter = () => {
+      if (graphInstanceRef.current) {
+        const currentData = graphInstanceRef.current.graphData();
+        const nodes = currentData?.nodes || [];
+        const cleanTarget = targetId.replace(/\.md$/, '').toLowerCase();
 
-    graph.forEachNode((id, attrs) => {
-      const pos = nodeViewPos(id);
-      if (!pos) return;
-      const { x, y } = pos;
-      const r = Math.max(3, pos.size * scale * 0.5);
-      const isDimmed = connected.size > 0 && !connected.has(id);
-      const accent = getNodeColor(attrs, isLight, colorModeRef.current);
+        const match = nodes.find(
+          (n: any) =>
+            n.id === targetId ||
+            n.id?.toLowerCase() === cleanTarget ||
+            n.title?.toLowerCase() === cleanTarget ||
+            n.id?.replace(/\.md$/, '')?.toLowerCase() === cleanTarget
+        );
 
-      // Celestial halo for note nodes with degree >= 2 (GPU-cached sprite)
-      if (attrs.node_type !== 'code' && (attrs.degree || 0) >= 2 && !isDimmed) {
-        const hr = r * 2.8;
-        ctx.drawImage(haloSprite(accent, isLight), x - hr, y - hr, hr * 2, hr * 2);
-      }
-
-      // Golden halo for god nodes / hubs
-      const isGod =
-        highlightGodNodesRef.current && (attrs.is_god_node || (attrs.degree || 0) >= 12);
-      if (isGod && !isDimmed) {
-        const hr = r * 3.4;
-        ctx.drawImage(haloSprite('#f59e0b', isLight), x - hr, y - hr, hr * 2, hr * 2);
-      }
-
-      if (typeof attrs.community !== 'number') return;
-      let g = groups.get(attrs.community);
-      if (!g) {
-        g = { pts: [], sumX: 0, minY: Infinity, anyConnected: false };
-        groups.set(attrs.community, g);
-      }
-      g.pts.push({ x, y });
-      g.sumX += x;
-      if (y < g.minY) g.minY = y;
-      if (connected.size > 0 && connected.has(id)) g.anyConnected = true;
-    });
-
-    const pad = 24;
-    groups.forEach((g, commId) => {
-      if (g.pts.length < 2) return;
-      if (connected.size > 0 && !g.anyConnected) return;
-
-      const padded: Point2D[] = [];
-      for (const p of g.pts) {
-        for (let a = 0; a < 8; a++) {
-          const ang = (a * Math.PI) / 4;
-          padded.push({ x: p.x + Math.cos(ang) * pad, y: p.y + Math.sin(ang) * pad });
+        if (match && match.x !== undefined && match.y !== undefined) {
+          graphInstanceRef.current.centerAt(match.x, match.y, 800);
+          graphInstanceRef.current.zoom(2.4, 800);
         }
       }
-      const hull = computeConvexHull(padded);
-      if (hull.length < 3) return;
+    };
 
-      const color = communityColor(commId, isLight);
-      ctx.save();
-      drawSmoothHull(ctx, hull);
-      ctx.fillStyle = `${color}20`;
-      ctx.fill();
-      ctx.lineWidth = 1.4;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeStyle = `${color}70`;
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.font = `600 10px 'JetBrains Mono', monospace`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.fillStyle = color;
-      ctx.fillText(`Cluster #${commId} (${g.pts.length})`, g.sumX / g.pts.length, g.minY - pad - 5);
-      ctx.restore();
-    });
-  }, [nodeViewPos]);
+    setTimeout(attemptCenter, 80);
 
-  const paintOverlay = useCallback(() => {
-    const canvas = overlayRef.current;
-    const sigma = sigmaRef.current;
-    const graph = graphRef.current;
-    if (!canvas || !sigma || !graph) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
+    // Keep repainting while the neon glow animates (autoPauseRedraw is on-demand)
+    const repaintInterval = setInterval(() => {
+      requestCanvasRepaint();
+    }, 50);
 
-    const isLight = themeRef.current === 'light';
-    const connected = connectedNodeIdsRef.current;
-    const sel = selectedNodeIdRef.current;
-    const hov = hoverNodeIdRef.current;
-    const scale = pxPerUnit();
-    const showLabels = sigma.getCamera().ratio < 1.4;
-    const pathNodes = new Set<string>();
-    if (pathResultRef.current?.steps) {
-      for (const s of pathResultRef.current.steps) pathNodes.add(s.node_id);
-    }
+    const timer = setTimeout(() => {
+      glowingStateRef.current = null;
+      clearInterval(repaintInterval);
+      requestCanvasRepaint();
+    }, glowingStateRef.current.duration);
 
-    let labelCount = 0;
-    const maxLabels = 400;
+    return () => {
+      clearTimeout(timer);
+      clearInterval(repaintInterval);
+    };
+  }, [glowingNode, requestCanvasRepaint]);
 
-    graph.forEachNode((id, attrs) => {
-      const pos = nodeViewPos(id);
-      if (!pos) return;
-      const { x, y } = pos;
-      const r = Math.max(3, pos.size * scale * 0.5);
-
-      const matchesSel =
-        sel !== null &&
-        (id === sel ||
-          id.toLowerCase() === sel.toLowerCase() ||
-          id.replace(/\.md$/i, '').toLowerCase() === sel.replace(/\.md$/i, '').toLowerCase() ||
-          (attrs.title && attrs.title.toLowerCase() === sel.toLowerCase()) ||
-          (attrs.title && attrs.title.replace(/\.md$/i, '').toLowerCase() === sel.replace(/\.md$/i, '').toLowerCase()) ||
-          (attrs.path && (attrs.path === sel || attrs.path.toLowerCase() === sel.toLowerCase())));
-      const isHovered = id === hov;
-      const isConnected = connected.has(id);
-      const isDimmed = connected.size > 0 && !isConnected;
-      const isCode = attrs.node_type === 'code';
-      const accent = getNodeColor(attrs, isLight, colorModeRef.current);
-
-      const glowing = glowingStateRef.current;
-      const isGlowing =
-        glowing &&
-        (id === glowing.id ||
-          id.toLowerCase() === glowing.id.toLowerCase() ||
-          attrs.title?.toLowerCase() === glowing.id.toLowerCase() ||
-          id.replace(/\.md$/i, '').toLowerCase() === glowing.id.replace(/\.md$/, '').toLowerCase());
-
-      // God node dashed ring (vibrant amber)
-      const isGod = highlightGodNodesRef.current && (attrs.is_god_node || (attrs.degree || 0) >= 12);
-      if (isGod && !isDimmed) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(x, y, Math.max(r + 8, (attrs.degree || 0) * 0.9 + 10), 0, 2 * Math.PI);
-        ctx.strokeStyle = 'rgba(245, 158, 11, 0.65)';
-        ctx.lineWidth = 1.6;
-        ctx.setLineDash([3, 3]);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Path rings
-      const isPathStart = pathStartNodeRef.current && pathStartNodeRef.current.id === id;
-      if (isPathStart || pathNodes.has(id)) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(x, y, r + 6, 0, 2 * Math.PI);
-        ctx.strokeStyle = isPathStart ? '#38bdf8' : '#06b6d4';
-        ctx.lineWidth = 2.4;
-        if (isPathStart) ctx.setLineDash([4, 2]);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Code node: dark fill + accent ring + inner core dot
-      if (isCode && !isDimmed) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, 2 * Math.PI);
-        ctx.fillStyle = isLight ? '#ffffff' : 'rgba(15, 23, 42, 0.9)';
-        ctx.fill();
-        ctx.lineWidth = isConnected ? 2 : 1.3;
-        ctx.strokeStyle = accent;
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(x, y, Math.max(2, r * 0.45), 0, 2 * Math.PI);
-        ctx.fillStyle = accent;
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // Note node: specular dot + rim (depth on the flat WebGL circle)
-      if (!isCode && !isDimmed && !matchesSel && !isHovered) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, 2 * Math.PI);
-        ctx.lineWidth = isConnected ? 2 : 1;
-        ctx.strokeStyle = isLight ? '#ffffff' : 'rgba(255, 255, 255, 0.35)';
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(x, y, Math.max(1.5, r * 0.32), 0, 2 * Math.PI);
-        ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.85)';
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // Selection / hover: aura + dark core + accent ring + center dot
-      if (matchesSel || isHovered) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(x, y, r + 8, 0, 2 * Math.PI);
-        ctx.fillStyle = isLight ? `${accent}22` : `${accent}33`;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(x, y, r + 3, 0, 2 * Math.PI);
-        ctx.fillStyle = isLight ? '#ffffff' : isCode ? 'rgba(15, 23, 42, 0.9)' : '#1e1b4b';
-        ctx.fill();
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = accent;
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(x, y, Math.max(2.5, r * 0.35), 0, 2 * Math.PI);
-        ctx.fillStyle = accent;
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // Glow shockwave
-      if (isGlowing && glowing) {
-        const elapsed = Date.now() - glowing.startTime;
-        const progress = Math.min(1, elapsed / glowing.duration);
-        const alpha = Math.max(0, 1 - progress);
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(x, y, 12 + progress * 40, 0, 2 * Math.PI);
-        ctx.strokeStyle = `rgba(16, 185, 129, ${alpha * 0.9})`;
-        ctx.lineWidth = Math.max(1, 3.5 * (1 - progress));
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(x, y, 16, 0, 2 * Math.PI);
-        ctx.fillStyle = `rgba(16, 185, 129, ${alpha * 0.3})`;
-        ctx.fill();
-        ctx.font = `600 9px 'JetBrains Mono', monospace`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillStyle = `rgba(16, 185, 129, ${alpha})`;
-        ctx.fillText('MCP LIVE', x, y - 18);
-        ctx.restore();
-      }
-
-      // Label capsule
-      if ((showLabels || matchesSel || isHovered || isGlowing) && labelCount < maxLabels) {
-        labelCount++;
-        const rawLabel = attrs.title || id;
-        const label = rawLabel.endsWith('.md') ? rawLabel.replace(/\.md$/, '') : rawLabel;
-        const text =
-          !isCode && attrs.tags && attrs.tags.length > 0 ? `#${attrs.tags[0]}` : label;
-
-        ctx.font = `${matchesSel || isGlowing ? '600 ' : '500 '}10.5px 'Geist Sans', system-ui, sans-serif`;
-        const tw = ctx.measureText(text).width;
-        const ty = y + (matchesSel ? r + 14 : r + 10) + 5;
-        const padX = 6;
-        const padY = 2.5;
-
-        ctx.save();
-        ctx.beginPath();
-        if (typeof (ctx as any).roundRect === 'function') {
-          (ctx as any).roundRect(x - tw / 2 - padX, ty - 5.25 - padY, tw + padX * 2, 10.5 + padY * 2, 4);
-        } else {
-          ctx.rect(x - tw / 2 - padX, ty - 5.25 - padY, tw + padX * 2, 10.5 + padY * 2);
-        }
-        ctx.fillStyle = isDimmed
-          ? isLight
-            ? 'rgba(241, 245, 249, 0.7)'
-            : 'rgba(24, 27, 36, 0.4)'
-          : isLight
-          ? 'rgba(255, 255, 255, 0.95)'
-          : 'rgba(15, 20, 32, 0.92)';
-        ctx.fill();
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = isGlowing
-          ? '#10b981'
-          : matchesSel
-          ? accent
-          : isDimmed
-          ? 'rgba(120, 125, 140, 0.25)'
-          : isLight
-          ? `${accent}55`
-          : `${accent}44`;
-        ctx.stroke();
-        ctx.fillStyle = isGlowing
-          ? '#10b981'
-          : isDimmed
-          ? isLight
-            ? '#94a3b8'
-            : 'rgba(100, 116, 139, 0.4)'
-          : matchesSel
-          ? isLight
-            ? '#0f172a'
-            : '#ffffff'
-          : isLight
-          ? '#1e293b'
-          : '#f1f5f9';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(text, x, ty);
-        ctx.restore();
-      }
-    });
-  }, [nodeViewPos, pxPerUnit]);
-
-  // ---- sigma init -------------------------------------------------------------
+  // Initialize ForceGraph once
   useEffect(() => {
     if (!containerRef.current) return;
+
     const elem = containerRef.current;
+    elem.innerHTML = '';
+    const width = elem.clientWidth || 800;
+    const height = elem.clientHeight || 600;
 
-    const graph = new Graph({ type: 'undirected' });
-    graphRef.current = graph;
+    const fgFactory = (ForceGraph as any).default || ForceGraph;
+    const graph = fgFactory()(elem);
 
-    const sigma = new Sigma(graph, elem, {
-      settings: {
-        renderLabels: false,
-        renderEdgeLabels: false,
-        minCameraRatio: 0.04,
-        maxCameraRatio: 20,
-        stagePadding: 40,
-        allowInvalidContainer: true,
-      },
-      nodeReducer: (node, data) => {
-        const attrs = graph.getNodeAttributes(node);
-        const isLight = themeRef.current === 'light';
+    graph
+      .width(width)
+      .height(height)
+      .backgroundColor(themeRef.current === 'light' ? '#f8fafc' : '#090a0f')
+      .autoPauseRedraw(true)
+      .minZoom(0.05)
+      .maxZoom(8)
+      .nodeRelSize(4)
+      .nodeVal((node: any) => Math.max(4, Math.min(12, 4 + (node.degree || 0) * 1.2)))
+      .linkColor((link: any) => {
+        const s = typeof link.source === 'object' ? link.source.id : link.source;
+        const t = typeof link.target === 'object' ? link.target.id : link.target;
         const connected = connectedNodeIdsRef.current;
-        const accent = getNodeColor(attrs, isLight, colorModeRef.current);
-        const isDimmed = connected.size > 0 && !connected.has(node);
-
-        data.color = isDimmed
-          ? isLight
-            ? 'rgba(168, 164, 156, 0.35)'
-            : 'rgba(86, 94, 107, 0.25)'
-          : accent;
-        data.size = Math.max(5, Math.min(11, 5 + (attrs.degree || 0) * 1.1));
-        data.label = '';
-        return data;
-      },
-      edgeReducer: (edge, data) => {
-        const attrs = graph.getEdgeAttributes(edge) as any;
-        const s = attrs.__s as string;
-        const t = attrs.__t as string;
+        const isImports = link.label === 'imports';
         const isLight = themeRef.current === 'light';
-        const connected = connectedNodeIdsRef.current;
 
+        // Path finding priority highlight
         if (pathResultRef.current && pathResultRef.current.steps.length > 1) {
           const steps = pathResultRef.current.steps;
-          const onPath = steps.some((step, idx) => {
+          const isOnPath = steps.some((step, idx) => {
             if (idx === 0) return false;
             const prev = steps[idx - 1];
-            return (
-              (prev.node_id === s && step.node_id === t) ||
-              (prev.node_id === t && step.node_id === s)
-            );
+            return (prev.node_id === s && step.node_id === t) || (prev.node_id === t && step.node_id === s);
           });
-          if (onPath) {
-            data.color = '#38bdf8';
-            data.size = 2.5;
-            return data;
+          if (isOnPath) {
+            return isLight ? '#0284c7' : '#38bdf8';
           }
         }
 
         if (connected.size > 0) {
           if (connected.has(s) && connected.has(t)) {
-            data.color = 'rgba(99, 102, 241, 0.7)';
-            data.size = 1.6;
-          } else {
-            data.color = isLight ? 'rgba(148, 163, 184, 0.18)' : 'rgba(71, 85, 105, 0.12)';
-            data.size = 0.8;
+            return isImports
+              ? (isLight ? '#0284c7' : '#38bdf8')
+              : (isLight ? '#4f46e5' : '#818cf8');
           }
-          return data;
+          return isLight ? 'rgba(203, 213, 225, 0.25)' : 'rgba(44, 51, 68, 0.12)';
+        }
+        return isImports
+          ? (isLight ? 'rgba(2, 132, 199, 0.35)' : 'rgba(56, 189, 248, 0.25)')
+          : (isLight ? 'rgba(99, 102, 241, 0.35)' : 'rgba(99, 102, 241, 0.22)');
+      })
+      .linkWidth((link: any) => {
+        const s = typeof link.source === 'object' ? link.source.id : link.source;
+        const t = typeof link.target === 'object' ? link.target.id : link.target;
+
+        if (pathResultRef.current && pathResultRef.current.steps.length > 1) {
+          const steps = pathResultRef.current.steps;
+          const isOnPath = steps.some((step, idx) => {
+            if (idx === 0) return false;
+            const prev = steps[idx - 1];
+            return (prev.node_id === s && step.node_id === t) || (prev.node_id === t && step.node_id === s);
+          });
+          if (isOnPath) return 3.5;
         }
 
-        const isImports = attrs.label === 'imports';
-        data.color = isImports
-          ? isLight
-            ? 'rgba(2, 132, 199, 0.35)'
-            : 'rgba(56, 189, 248, 0.28)'
-          : isLight
-          ? 'rgba(79, 70, 229, 0.28)'
-          : 'rgba(99, 102, 241, 0.22)';
-        data.size = 0.9;
-        return data;
-      },
-    });
-    sigmaRef.current = sigma;
+        const connected = connectedNodeIdsRef.current;
+        if (connected.has(s) && connected.has(t)) return 2.2;
+        return 1.2;
+      })
+      .onRenderFramePre((ctx: CanvasRenderingContext2D, globalScale: number) => {
+        if (colorModeRef.current !== 'communities' || !graphInstanceRef.current) return;
+        const currentData = graphInstanceRef.current.graphData();
+        const nodes: any[] = currentData?.nodes || [];
+        if (nodes.length === 0) return;
 
-    // Simulation — same force profile as before
-    const sim = forceSimulation([] as SimNode[])
-      .force('charge', forceManyBody().strength(-160))
-      .force(
-        'link',
-        forceLink<SimNode, any>([])
-          .id((d) => d.id)
-          .distance(65)
-      )
-      .force('x', forceX(0).strength(0.03))
-      .force('y', forceY(0).strength(0.03))
-      .force('cluster', (alpha: number) => {
-        if (colorModeRef.current !== 'communities') return;
-        const centroids = new Map<number, { x: number; y: number; count: number }>();
-        for (const n of sim.nodes()) {
-          if (typeof n.community !== 'number') continue;
-          const c = centroids.get(n.community) || { x: 0, y: 0, count: 0 };
-          c.x += n.x || 0;
-          c.y += n.y || 0;
-          c.count += 1;
-          centroids.set(n.community, c);
+        const isLight = themeRef.current === 'light';
+        const connected = connectedNodeIdsRef.current;
+        const groups = new Map<number, any[]>();
+
+        for (const n of nodes) {
+          if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
+          if (!groups.has(n.community)) groups.set(n.community, []);
+          groups.get(n.community)!.push(n);
         }
-        centroids.forEach((c) => {
-          c.x /= c.count;
-          c.y /= c.count;
+
+        const padRadius = 26;
+        const angles = [0, Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4, Math.PI, (5 * Math.PI) / 4, (3 * Math.PI) / 2, (7 * Math.PI) / 4];
+
+        groups.forEach((commNodes, commId) => {
+          if (commNodes.length < 2) return;
+
+          const hasActiveFocus = connected.size > 0;
+          const anyConnected = hasActiveFocus && commNodes.some((n) => connected.has(n.id));
+          if (hasActiveFocus && !anyConnected) return;
+
+          const color = COMMUNITY_PALETTE[commId % COMMUNITY_PALETTE.length];
+          const paddedPoints: Point2D[] = [];
+          let minY = Infinity;
+          let sumX = 0;
+
+          for (const n of commNodes) {
+            sumX += n.x;
+            if (n.y - padRadius < minY) minY = n.y - padRadius;
+            for (const a of angles) {
+              paddedPoints.push({
+                x: n.x + Math.cos(a) * padRadius,
+                y: n.y + Math.sin(a) * padRadius,
+              });
+            }
+          }
+
+          const hull = computeConvexHull(paddedPoints);
+          if (hull.length < 3) return;
+
+          ctx.save();
+          drawSmoothHull(ctx, hull);
+          ctx.fillStyle = isLight ? `${color}14` : `${color}12`;
+          ctx.fill();
+          ctx.lineWidth = Math.max(1 / globalScale, 0.8);
+          ctx.setLineDash([5 / globalScale, 4 / globalScale]);
+          ctx.strokeStyle = isLight ? `${color}45` : `${color}38`;
+          ctx.stroke();
+
+          if (globalScale > 0.45) {
+            const centerX = sumX / commNodes.length;
+            const fontSize = Math.max(9.5 / globalScale, 8);
+            ctx.font = `600 ${fontSize}px 'Plus Jakarta Sans', monospace, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillStyle = isLight ? `${color}cc` : `${color}aa`;
+            ctx.fillText(`Cluster #${commId} (${commNodes.length})`, centerX, minY - 4 / globalScale);
+          }
+          ctx.restore();
         });
-        const strength = 0.12 * alpha;
-        for (const n of sim.nodes()) {
-          const c = n.community !== undefined ? centroids.get(n.community) : undefined;
-          if (c && c.count > 1) {
-            n.vx = (n.vx || 0) + (c.x - (n.x || 0)) * strength;
-            n.vy = (n.vy || 0) + (c.y - (n.y || 0)) * strength;
+      })
+      .nodeCanvasObject((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+        if (!node || !isFinite(node.x) || !isFinite(node.y)) return;
+
+        const isLight = themeRef.current === 'light';
+        const currentSel = selectedNodeIdRef.current;
+        const isSelected =
+          currentSel !== null &&
+          (node.id === currentSel ||
+            node.id.toLowerCase() === currentSel.toLowerCase() ||
+            node.id.replace(/\.md$/i, '').toLowerCase() === currentSel.replace(/\.md$/i, '').toLowerCase() ||
+            (node.title && node.title.toLowerCase() === currentSel.toLowerCase()) ||
+            (node.title && node.title.replace(/\.md$/i, '').toLowerCase() === currentSel.replace(/\.md$/i, '').toLowerCase()) ||
+            (node.path && (node.path === currentSel || node.path.toLowerCase() === currentSel.toLowerCase())));
+        const isHovered = node.id === hoverNodeIdRef.current;
+        const connected = connectedNodeIdsRef.current;
+        const isConnected = connected.has(node.id);
+        const isDimmed = connected.size > 0 && !isConnected;
+        const isCode = node.node_type === 'code';
+        const accentColor = getNodeColor(node, isLight, colorModeRef.current);
+
+        // Check Glowing MCP State
+        const glowing = glowingStateRef.current;
+        const isGlowing =
+          glowing &&
+          (node.id === glowing.id ||
+            node.id?.toLowerCase() === glowing.id.toLowerCase() ||
+            node.title?.toLowerCase() === glowing.id.toLowerCase() ||
+            node.id?.replace(/\.md$/, '')?.toLowerCase() === glowing.id.replace(/\.md$/, '').toLowerCase());
+
+        if (isGlowing && glowing) {
+          const elapsed = Date.now() - glowing.startTime;
+          const progress = Math.min(1, elapsed / glowing.duration);
+          const alpha = Math.max(0, 1 - progress);
+
+          ctx.save();
+          const shockRadius1 = 12 + progress * 40;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, shockRadius1, 0, 2 * Math.PI, false);
+          ctx.strokeStyle = `rgba(16, 185, 129, ${alpha * 0.9})`;
+          ctx.lineWidth = Math.max(1, 3.5 * (1 - progress));
+          ctx.shadowColor = '#10b981';
+          ctx.shadowBlur = 18;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, 16, 0, 2 * Math.PI, false);
+          ctx.fillStyle = `rgba(16, 185, 129, ${alpha * 0.35})`;
+          ctx.fill();
+
+          const badgeFontSize = Math.max(8.5 / globalScale, 8.5);
+          ctx.font = `700 ${badgeFontSize}px 'Plus Jakarta Sans', monospace, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillStyle = `rgba(52, 211, 153, ${alpha})`;
+          ctx.shadowColor = '#10b981';
+          ctx.shadowBlur = 8;
+          ctx.fillText('MCP LIVE', node.x, node.y - 18);
+          ctx.restore();
+        }
+
+        // God Node / Hub halo effect
+        const isGod = highlightGodNodesRef.current && (node.is_god_node || (node.degree || 0) >= 12);
+        if (isGod && !isDimmed) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, Math.max(14, (node.degree || 0) * 1.5 + 6), 0, 2 * Math.PI, false);
+          ctx.strokeStyle = 'rgba(245, 158, 11, 0.65)';
+          ctx.lineWidth = 1.6;
+          ctx.setLineDash([3, 3]);
+          ctx.shadowColor = '#f59e0b';
+          ctx.shadowBlur = 8;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // Path finding node highlight
+        const isPathStart = pathStartNodeRef.current && pathStartNodeRef.current.id === node.id;
+        const isPathStep = pathResultRef.current?.steps?.some((s: PathStep) => s.node_id === node.id);
+        if (isPathStart || isPathStep) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, 14, 0, 2 * Math.PI, false);
+          ctx.strokeStyle = isPathStart ? '#38bdf8' : '#06b6d4';
+          ctx.lineWidth = 2.4;
+          if (isPathStart) ctx.setLineDash([4, 2]);
+          ctx.shadowColor = '#38bdf8';
+          ctx.shadowBlur = 10;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        if (isSelected || isHovered) {
+          // Focal node highlight with outer glow aura
+          const pulseRadius = 16;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, pulseRadius, 0, 2 * Math.PI, false);
+          ctx.fillStyle = isLight ? `${accentColor}22` : `${accentColor}33`;
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, 11, 0, 2 * Math.PI, false);
+          ctx.fillStyle = isLight ? '#ffffff' : (isCode ? 'rgba(15, 23, 42, 0.9)' : '#1e1b4b');
+          ctx.fill();
+          ctx.lineWidth = 2.5;
+          ctx.strokeStyle = accentColor;
+          ctx.shadowColor = accentColor;
+          ctx.shadowBlur = 12;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+
+          // Center solid dot
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, 5, 0, 2 * Math.PI, false);
+          ctx.fillStyle = accentColor;
+          ctx.fill();
+        } else {
+          // Standard node representation
+          const r = Math.max(5, Math.min(10, 5 + (node.degree || 0) * 1.2));
+
+          if (isCode) {
+            // Code node: distinct cybernetic double-ring representation
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
+            ctx.fillStyle = isDimmed
+              ? (isLight ? 'rgba(241, 245, 249, 0.5)' : 'rgba(30, 41, 59, 0.2)')
+              : (isLight ? '#ffffff' : 'rgba(15, 23, 42, 0.85)');
+            ctx.fill();
+
+            ctx.lineWidth = isConnected ? 2 : 1.3;
+            ctx.strokeStyle = isDimmed ? (isLight ? '#cbd5e1' : 'rgba(71, 85, 105, 0.3)') : accentColor;
+            ctx.stroke();
+
+            // Inner core dot
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, Math.max(2, r * 0.45), 0, 2 * Math.PI, false);
+            ctx.fillStyle = isDimmed ? (isLight ? '#cbd5e1' : 'rgba(71, 85, 105, 0.3)') : accentColor;
+            ctx.fill();
+          } else {
+            // Note node: soft celestial halo for connected nodes with degree >= 2
+            if ((node.degree || 0) >= 2 && !isDimmed) {
+              const haloGrad = ctx.createRadialGradient(node.x, node.y, r * 0.5, node.x, node.y, r * 2.8);
+              haloGrad.addColorStop(0, `${accentColor}${isLight ? '35' : '40'}`);
+              haloGrad.addColorStop(1, 'transparent');
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, r * 2.8, 0, 2 * Math.PI, false);
+              ctx.fillStyle = haloGrad;
+              ctx.fill();
+            }
+
+            // Solid colored circle
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
+            ctx.fillStyle = isDimmed
+              ? (isLight ? 'rgba(203, 213, 225, 0.35)' : 'rgba(71, 85, 105, 0.25)')
+              : accentColor;
+            ctx.fill();
+
+            // Crisp rim
+            ctx.lineWidth = isConnected ? 2 : 1;
+            ctx.strokeStyle = isLight ? '#ffffff' : (isDimmed ? 'transparent' : 'rgba(255, 255, 255, 0.35)');
+            ctx.stroke();
+
+            // Specular core dot
+            if (!isDimmed) {
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, Math.max(1.5, r * 0.32), 0, 2 * Math.PI, false);
+              ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.85)';
+              ctx.fill();
+            }
           }
+        }
+
+        // Title and tag capsule pill
+        if (globalScale > 0.75 || isSelected || isHovered || isGlowing) {
+          const rawLabel = node.title || node.id;
+          const label = rawLabel.endsWith('.md') ? rawLabel.replace(/\.md$/, '') : rawLabel;
+          const tagText = isCode
+            ? label
+            : node.tags && node.tags.length > 0
+            ? `#${node.tags[0]}`
+            : label;
+
+          const fontSize = 11;
+          ctx.font = `${isSelected || isGlowing ? '600 ' : '500 '}${fontSize}px 'Plus Jakarta Sans', system-ui, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          const textWidth = ctx.measureText(tagText).width;
+          const textY = node.y + (isSelected ? 20 : 13) + fontSize * 0.5;
+
+          const padX = isCode ? 7 : 6;
+          const padY = 2.5;
+
+          ctx.save();
+          ctx.beginPath();
+          if (typeof (ctx as any).roundRect === 'function') {
+            (ctx as any).roundRect(
+              node.x - textWidth / 2 - padX,
+              textY - fontSize / 2 - padY,
+              textWidth + padX * 2,
+              fontSize + padY * 2,
+              4
+            );
+          } else {
+            ctx.rect(
+              node.x - textWidth / 2 - padX,
+              textY - fontSize / 2 - padY,
+              textWidth + padX * 2,
+              fontSize + padY * 2
+            );
+          }
+
+          if (isLight) {
+            ctx.fillStyle = isDimmed ? 'rgba(241, 245, 249, 0.7)' : 'rgba(255, 255, 255, 0.95)';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+            ctx.shadowBlur = 4;
+          } else {
+            ctx.fillStyle = isDimmed ? 'rgba(24, 27, 36, 0.4)' : 'rgba(15, 20, 32, 0.92)';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+            ctx.shadowBlur = 6;
+          }
+          ctx.fill();
+
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = isGlowing
+            ? '#10b981'
+            : isSelected
+            ? accentColor
+            : isDimmed
+            ? (isLight ? '#e2e8f0' : 'rgba(43, 49, 64, 0.3)')
+            : (isLight ? `${accentColor}55` : `${accentColor}44`);
+          ctx.stroke();
+
+          // Text
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = isGlowing
+            ? '#10b981'
+            : isDimmed
+            ? (isLight ? '#94a3b8' : 'rgba(100, 116, 139, 0.4)')
+            : isSelected
+            ? (isLight ? '#0f172a' : '#ffffff')
+            : (isLight ? '#1e293b' : '#f1f5f9');
+          ctx.fillText(tagText, node.x, textY);
+          ctx.restore();
         }
       })
-      .on('tick', () => {
-        const g = graphRef.current;
-        if (!g) return;
-        g.forEachNode((id, attrs) => {
-          const sn = simNodesRef.current.get(id);
-          if (sn && sn.x !== undefined && sn.y !== undefined) {
-            attrs.x = sn.x;
-            attrs.y = sn.y;
+      .nodePointerAreaPaint((node: any, color: string, ctx: CanvasRenderingContext2D) => {
+        if (!node || !isFinite(node.x) || !isFinite(node.y)) return;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, 14, 0, 2 * Math.PI, false);
+        ctx.fill();
+
+        const rawLabel = node.title || node.id;
+        const label = rawLabel.endsWith('.md') ? rawLabel.replace(/\.md$/, '') : rawLabel;
+        const tagText = node.tags && node.tags.length > 0 ? `#${node.tags[0]}` : label;
+        ctx.font = '500 10px sans-serif';
+        const textWidth = ctx.measureText(tagText).width;
+        ctx.fillRect(node.x - textWidth / 2 - 8, node.y + 10, textWidth + 16, 18);
+      })
+      .onNodeClick(async (node: any) => {
+        if (!node || !node.id) return;
+
+        // Path Inspector mode handling
+        if (pathModeRef.current) {
+          if (!pathStartNodeRef.current) {
+            setPathStartNode(node);
+            pathStartNodeRef.current = node;
+            graphInstanceRef.current?.d3ReheatSimulation();
+            return;
           }
-        });
-        sigma.refresh();
-      });
-    sim.stop();
-    simRef.current = sim;
-
-    // Repaint canvases whenever sigma renders
-    sigma.on('afterRender', () => {
-      paintUnderlay();
-      paintOverlay();
-    });
-
-    // Interactions
-    sigma.on('clickNode', ({ node }) => {
-      const attrs = graph.getNodeAttributes(node) as any;
-
-      if (pathModeRef.current) {
-        if (!pathStartNodeRef.current) {
-          pathStartNodeRef.current = { id: node, title: attrs.title };
-          setPathStartNode({ id: node, title: attrs.title });
-          sigma.refresh();
-          return;
-        }
-        if (pathStartNodeRef.current.id === node) {
-          pathStartNodeRef.current = null;
-          pathResultRef.current = null;
-          setPathStartNode(null);
-          setPathResult(null);
-          sigma.refresh();
-          return;
-        }
-        findPath(pathStartNodeRef.current.id, node)
-          .then((res) => {
-            pathResultRef.current = res;
+          if (pathStartNodeRef.current.id === node.id) {
+            setPathStartNode(null);
+            pathStartNodeRef.current = null;
+            setPathResult(null);
+            pathResultRef.current = null;
+            graphInstanceRef.current?.d3ReheatSimulation();
+            return;
+          }
+          try {
+            const res = await findPath(pathStartNodeRef.current.id, node.id);
             setPathResult(res);
-            sigma.refresh();
-          })
-          .catch((err) => console.error('Failed to find path:', err));
-        return;
+            pathResultRef.current = res;
+            graphInstanceRef.current?.d3ReheatSimulation();
+          } catch (err) {
+            console.error('Failed to find path:', err);
+          }
+          return;
+        }
+
+        // Immediately mark the clicked node and recompute neighbors
+        selectedNodeIdRef.current = node.id;
+        recomputeConnected(node.id, egoDepthRef.current);
+        requestCanvasRepaint();
+
+        if (node.node_type === 'code' && onSelectCodeRef.current) {
+          onSelectCodeRef.current(node.path || node.id);
+        }
+        onSelectNodeRef.current(node.id);
+      })
+      .onBackgroundClick(() => {
+        selectedNodeIdRef.current = null;
+        hoverNodeIdRef.current = null;
+        connectedNodeIdsRef.current = new Set();
+        if (pathModeRef.current) {
+          setPathStartNode(null);
+          pathStartNodeRef.current = null;
+          setPathResult(null);
+          pathResultRef.current = null;
+        }
+        onClearSelectionRef.current?.();
+        requestCanvasRepaint();
+      })
+      .onNodeHover((node: any) => {
+        const nextId = node ? node.id : null;
+        if (hoverNodeIdRef.current === nextId) return;
+        hoverNodeIdRef.current = nextId;
+        recomputeConnected(nextId || selectedNodeIdRef.current, egoDepthRef.current);
+        requestCanvasRepaint();
+      })
+      .showPointerCursor((node: any) => !!node);
+
+    // Forces configuration
+    graph.d3Force('charge')?.strength(-160);
+    graph.d3Force('link')?.distance(65);
+    graph.d3Force('cluster', (alpha: number) => {
+      if (colorModeRef.current !== 'communities' || !graphInstanceRef.current) return;
+      const nodes: any[] = graphInstanceRef.current.graphData()?.nodes || [];
+      const centroids = new Map<number, { x: number; y: number; count: number }>();
+      for (const n of nodes) {
+        if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
+        const c = centroids.get(n.community) || { x: 0, y: 0, count: 0 };
+        c.x += n.x;
+        c.y += n.y;
+        c.count += 1;
+        centroids.set(n.community, c);
       }
-
-      selectedNodeIdRef.current = node;
-      recomputeConnected(node, egoDepthRef.current);
-      sigma.refresh();
-
-      if (attrs.node_type === 'code' && onSelectCodeRef.current) {
-        onSelectCodeRef.current(attrs.path || node);
+      centroids.forEach((c) => {
+        c.x /= c.count;
+        c.y /= c.count;
+      });
+      const strength = 0.12 * alpha;
+      for (const n of nodes) {
+        if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
+        const c = centroids.get(n.community);
+        if (c && c.count > 1) {
+          n.vx = (n.vx || 0) + (c.x - n.x) * strength;
+          n.vy = (n.vy || 0) + (c.y - n.y) * strength;
+        }
       }
-      onSelectNodeRef.current(node);
     });
 
-    sigma.on('clickStage', () => {
-      selectedNodeIdRef.current = null;
-      hoverNodeIdRef.current = null;
-      connectedNodeIdsRef.current = new Set();
-      if (pathModeRef.current) {
-        pathStartNodeRef.current = null;
-        pathResultRef.current = null;
-        setPathStartNode(null);
-        setPathResult(null);
+    graphInstanceRef.current = graph;
+
+    const handleResize = () => {
+      if (elem && graphInstanceRef.current) {
+        graphInstanceRef.current.width(elem.clientWidth);
+        graphInstanceRef.current.height(elem.clientHeight);
       }
-      onClearSelectionRef.current?.();
-      sigma.refresh();
-    });
+    };
 
-    sigma.on('enterNode', ({ node }) => {
-      if (hoverNodeIdRef.current === node) return;
-      hoverNodeIdRef.current = node;
-      recomputeConnected(node, egoDepthRef.current);
-      elem.style.cursor = 'pointer';
-      sigma.refresh();
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
     });
+    resizeObserver.observe(elem);
 
-    sigma.on('leaveNode', () => {
-      hoverNodeIdRef.current = null;
-      recomputeConnected(selectedNodeIdRef.current, egoDepthRef.current);
-      elem.style.cursor = 'default';
-      sigma.refresh();
-    });
+    window.addEventListener('resize', handleResize);
 
     return () => {
-      cancelAnimationFrame(glowRafRef.current);
-      sim.stop();
-      sigma.kill();
-      sigmaRef.current = null;
-      graphRef.current = null;
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', handleResize);
       lastRenderedKeyRef.current = '';
+      if (graphInstanceRef.current) {
+        try {
+          graphInstanceRef.current._destructor?.();
+        } catch {}
+        graphInstanceRef.current = null;
+      }
+      if (elem) {
+        elem.innerHTML = '';
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---- data sync ---------------------------------------------------------------
+  // Update selected node highlight without reloading graph data
   useEffect(() => {
     selectedNodeIdRef.current = selectedNodeId;
     recomputeConnected(hoverNodeIdRef.current || selectedNodeId);
-    refreshGraph();
-  }, [selectedNodeId, recomputeConnected, refreshGraph]);
+    requestCanvasRepaint();
+  }, [selectedNodeId, recomputeConnected, requestCanvasRepaint]);
 
+  // Reset filters and camera state when switching projects
   useEffect(() => {
     if (prevProjectIdRef.current !== projectId) {
       prevProjectIdRef.current = projectId;
@@ -765,298 +960,184 @@ export const GraphView: React.FC<GraphViewProps> = ({
       hoverNodeIdRef.current = null;
       connectedNodeIdsRef.current = new Set();
       lastRenderedKeyRef.current = '';
-      const g = graphRef.current;
-      if (g) g.clear();
-      simNodesRef.current.clear();
-      simRef.current?.nodes([]);
-      sigmaRef.current?.refresh();
+      if (graphInstanceRef.current) {
+        graphInstanceRef.current.graphData({ nodes: [], links: [] });
+      }
     }
   }, [projectId]);
 
+  // Update data ONLY when nodes/links change or focus/filter mode is toggled
   useEffect(() => {
-    const sigma = sigmaRef.current;
-    const graph = graphRef.current;
-    const sim = simRef.current;
-    if (!sigma || !graph || !sim) return;
+    if (!graphInstanceRef.current) return;
 
     let displayData = graphData;
 
+    // Apply filter mode (all vs notes vs code)
     if (filterMode === 'notes') {
-      const sub = graphData.nodes.filter((n) => n.node_type !== 'code');
-      const ids = new Set(sub.map((n) => n.id));
-      displayData = {
-        nodes: sub,
-        links: graphData.links.filter((l) => {
-          const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
-          const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
-          return ids.has(s) && ids.has(t);
-        }),
-      };
+      const subNodes = graphData.nodes.filter((n) => n.node_type === 'note' || !n.node_type);
+      const nodeIds = new Set(subNodes.map((n) => n.id));
+      const subLinks = graphData.links.filter((l) => {
+        const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+        const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+        return nodeIds.has(s) && nodeIds.has(t);
+      });
+      displayData = { nodes: subNodes, links: subLinks };
     } else if (filterMode === 'code') {
-      const sub = graphData.nodes.filter((n) => n.node_type === 'code');
-      const ids = new Set(sub.map((n) => n.id));
-      displayData = {
-        nodes: sub,
-        links: graphData.links.filter((l) => {
-          const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
-          const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
-          return ids.has(s) && ids.has(t);
-        }),
-      };
+      const subNodes = graphData.nodes.filter((n) => n.node_type === 'code');
+      const nodeIds = new Set(subNodes.map((n) => n.id));
+      const subLinks = graphData.links.filter((l) => {
+        const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+        const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+        return nodeIds.has(s) && nodeIds.has(t);
+      });
+      displayData = { nodes: subNodes, links: subLinks };
     }
 
     if (localOnly && selectedNodeId) {
       recomputeConnected(selectedNodeId, egoDepth);
       const connected = connectedNodeIdsRef.current;
-      displayData = {
-        nodes: displayData.nodes.filter((n) => connected.has(n.id)),
-        links: displayData.links.filter((l) => {
-          const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
-          const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
-          return connected.has(s) && connected.has(t);
-        }),
-      };
-    }
-
-    const key =
-      `${projectId || 'default'}|${filterMode}|${localOnly ? `${selectedNodeId}:${egoDepth}` : 'all'}|` +
-      displayData.nodes.map((n) => `${n.id}:${n.title}:${n.degree || 0}`).sort().join(';') +
-      '|' +
-      displayData.links
-        .map((l) => {
-          const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
-          const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
-          return `${s}->${t}`;
-        })
-        .sort()
-        .join(';');
-
-    if (lastRenderedKeyRef.current === key) return;
-    lastRenderedKeyRef.current = key;
-
-    const hadNodes = simNodesRef.current.size > 0;
-    const wanted = new Set(displayData.nodes.map((n) => n.id));
-
-    // Drop removed nodes
-    const toDrop: string[] = [];
-    graph.forEachNode((id) => {
-      if (!wanted.has(id)) toDrop.push(id);
-    });
-    toDrop.forEach((id) => {
-      graph.dropNode(id);
-      simNodesRef.current.delete(id);
-    });
-
-    // Upsert nodes
-    const centroid = (() => {
-      let cx = 0, cy = 0, c = 0;
-      simNodesRef.current.forEach((n) => {
-        if (n.x !== undefined && n.y !== undefined) {
-          cx += n.x;
-          cy += n.y;
-          c++;
-        }
+      const subNodes = displayData.nodes.filter((n) => connected.has(n.id));
+      const subLinks = displayData.links.filter((l) => {
+        const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+        const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+        return connected.has(s) && connected.has(t);
       });
-      return c ? { x: cx / c, y: cy / c } : { x: 0, y: 0 };
-    })();
+      displayData = { nodes: subNodes, links: subLinks };
+    }
 
-    for (const n of displayData.nodes) {
-      const attrs: any = {
-        title: n.title,
-        tags: n.tags,
-        degree: n.degree,
-        node_type: n.node_type,
-        path: n.path,
-        community: n.community,
-        is_god_node: n.is_god_node,
-        centrality: n.centrality,
-        label: n.title || n.id,
-      };
-      if (graph.hasNode(n.id)) {
-        graph.updateNodeAttributes(n.id, (a) => ({ ...a, ...attrs }));
-        const sn = simNodesRef.current.get(n.id);
-        if (sn) Object.assign(sn, attrs);
-      } else {
-        const angle = Math.random() * Math.PI * 2;
-        const rad = 40 + Math.random() * 80;
-        const x = centroid.x + Math.cos(angle) * rad;
-        const y = centroid.y + Math.sin(angle) * rad;
-        graph.addNode(n.id, { ...attrs, x, y });
-        simNodesRef.current.set(n.id, { id: n.id, x, y, ...attrs });
+    const currentKey = `${projectId || 'default'}|${filterMode}|${localOnly ? `${selectedNodeId}:${egoDepth}` : 'all'}|` +
+      displayData.nodes.map((n) => `${n.id}:${n.title}:${n.degree || 0}`).sort().join(';') + '|' +
+      displayData.links.map((l) => {
+        const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+        const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+        return `${s}->${t}`;
+      }).sort().join(';');
+
+    if (lastRenderedKeyRef.current === currentKey) {
+      return;
+    }
+    lastRenderedKeyRef.current = currentKey;
+
+    const currentData = graphInstanceRef.current.graphData();
+    const existingNodesMap = new Map<string, any>((currentData.nodes || []).map((n: any) => [n.id, n]));
+
+    const mergedNodes = displayData.nodes.map((n) => {
+      const existing = existingNodesMap.get(n.id);
+      if (existing && existing.x !== undefined && existing.y !== undefined) {
+        existing.title = n.title;
+        existing.tags = n.tags;
+        existing.degree = n.degree;
+        existing.node_type = n.node_type;
+        existing.path = n.path;
+        existing.community = n.community;
+        existing.is_god_node = n.is_god_node;
+        existing.centrality = n.centrality;
+        return existing;
       }
-    }
-
-    // Drop removed edges, add new
-    const wantedEdges = new Set<string>();
-    const toDropEdges: string[] = [];
-    for (const l of displayData.links) {
-      const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
-      const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
-      if (wanted.has(s) && wanted.has(t)) wantedEdges.add(`${s}|${t}`);
-    }
-    graph.forEachEdge((edge, attrs: any) => {
-      const k = `${attrs.__s}|${attrs.__t}`;
-      const kr = `${attrs.__t}|${attrs.__s}`;
-      if (!wantedEdges.has(k) && !wantedEdges.has(kr)) toDropEdges.push(edge);
+      return { ...n };
     });
-    toDropEdges.forEach((e) => graph.dropEdge(e));
 
-    const simLinks: { source: string; target: string; label?: string }[] = [];
-    for (const l of displayData.links) {
+    const mergedLinks = displayData.links.map((l) => {
       const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
       const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
-      if (!wanted.has(s) || !wanted.has(t)) continue;
-      if (!graph.hasEdge(s, t) && !graph.hasEdge(t, s)) {
-        graph.addEdge(s, t, { __s: s, __t: t, label: l.label });
-      }
-      simLinks.push({ source: s, target: t, label: l.label });
-    }
+      return { ...l, source: s, target: t };
+    });
 
-    sim.nodes(Array.from(simNodesRef.current.values()));
-    const linkForce = sim.force('link') as any;
-    if (linkForce && linkForce.links) linkForce.links(simLinks);
-    sim.alpha(hadNodes ? 0.5 : 1).restart();
+    graphInstanceRef.current.graphData({
+      nodes: mergedNodes,
+      links: mergedLinks,
+    });
+    graphInstanceRef.current.d3ReheatSimulation?.();
 
-    if (!hadNodes && displayData.nodes.length > 0) {
-      setTimeout(() => zoomToFit(), 350);
+    if (existingNodesMap.size === 0 && mergedNodes.length > 0) {
+      setTimeout(() => {
+        if (graphInstanceRef.current) {
+          graphInstanceRef.current.zoomToFit(400, 60);
+        }
+      }, 250);
     }
-    sigma.refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, graphData, filterMode, localOnly, egoDepth, localOnly ? selectedNodeId : null, recomputeConnected]);
 
-  // ---- glow + camera focus ------------------------------------------------------
-  useEffect(() => {
-    if (!glowingNode || !glowingNode.id) return;
-    const targetId = glowingNode.id;
-    glowingStateRef.current = { id: targetId, startTime: Date.now(), duration: 3500 };
-
-    const sigma = sigmaRef.current;
-    const graph = graphRef.current;
-    if (sigma && graph) {
-      const clean = targetId.replace(/\.md$/, '').toLowerCase();
-      let found: string | null = null;
-      graph.forEachNode((id, attrs) => {
-        if (found) return;
-        if (
-          id === targetId ||
-          id.toLowerCase() === clean ||
-          attrs.title?.toLowerCase() === clean ||
-          id.replace(/\.md$/i, '').toLowerCase() === clean
-        ) {
-          found = id;
-        }
-      });
-      if (found) {
-        const dd = sigma.getNodeDisplayData(found);
-        if (dd) {
-          sigma.getCamera().animate({ x: dd.x, y: dd.y, ratio: 0.3 }, { duration: 800 });
-        }
-      }
+  const handleZoomIn = () => {
+    if (graphInstanceRef.current) {
+      graphInstanceRef.current.zoom(graphInstanceRef.current.zoom() * 1.35, 300);
     }
+  };
 
-    const loop = () => {
-      if (!glowingStateRef.current) return;
-      sigmaRef.current?.refresh();
-      glowRafRef.current = requestAnimationFrame(loop);
-    };
-    glowRafRef.current = requestAnimationFrame(loop);
+  const handleZoomOut = () => {
+    if (graphInstanceRef.current) {
+      graphInstanceRef.current.zoom(graphInstanceRef.current.zoom() * 0.75, 300);
+    }
+  };
 
-    const timer = setTimeout(() => {
-      glowingStateRef.current = null;
-      cancelAnimationFrame(glowRafRef.current);
-      sigmaRef.current?.refresh();
-    }, 3500);
-
-    return () => {
-      clearTimeout(timer);
-      cancelAnimationFrame(glowRafRef.current);
-    };
-  }, [glowingNode]);
-
-  // ---- camera controls ----------------------------------------------------------
-  const zoomCamera = useCallback((factor: number) => {
-    const sigma = sigmaRef.current;
-    if (!sigma) return;
-    const cam = sigma.getCamera();
-    cam.animate({ ratio: cam.ratio * factor }, { duration: 250 });
-  }, []);
-
-  const zoomToFit = useCallback(() => {
-    const sigma = sigmaRef.current;
-    if (!sigma) return;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, count = 0;
-    graphRef.current?.forEachNode((id) => {
-      const dd = sigma.getNodeDisplayData(id);
-      if (!dd) return;
-      count++;
-      if (dd.x < minX) minX = dd.x;
-      if (dd.y < minY) minY = dd.y;
-      if (dd.x > maxX) maxX = dd.x;
-      if (dd.y > maxY) maxY = dd.y;
-    });
-    if (!count) return;
-    const dims = sigma.getDimensions();
-    const dx = Math.max(0.05, maxX - minX);
-    const dy = Math.max(0.05, maxY - minY);
-    const ratio = Math.min(20, Math.max(dx / dims.width, dy / dims.height) * Math.max(dims.width, dims.height) * 1.15);
-    sigma.getCamera().animate(
-      { x: (minX + maxX) / 2, y: (minY + maxY) / 2, ratio },
-      { duration: 400 }
-    );
-  }, []);
+  const handleFit = () => {
+    if (graphInstanceRef.current) {
+      graphInstanceRef.current.zoomToFit(400, 48);
+    }
+  };
 
   const isLight = theme === 'light';
 
-  const toolbarBtn = (active: boolean, activeClass: string) =>
-    `flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer border ${
-      active
-        ? activeClass
-        : `border-transparent ${isLight ? 'text-muted hover:text-ink hover:bg-raise' : 'text-muted hover:text-ink hover:bg-raise'}`
-    }`;
-
   return (
-    <div className="relative w-full h-full overflow-hidden bg-canvas transition-colors">
-      {/* Underlay: community hulls (below WebGL) */}
-      <canvas ref={underlayRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-      {/* Sigma WebGL stage */}
+    <div className={`relative w-full h-full overflow-hidden transition-colors duration-200 ${isLight ? 'bg-[#f8fafc]' : 'bg-[#090a0f]'}`}>
+      {/* Canvas container specifically for ForceGraph */}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
-      {/* Overlay: rings, glow, labels */}
-      <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none" />
 
-      {/* Toolbar */}
+      {/* Floating Toolbar Deck */}
       <div
-        className="absolute top-3 left-3 z-30 flex items-center gap-1.5 p-1 rounded-lg bg-surface border border-line"
+        className={`absolute top-3 left-3 z-30 flex items-center gap-1.5 p-1 rounded-xl shadow-xl backdrop-blur-md transition-colors ${
+          isLight
+            ? 'bg-white/90 border border-slate-200/90 shadow-slate-200/50'
+            : 'bg-[#0e1119]/85 border border-[#1f2536]'
+        }`}
         role="toolbar"
-        aria-label="Graph controls"
+        aria-label="Controles do Grafo"
       >
-        <div className="flex items-center gap-0.5 p-0.5 rounded-md border border-line bg-canvas">
+        {/* Node Type Filter Pill Selector */}
+        <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
+          isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#090b10] border-[#171b26]'
+        }`}>
           <button
             type="button"
             onClick={() => setFilterMode('all')}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-              filterMode === 'all' ? 'bg-accent text-on-accent' : 'text-muted hover:text-ink'
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              filterMode === 'all'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : isLight
+                ? 'text-slate-600 hover:text-slate-900'
+                : 'text-[#64748b] hover:text-[#f1f5f9]'
             }`}
             title="Show all nodes"
           >
             <CirclesThree size={12} weight="bold" />
             <span>All ({stats.total})</span>
           </button>
+
           <button
             type="button"
             onClick={() => setFilterMode('notes')}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-              filterMode === 'notes' ? 'bg-accent text-on-accent' : 'text-muted hover:text-ink'
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              filterMode === 'notes'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : isLight
+                ? 'text-slate-600 hover:text-slate-900'
+                : 'text-[#64748b] hover:text-[#f1f5f9]'
             }`}
             title="Filter notes only"
           >
             <FileText size={12} />
             <span>Notes ({stats.notes})</span>
           </button>
+
           <button
             type="button"
             onClick={() => setFilterMode('code')}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-              filterMode === 'code' ? 'bg-accent text-on-accent' : 'text-muted hover:text-ink'
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              filterMode === 'code'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : isLight
+                ? 'text-slate-600 hover:text-slate-900'
+                : 'text-[#64748b] hover:text-[#f1f5f9]'
             }`}
             title="Filter code files only"
           >
@@ -1065,14 +1146,20 @@ export const GraphView: React.FC<GraphViewProps> = ({
           </button>
         </div>
 
-        <div className="w-px h-3.5 my-auto bg-line" />
+        <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
 
+        {/* Communities / Clusters toggle */}
         <button
           type="button"
-          className={toolbarBtn(
-            colorMode === 'communities',
-            'bg-accent/15 text-accent border-accent/40'
-          )}
+          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+            colorMode === 'communities'
+              ? isLight
+                ? 'bg-purple-100 text-purple-700 border border-purple-200'
+                : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
+              : isLight
+              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+          }`}
           title={colorMode === 'communities' ? 'Color Mode: Communities (Active)' : 'Color by Communities'}
           onClick={() => setColorMode(colorMode === 'communities' ? 'default' : 'communities')}
         >
@@ -1080,9 +1167,18 @@ export const GraphView: React.FC<GraphViewProps> = ({
           <span>Clusters</span>
         </button>
 
+        {/* God Nodes / Hubs toggle */}
         <button
           type="button"
-          className={toolbarBtn(highlightGodNodes, 'bg-warn/15 text-warn border-warn/40')}
+          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+            highlightGodNodes
+              ? isLight
+                ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                : 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+              : isLight
+              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+          }`}
           title={highlightGodNodes ? 'Highlight Architectural Hubs / God Nodes' : 'God Nodes Hidden'}
           onClick={() => setHighlightGodNodes(!highlightGodNodes)}
         >
@@ -1090,9 +1186,18 @@ export const GraphView: React.FC<GraphViewProps> = ({
           <span>Hubs</span>
         </button>
 
+        {/* Path Inspector toggle */}
         <button
           type="button"
-          className={toolbarBtn(pathMode, 'bg-accent/15 text-accent border-accent/40')}
+          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+            pathMode
+              ? isLight
+                ? 'bg-sky-100 text-sky-700 border border-sky-200'
+                : 'bg-sky-500/25 text-sky-300 border border-sky-500/40'
+              : isLight
+              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+          }`}
           title="Path Inspector: Click any 2 nodes to find shortest path"
           onClick={() => setPathMode(!pathMode)}
         >
@@ -1100,9 +1205,14 @@ export const GraphView: React.FC<GraphViewProps> = ({
           <span>Path</span>
         </button>
 
+        {/* Architectural Audit Modal */}
         <button
           type="button"
-          className={toolbarBtn(false, '')}
+          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+            isLight
+              ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#94a3b8] hover:text-white hover:bg-[#1a2030]'
+          }`}
           title="Open Architectural Audit Report"
           onClick={() => setShowAuditModal(true)}
         >
@@ -1110,12 +1220,21 @@ export const GraphView: React.FC<GraphViewProps> = ({
           <span>Audit</span>
         </button>
 
-        <div className="w-px h-3.5 my-auto bg-line" />
+        <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
 
+        {/* Ego Network (N-Hop Focus) toggle + Dynamic Depth Slider */}
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            className={toolbarBtn(localOnly, 'bg-accent/15 text-accent border-accent/40')}
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              localOnly
+                ? isLight
+                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                  : 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
+                : isLight
+                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+            }`}
             title={localOnly ? 'Disable Ego Network Focus (Show Full Graph)' : 'Enable Ego Network (N-Hop Focus)'}
             onClick={() => setLocalOnly(!localOnly)}
           >
@@ -1124,8 +1243,15 @@ export const GraphView: React.FC<GraphViewProps> = ({
           </button>
 
           {(localOnly || selectedNodeId) && (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-line bg-canvas text-[10px] font-mono text-muted">
-              <span className="text-[9px] uppercase tracking-wider">Hops</span>
+            <div
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[10px] font-mono ${
+                isLight
+                  ? 'bg-slate-100/90 border-slate-200 text-slate-600'
+                  : 'bg-[#090b10]/90 border-[#171b26] text-slate-300'
+              }`}
+              title={`Profundidade da Ego Network: ${egoDepth} salto(s)`}
+            >
+              <span className="text-[9.5px] uppercase tracking-wider opacity-75">Hops</span>
               <input
                 type="range"
                 min={1}
@@ -1133,41 +1259,62 @@ export const GraphView: React.FC<GraphViewProps> = ({
                 step={1}
                 value={egoDepth}
                 onChange={(e) => setEgoDepth(Number(e.target.value))}
-                className="w-14 h-1 accent-[#6d7ae0] cursor-pointer"
-                aria-label="Ego Network depth"
+                className="w-14 h-1 accent-indigo-500 cursor-pointer"
+                aria-label="Profundidade N-Hop da Ego Network"
               />
-              <span className="font-semibold text-accent">{egoDepth}</span>
+              <span className={`font-bold ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
+                {egoDepth}
+              </span>
             </div>
           )}
         </div>
 
         <button
           type="button"
-          className="flex items-center justify-center w-6 h-6 rounded-md transition-colors cursor-pointer text-muted hover:text-ink hover:bg-raise"
-          title="Zoom In"
-          onClick={() => zoomCamera(0.75)}
+          className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
+            isLight
+              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+          }`}
+          title="Zoom In (+)"
+          onClick={handleZoomIn}
         >
           <MagnifyingGlassPlus size={13} />
         </button>
+
         <button
           type="button"
-          className="flex items-center justify-center w-6 h-6 rounded-md transition-colors cursor-pointer text-muted hover:text-ink hover:bg-raise"
-          title="Zoom Out"
-          onClick={() => zoomCamera(1.35)}
+          className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
+            isLight
+              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+          }`}
+          title="Zoom Out (-)"
+          onClick={handleZoomOut}
         >
           <MagnifyingGlassMinus size={13} />
         </button>
+
         <button
           type="button"
-          className="flex items-center justify-center w-6 h-6 rounded-md transition-colors cursor-pointer text-muted hover:text-ink hover:bg-raise"
+          className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
+            isLight
+              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+          }`}
           title="Fit to Screen"
-          onClick={zoomToFit}
+          onClick={handleFit}
         >
           <ArrowsOut size={13} />
         </button>
+
         <button
           type="button"
-          className="flex items-center justify-center w-6 h-6 rounded-md transition-colors cursor-pointer text-muted hover:text-ink hover:bg-raise"
+          className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
+            isLight
+              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+          }`}
           title="Reorganize Graph"
           onClick={onRefresh}
         >
@@ -1175,24 +1322,24 @@ export const GraphView: React.FC<GraphViewProps> = ({
         </button>
       </div>
 
-      {/* Path inspector banner */}
+      {/* Floating Path Inspector Banner */}
       {pathMode && (
-        <div className="absolute top-14 left-3 z-30 flex items-center gap-2.5 px-3 py-1.5 rounded-lg border border-line bg-surface text-[11px] font-mono text-muted">
-          <GitBranch size={13} className="text-accent shrink-0" />
+        <div className={`absolute top-16 left-3 z-30 flex items-center gap-2.5 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md text-[11px] font-mono border transition-all ${
+          isLight
+            ? 'bg-white/95 border-sky-300 text-slate-700 shadow-sky-100'
+            : 'bg-[#0b1220]/90 border-sky-500/40 text-slate-200 shadow-[0_4px_20px_rgba(56,189,248,0.15)]'
+        }`}>
+          <GitBranch size={14} className="text-sky-400 shrink-0 animate-pulse" />
           {!pathStartNode ? (
-            <span>
-              Click the <strong className="text-accent">source node</strong>...
-            </span>
+            <span>Clique no <strong className="text-sky-400">nó de origem</strong> no grafo...</span>
           ) : !pathResult ? (
             <span>
-              From: <strong className="text-accent">{pathStartNode.title || pathStartNode.id}</strong> → click the{' '}
-              <strong className="text-good">target node</strong>...
+              Origem: <strong className="text-sky-400">{pathStartNode.title || pathStartNode.id}</strong> → Clique no <strong className="text-emerald-400">nó de destino</strong>...
             </span>
           ) : (
             <div className="flex items-center gap-2">
               <span>
-                Path: <strong className="text-accent">{pathResult.length} nodes</strong> (
-                {Math.max(0, pathResult.steps.length - 1)} hops)
+                Caminho: <strong className="text-sky-400">{pathResult.length} nós</strong> ({pathResult.steps.length > 1 ? pathResult.steps.length - 1 : 0} saltos)
               </span>
               <button
                 type="button"
@@ -1200,45 +1347,52 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   setPathStartNode(null);
                   setPathResult(null);
                 }}
-                className="px-1.5 py-0.5 rounded text-[10px] bg-raise hover:bg-line text-ink cursor-pointer"
+                className="px-1.5 py-0.5 rounded text-[10px] bg-slate-700 hover:bg-slate-600 text-white cursor-pointer"
               >
-                Clear
+                Limpar
               </button>
             </div>
           )}
           <button
             type="button"
             onClick={() => setPathMode(false)}
-            className="p-1 text-faint hover:text-ink transition-colors cursor-pointer"
-            title="Close Path Inspector"
+            className="p-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            title="Fechar Inspetor de Caminhos"
           >
             <X size={12} />
           </button>
         </div>
       )}
 
-      {/* HUD */}
-      <div className="absolute bottom-3 left-3 z-30 flex items-center gap-2 px-2.5 py-1 rounded-md border border-line bg-surface text-[10.5px] font-mono text-muted">
-        <span className="w-1.5 h-1.5 rounded-full bg-good shrink-0" />
+      {/* Floating HUD Telemetry Capsule */}
+      <div className={`absolute bottom-3 left-3 z-30 flex items-center gap-2 px-2.5 py-1 rounded-lg shadow-lg backdrop-blur-md text-[10.5px] font-mono transition-colors ${
+        isLight
+          ? 'bg-white/90 border border-slate-200/90 text-slate-600 shadow-slate-200/40'
+          : 'bg-[#0e1119]/85 border border-[#1f2536] text-[#64748b]'
+      }`}>
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
         <span>
-          Notes: <strong className="font-semibold text-ink">{stats.notes}</strong>
+          Notes: <strong className={`font-semibold ${isLight ? 'text-slate-900' : 'text-[#f8fafc]'}`}>{stats.notes}</strong>
         </span>
-        <span className="text-faint">·</span>
+        <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
         <span>
-          Code: <strong className="font-semibold text-accent">{stats.code}</strong>
+          Code: <strong className={`font-semibold ${isLight ? 'text-sky-600' : 'text-[#38bdf8]'}`}>{stats.code}</strong>
         </span>
-        <span className="text-faint">·</span>
+        <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
         <span>
-          Links: <strong className="font-semibold text-ink">{stats.links}</strong>
+          Links: <strong className={`font-semibold ${isLight ? 'text-slate-900' : 'text-[#f8fafc]'}`}>{stats.links}</strong>
         </span>
         {localOnly && (
           <>
-            <span className="text-faint">·</span>
-            <span className="font-medium text-accent">Ego ({egoDepth}-Hop)</span>
+            <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
+            <span className={`font-medium ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
+              Ego Network ({egoDepth}-Hop)
+            </span>
           </>
         )}
       </div>
 
+      {/* Architectural Audit Modal */}
       <ArchitecturalReportModal
         isOpen={showAuditModal}
         onClose={() => setShowAuditModal(false)}
