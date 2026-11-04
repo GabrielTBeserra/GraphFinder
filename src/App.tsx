@@ -936,6 +936,7 @@ export const App: React.FC = () => {
           onDeleteNote={handleDeleteNote}
           onSearchSemantic={handleSearchSemantic}
           onSearchCode={handleSearchCode}
+          onRevealInGraph={(id) => setGlowingNode({ id, timestamp: Date.now() })}
           chunkResults={chunkResults}
           codeChunkResults={codeChunkResults}
           isSearching={isSearching}
