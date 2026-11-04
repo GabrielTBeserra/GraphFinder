@@ -126,7 +126,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
         className={`w-full max-w-xl rounded-2xl border shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150 ${
           isLight
             ? 'bg-white border-slate-200'
-            : 'bg-[#0f121a] border-[#222736]'
+            : 'bg-[#101216] border-[#1e222c]'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
@@ -135,12 +135,12 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
           className={`flex items-center gap-3 px-4 py-3.5 border-b ${
             isLight
               ? 'border-slate-200 bg-slate-50/70'
-              : 'border-[#1f2433] bg-[#131622]'
+              : 'border-[#1e222c] bg-[#161922]'
           }`}
         >
           <MagnifyingGlass
             size={18}
-            className={`${isLight ? 'text-slate-400' : 'text-[#64748b]'} shrink-0`}
+            className={`${isLight ? 'text-slate-400' : 'text-[#8a919e]'} shrink-0`}
           />
           <input
             ref={inputRef}
@@ -148,7 +148,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
             className={`flex-1 bg-transparent text-sm focus:outline-none ${
               isLight
                 ? 'text-slate-900 placeholder-slate-400'
-                : 'text-[#f8fafc] placeholder-[#64748b]'
+                : 'text-[#edeef0] placeholder-[#8a919e]'
             }`}
             placeholder="Search notes, tags, or code files..."
             value={query}
@@ -165,7 +165,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
               className={`p-1 rounded cursor-pointer transition-colors ${
                 isLight
                   ? 'text-slate-400 hover:text-slate-700'
-                  : 'text-[#64748b] hover:text-[#f8fafc]'
+                  : 'text-[#8a919e] hover:text-[#edeef0]'
               }`}
             >
               <X size={14} />
@@ -175,7 +175,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
             className={`hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono rounded border ${
               isLight
                 ? 'text-slate-500 bg-white border-slate-200 shadow-2xs'
-                : 'text-[#64748b] bg-[#1a1e2b] border-[#272d3e]'
+                : 'text-[#8a919e] bg-[#1a1f2c] border-[#2b303e]'
             }`}
           >
             ESC
@@ -187,7 +187,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
           {results.length === 0 ? (
             <div
               className={`py-12 text-center text-xs ${
-                isLight ? 'text-slate-400' : 'text-[#64748b]'
+                isLight ? 'text-slate-400' : 'text-[#8a919e]'
               }`}
             >
               No results found for &quot;{query}&quot;.
@@ -206,10 +206,10 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
                       isSelected
                         ? isLight
                           ? 'bg-indigo-50 border border-indigo-200 text-indigo-950 font-medium'
-                          : 'bg-indigo-600/15 border border-indigo-500/30 text-[#f8fafc]'
+                          : 'bg-indigo-600/15 border border-indigo-500/30 text-[#edeef0]'
                         : isLight
                         ? 'hover:bg-slate-50 border border-transparent text-slate-800'
-                        : 'hover:bg-[#141824] border border-transparent text-[#cbd5e1]'
+                        : 'hover:bg-[#161922] border border-transparent text-[#d8dae0]'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -231,7 +231,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
                               className={`inline-flex items-center gap-0.5 text-[9.5px] font-mono px-1.5 py-0.2 rounded ${
                                 isLight
                                   ? 'bg-slate-100 text-slate-600 border border-slate-200'
-                                  : 'bg-[#1a1e2b] text-[#94a3b8]'
+                                  : 'bg-[#1a1f2c] text-[#8a919e]'
                               }`}
                             >
                               <Hash size={8} />
@@ -242,7 +242,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
                         {note.summary && (
                           <p
                             className={`text-[11px] truncate mt-0.5 ${
-                              isLight ? 'text-slate-500' : 'text-[#64748b]'
+                              isLight ? 'text-slate-500' : 'text-[#8a919e]'
                             }`}
                           >
                             {note.summary}
@@ -271,10 +271,10 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
                     isSelected
                       ? isLight
                         ? 'bg-sky-50 border border-sky-200 text-sky-950 font-medium'
-                        : 'bg-sky-500/15 border border-sky-500/30 text-[#f8fafc]'
+                        : 'bg-sky-500/15 border border-sky-500/30 text-[#edeef0]'
                       : isLight
                       ? 'hover:bg-slate-50 border border-transparent text-slate-800'
-                      : 'hover:bg-[#141824] border border-transparent text-[#cbd5e1]'
+                      : 'hover:bg-[#161922] border border-transparent text-[#d8dae0]'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -294,7 +294,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
                       </div>
                       <p
                         className={`text-[10.5px] font-mono truncate mt-0.5 ${
-                          isLight ? 'text-slate-500' : 'text-[#64748b]'
+                          isLight ? 'text-slate-500' : 'text-[#8a919e]'
                         }`}
                       >
                         {code.path}
@@ -318,7 +318,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
           className={`px-4 py-2 border-t flex items-center justify-between text-[10.5px] ${
             isLight
               ? 'border-slate-200 bg-slate-50 text-slate-500'
-              : 'border-[#1a1f2c] bg-[#0c0e15] text-[#64748b]'
+              : 'border-[#1a1f2c] bg-[#0d0f14] text-[#8a919e]'
           }`}
         >
           <div className="flex items-center gap-3">
@@ -327,7 +327,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
                 className={`font-mono text-[9px] px-1 py-0.5 rounded border ${
                   isLight
                     ? 'bg-white border-slate-200 text-slate-600'
-                    : 'bg-[#171b26] border-[#222736]'
+                    : 'bg-[#161922] border-[#1e222c]'
                 }`}
               >
                 ↑↓
@@ -339,7 +339,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
                 className={`font-mono text-[9px] px-1 py-0.5 rounded border ${
                   isLight
                     ? 'bg-white border-slate-200 text-slate-600'
-                    : 'bg-[#171b26] border-[#222736]'
+                    : 'bg-[#161922] border-[#1e222c]'
                 }`}
               >
                 ↵
@@ -351,7 +351,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
                 className={`font-mono text-[9px] px-1 py-0.5 rounded border ${
                   isLight
                     ? 'bg-white border-slate-200 text-slate-600'
-                    : 'bg-[#171b26] border-[#222736]'
+                    : 'bg-[#161922] border-[#1e222c]'
                 }`}
               >
                 esc

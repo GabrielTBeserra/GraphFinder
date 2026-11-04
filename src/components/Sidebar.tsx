@@ -173,7 +173,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside
       className={`w-72 h-full flex flex-col border-r shrink-0 select-none z-10 transition-colors duration-200 ${
-        isLight ? 'bg-slate-50/95 border-slate-200' : 'bg-[#0b0d13] border-[#181c26]'
+        isLight ? 'bg-slate-50/95 border-slate-200' : 'bg-[#0d0f14] border-[#1e222c]'
       }`}
       aria-label="Sidebar"
     >
@@ -181,7 +181,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-2.5 pb-1 flex items-center gap-1.5">
         <div
           className={`flex-1 flex p-0.5 rounded-lg border shadow-2xs transition-colors ${
-            isLight ? 'bg-slate-200/60 border-slate-300/60' : 'bg-[#12151f] border-[#1f2536]'
+            isLight ? 'bg-slate-200/60 border-slate-300/60' : 'bg-[#161922] border-[#1e222c]'
           }`}
         >
           <button
@@ -195,7 +195,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : isLight
                 ? 'text-slate-600 hover:text-slate-900'
-                : 'text-[#64748b] hover:text-[#cbd5e1]'
+                : 'text-[#8a919e] hover:text-[#d8dae0]'
             }`}
           >
             <FileText size={13} weight={mode === 'notes' ? 'bold' : 'regular'} />
@@ -206,7 +206,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ? 'bg-white/20 text-white'
                   : isLight
                   ? 'bg-slate-300/60 text-slate-700'
-                  : 'bg-[#1a2030] text-[#94a3b8]'
+                  : 'bg-[#1a1f2c] text-[#8a919e]'
               }`}
             >
               {notes.length}
@@ -224,7 +224,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : isLight
                 ? 'text-slate-600 hover:text-slate-900'
-                : 'text-[#64748b] hover:text-[#cbd5e1]'
+                : 'text-[#8a919e] hover:text-[#d8dae0]'
             }`}
           >
             <Code size={13} weight={mode === 'code' ? 'bold' : 'regular'} />
@@ -235,7 +235,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ? 'bg-white/20 text-white'
                   : isLight
                   ? 'bg-slate-300/60 text-slate-700'
-                  : 'bg-[#1a2030] text-[#94a3b8]'
+                  : 'bg-[#1a1f2c] text-[#8a919e]'
               }`}
             >
               {codeFiles.length}
@@ -250,7 +250,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={`flex items-center justify-center w-7 h-7 rounded-lg border transition-colors cursor-pointer shrink-0 shadow-2xs ${
               isLight
                 ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700 hover:text-indigo-600'
-                : 'bg-[#12151f] hover:bg-[#181d2a] border-[#1f2536] text-[#cbd5e1] hover:text-indigo-400'
+                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] text-[#d8dae0] hover:text-indigo-400'
             }`}
             title="Create new note"
           >
@@ -266,13 +266,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={`relative flex items-center w-full rounded-lg border transition-all ${
               isLight
                 ? 'bg-white border-slate-200 focus-within:border-indigo-500/70 focus-within:ring-1 focus-within:ring-indigo-500/20'
-                : 'bg-[#12151f] border-[#1f2536] focus-within:border-indigo-500/70 focus-within:ring-1 focus-within:ring-indigo-500/20'
+                : 'bg-[#161922] border-[#1e222c] focus-within:border-indigo-500/70 focus-within:ring-1 focus-within:ring-indigo-500/20'
             }`}
           >
             <MagnifyingGlass
               size={13}
               className={`absolute left-2.5 ${
-                isLight ? 'text-slate-400' : 'text-[#64748b]'
+                isLight ? 'text-slate-400' : 'text-[#8a919e]'
               } pointer-events-none`}
             />
             <input
@@ -280,7 +280,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`w-full pl-8 pr-7 py-1.5 text-xs bg-transparent focus:outline-none ${
                 isLight
                   ? 'text-slate-800 placeholder-slate-400'
-                  : 'text-[#f1f5f9] placeholder-[#64748b]'
+                  : 'text-[#edeef0] placeholder-[#8a919e]'
               }`}
               placeholder={
                 mode === 'notes'
@@ -294,7 +294,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={handleClearSearch}
-                className="absolute right-2 p-0.5 rounded text-[#64748b] hover:text-slate-900 transition-colors cursor-pointer"
+                className="absolute right-2 p-0.5 rounded text-[#8a919e] hover:text-slate-900 transition-colors cursor-pointer"
                 title="Clear search"
               >
                 <X size={12} />
@@ -308,7 +308,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {mode === 'notes' && tagCounts.length > 0 && !isSemanticView && (
         <div
           className={`flex items-center gap-1 px-2.5 py-1.5 overflow-x-auto border-b scrollbar-none ${
-            isLight ? 'border-slate-200 bg-white/40' : 'border-[#181c26]'
+            isLight ? 'border-slate-200 bg-white/40' : 'border-[#1e222c]'
           }`}
         >
           {selectedTag && (
@@ -333,7 +333,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ? 'bg-indigo-600 text-white shadow-2xs'
                     : isLight
                     ? 'bg-slate-200/70 text-slate-700 border border-slate-300/60 hover:bg-slate-200'
-                    : 'bg-[#12151f] text-[#8e9bb2] border border-[#1f2536] hover:bg-[#181d2a] hover:text-[#f1f5f9]'
+                    : 'bg-[#161922] text-[#8a919e] border border-[#1e222c] hover:bg-[#1a1f2c] hover:text-[#edeef0]'
                 }`}
               >
                 <Hash size={9} />
@@ -344,7 +344,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       ? 'text-white/80'
                       : isLight
                       ? 'text-slate-500'
-                      : 'text-[#64748b]'
+                      : 'text-[#8a919e]'
                   }`}
                 >
                   {count}
@@ -358,7 +358,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {mode === 'code' && languageCounts.length > 0 && !isSemanticView && (
         <div
           className={`flex items-center gap-1 px-2.5 py-1.5 overflow-x-auto border-b scrollbar-none ${
-            isLight ? 'border-slate-200 bg-white/40' : 'border-[#181c26]'
+            isLight ? 'border-slate-200 bg-white/40' : 'border-[#1e222c]'
           }`}
         >
           <button
@@ -369,7 +369,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ? 'bg-indigo-600 text-white shadow-2xs'
                 : isLight
                 ? 'bg-slate-200/70 text-slate-700 border border-slate-300/60 hover:bg-slate-200'
-                : 'bg-[#12151f] text-[#8e9bb2] border border-[#1f2536] hover:bg-[#181d2a]'
+                : 'bg-[#161922] text-[#8a919e] border border-[#1e222c] hover:bg-[#1a1f2c]'
             }`}
           >
             All
@@ -387,11 +387,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ? `${style.bg} ${style.text} border ${style.border} font-semibold`
                     : isLight
                     ? 'bg-slate-200/70 text-slate-700 border border-slate-300/60 hover:bg-slate-200'
-                    : 'bg-[#12151f] text-[#8e9bb2] border border-[#1f2536] hover:bg-[#181d2a]'
+                    : 'bg-[#161922] text-[#8a919e] border border-[#1e222c] hover:bg-[#1a1f2c]'
                 }`}
               >
                 <span>{lang}</span>
-                <span className={isLight ? 'text-slate-500' : 'text-[#64748b]'}>({count})</span>
+                <span className={isLight ? 'text-slate-500' : 'text-[#8a919e]'}>({count})</span>
               </button>
             );
           })}
@@ -402,14 +402,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {isSemanticView && (
         <div
           className={`px-3 py-1.5 border-b flex items-center justify-between ${
-            isLight ? 'bg-amber-50/70 border-amber-200/60' : 'bg-[#12151f] border-[#181c26]'
+            isLight ? 'bg-amber-50/70 border-amber-200/60' : 'bg-[#161922] border-[#1e222c]'
           }`}
         >
           <div className="flex items-center gap-1.5 text-[11px] truncate">
             <Lightning size={12} className="text-amber-500 shrink-0" />
             <span
               className={`truncate ${
-                isLight ? 'text-slate-700 font-medium' : 'text-[#94a3b8]'
+                isLight ? 'text-slate-700 font-medium' : 'text-[#8a919e]'
               }`}
             >
               Neural Search: &quot;{searchTerm}&quot;
@@ -430,13 +430,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* SEMANTIC RESULTS MODE */}
         {isSemanticView ? (
           isSearching ? (
-            <div className="py-12 text-center text-[#64748b] text-xs">
+            <div className="py-12 text-center text-[#8a919e] text-xs">
               <ArrowClockwise size={18} className="mx-auto mb-2 text-indigo-500 animate-spin" />
               <span>Computing embeddings...</span>
             </div>
           ) : mode === 'notes' ? (
             chunkResults.length === 0 ? (
-              <div className="py-12 text-center text-[#64748b] text-xs">
+              <div className="py-12 text-center text-[#8a919e] text-xs">
                 No note chunks found for &quot;{searchTerm}&quot;.
               </div>
             ) : (
@@ -449,16 +449,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       selectedNoteId === chunk.note_id
                         ? isLight
                           ? 'bg-indigo-50/90 border-indigo-300 text-slate-900 shadow-xs border-l-[3px] border-l-indigo-600'
-                          : 'bg-[#171b28] border-indigo-500/40 text-white border-l-[3px] border-l-indigo-500'
+                          : 'bg-[#1a1f2c] border-indigo-500/40 text-white border-l-[3px] border-l-indigo-500'
                         : isLight
                         ? 'bg-white border-slate-200 hover:bg-slate-50'
-                        : 'bg-[#10131c] border-[#1c2130] hover:bg-[#141824]'
+                        : 'bg-[#101216] border-[#1e222c] hover:bg-[#161922]'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1.5">
                       <span
                         className={`text-xs font-semibold truncate ${
-                          isLight ? 'text-slate-800' : 'text-[#e2e8f0]'
+                          isLight ? 'text-slate-800' : 'text-[#d8dae0]'
                         }`}
                       >
                         {chunk.deep_link}
@@ -469,7 +469,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                     <p
                       className={`text-[10.5px] line-clamp-2 mt-1 leading-relaxed ${
-                        isLight ? 'text-slate-600' : 'text-[#94a3b8]'
+                        isLight ? 'text-slate-600' : 'text-[#8a919e]'
                       }`}
                     >
                       &quot;{chunk.content}&quot;
@@ -479,7 +479,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             )
           ) : codeChunkResults.length === 0 ? (
-            <div className="py-12 text-center text-[#64748b] text-xs">
+            <div className="py-12 text-center text-[#8a919e] text-xs">
               No code symbols found for &quot;{searchTerm}&quot;.
             </div>
           ) : (
@@ -493,7 +493,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`p-2.5 rounded-lg border transition-all cursor-pointer ${
                     isLight
                       ? 'bg-white border-slate-200 hover:border-sky-400 hover:bg-sky-50/30'
-                      : 'bg-[#10131c] border-[#1c2130] hover:bg-[#141824] hover:border-sky-500/40'
+                      : 'bg-[#101216] border-[#1e222c] hover:bg-[#161922] hover:border-sky-500/40'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1.5">
@@ -512,12 +512,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     className={`text-[10px] font-mono line-clamp-2 mt-1 p-1.5 rounded border ${
                       isLight
                         ? 'bg-slate-50 text-slate-700 border-slate-200'
-                        : 'bg-[#090b10] text-[#94a3b8] border-[#161a26]'
+                        : 'bg-[#0d0f14] text-[#8a919e] border-[#161922]'
                     }`}
                   >
                     {chunk.content}
                   </p>
-                  <div className="flex items-center justify-between text-[9px] font-mono text-[#64748b] mt-1.5">
+                  <div className="flex items-center justify-between text-[9px] font-mono text-[#8a919e] mt-1.5">
                     <span>
                       L{chunk.start_line}–{chunk.end_line}
                     </span>
@@ -585,10 +585,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     isSelected
                       ? isLight
                         ? 'bg-indigo-50/90 border-indigo-200 text-slate-900 shadow-xs border-l-[3px] border-l-indigo-600'
-                        : 'bg-[#181d2a] border-indigo-500/40 text-white shadow-xs border-l-[3px] border-l-indigo-500'
+                        : 'bg-[#1a1f2c] border-indigo-500/40 text-white shadow-xs border-l-[3px] border-l-indigo-500'
                       : isLight
                       ? 'bg-white/90 border-slate-200/80 hover:bg-white hover:border-slate-300 hover:shadow-xs'
-                      : 'bg-transparent border-transparent hover:bg-[#12151f] hover:border-[#1d2230]'
+                      : 'bg-transparent border-transparent hover:bg-[#161922] hover:border-[#1d2230]'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1.5">
@@ -597,10 +597,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         isSelected
                           ? isLight
                             ? 'text-indigo-950 font-bold'
-                            : 'text-[#f8fafc]'
+                            : 'text-[#edeef0]'
                           : isLight
                           ? 'text-slate-800 group-hover:text-slate-950'
-                          : 'text-[#cbd5e1] group-hover:text-[#f8fafc]'
+                          : 'text-[#d8dae0] group-hover:text-[#edeef0]'
                       }`}
                     >
                       {displayTitle}
@@ -621,7 +621,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         className={`opacity-0 group-hover:opacity-100 p-1 rounded transition-all shrink-0 cursor-pointer ${
                           isLight
                             ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
-                            : 'text-[#64748b] hover:text-rose-400 hover:bg-rose-950/40'
+                            : 'text-[#8a919e] hover:text-rose-400 hover:bg-rose-950/40'
                         }`}
                         title="Delete note"
                       >
@@ -648,7 +648,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           className={`text-[9px] font-mono px-1.5 py-0.2 rounded border truncate ${
                             isLight
                               ? 'bg-slate-100 text-slate-600 border-slate-200'
-                              : 'bg-[#171a25] text-[#8e9bb2] border-[#202534]'
+                              : 'bg-[#171a25] text-[#8a919e] border-[#202534]'
                           }`}
                         >
                           #{t}
@@ -716,10 +716,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     isSelected
                       ? isLight
                         ? 'bg-sky-50 border-sky-300 shadow-xs border-l-[3px] border-l-sky-500'
-                        : 'bg-[#181d2a] border-sky-500/40 shadow-xs border-l-[3px] border-l-sky-400'
+                        : 'bg-[#1a1f2c] border-sky-500/40 shadow-xs border-l-[3px] border-l-sky-400'
                       : isLight
                       ? 'bg-white/90 border-slate-200/80 hover:bg-white hover:border-slate-300'
-                      : 'bg-[#10131d]/60 border-transparent hover:bg-[#131722] hover:border-[#1d2232]'
+                      : 'bg-[#101216]/60 border-transparent hover:bg-[#161922] hover:border-[#1d2232]'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1.5">
@@ -735,17 +735,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           isSelected
                             ? isLight
                               ? 'text-sky-950 font-bold'
-                              : 'text-[#f8fafc]'
+                              : 'text-[#edeef0]'
                             : isLight
                             ? 'text-slate-800 group-hover:text-slate-950'
-                            : 'text-[#cbd5e1] group-hover:text-[#f8fafc]'
+                            : 'text-[#d8dae0] group-hover:text-[#edeef0]'
                         }`}
                       >
                         {cf.name}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0 text-[10px] font-mono text-[#64748b]">
+                    <div className="flex items-center gap-1 shrink-0 text-[10px] font-mono text-[#8a919e]">
                       {cf.imports_count > 0 && (
                         <span
                           className="flex items-center text-sky-500"
@@ -769,7 +769,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                   <p
                     className={`text-[10px] font-mono truncate mt-1 ${
-                      isLight ? 'text-slate-400' : 'text-[#64748b]'
+                      isLight ? 'text-slate-400' : 'text-[#8a919e]'
                     }`}
                   >
                     {cf.path}
@@ -786,7 +786,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className={`px-3 py-2 border-t flex items-center justify-between text-[10.5px] font-mono transition-colors ${
           isLight
             ? 'bg-slate-100/70 border-slate-200 text-slate-500'
-            : 'bg-[#090b10] border-[#181c26] text-[#64748b]'
+            : 'bg-[#0d0f14] border-[#1e222c] text-[#8a919e]'
         }`}
       >
         <span className="truncate">
@@ -803,7 +803,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ? 'text-emerald-500 font-semibold'
                   : isLight
                   ? 'text-slate-500 hover:text-slate-800'
-                  : 'text-[#64748b] hover:text-[#94a3b8]'
+                  : 'text-[#8a919e] hover:text-[#8a919e]'
               }`}
               title={
                 hasUpdate

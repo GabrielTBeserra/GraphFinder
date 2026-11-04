@@ -1,163 +1,98 @@
-import React, { useEffect, useRef } from 'react';
-import { Cpu, ShieldCheck, Sparkle, HardDrives } from '@phosphor-icons/react';
+import React from 'react';
+import { Cpu, ShieldCheck, HardDrives } from '@phosphor-icons/react';
 
 interface LoadingScreenProps {
   statusMessage?: string;
   isError?: boolean;
 }
 
+/**
+ * Minimal loading screen — pure CSS, transform/opacity-only animation
+ * so everything stays on the GPU compositor.
+ */
 export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   statusMessage = 'Initializing neural embedding engine...',
   isError = false,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  // Animated background neural network particles
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let animId: number;
-    let width = (canvas.width = window.innerWidth);
-    let height = (canvas.height = window.innerHeight);
-
-    const handleResize = () => {
-      if (!canvas) return;
-      width = canvas.width = window.innerWidth;
-      height = canvas.height = window.innerHeight;
-    };
-    window.addEventListener('resize', handleResize);
-
-    const particles: { x: number; y: number; vx: number; vy: number; radius: number }[] = [];
-    const count = 45;
-
-    for (let i = 0; i < count; i++) {
-      particles.push({
-        x: Math.random() * width,
-        y: Math.random() * height,
-        vx: (Math.random() - 0.5) * 0.6,
-        vy: (Math.random() - 0.5) * 0.6,
-        radius: Math.random() * 2 + 1.5,
-      });
-    }
-
-    const render = () => {
-      ctx.clearRect(0, 0, width, height);
-
-      // Draw connections
-      for (let i = 0; i < count; i++) {
-        for (let j = i + 1; j < count; j++) {
-          const dx = particles[i].x - particles[j].x;
-          const dy = particles[i].y - particles[j].y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < 140) {
-            const alpha = (1 - dist / 140) * 0.22;
-            ctx.strokeStyle = `rgba(99, 102, 241, ${alpha})`;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(particles[i].x, particles[i].y);
-            ctx.lineTo(particles[j].x, particles[j].y);
-            ctx.stroke();
-          }
-        }
-      }
-
-      // Draw & update particles
-      for (const p of particles) {
-        p.x += p.vx;
-        p.y += p.vy;
-
-        if (p.x < 0 || p.x > width) p.vx *= -1;
-        if (p.y < 0 || p.y > height) p.vy *= -1;
-
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, 2 * Math.PI);
-        ctx.fillStyle = '#6366f1';
-        ctx.shadowColor = '#6366f1';
-        ctx.shadowBlur = 8;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-      }
-
-      animId = requestAnimationFrame(render);
-    };
-
-    render();
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      cancelAnimationFrame(animId);
-    };
-  }, []);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#090a0f] overflow-hidden select-none">
-      {/* Animated neural particles canvas in background */}
-      <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none opacity-40" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-canvas overflow-hidden select-none">
+      {/* Slow ambient drift — GPU-composited transform only */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.05] will-change-transform"
+        style={{
+          background:
+            'radial-gradient(circle at 30% 35%, #6d7ae0 0%, transparent 45%), radial-gradient(circle at 70% 65%, #4fb8c8 0%, transparent 40%)',
+          animation: 'gfDrift 24s cubic-bezier(0.16,1,0.3,1) infinite alternate',
+        }}
+      />
+      <style>{`
+        @keyframes gfDrift {
+          from { transform: translate3d(-3%, -2%, 0) scale(1); }
+          to { transform: translate3d(3%, 2%, 0) scale(1.06); }
+        }
+      `}</style>
 
-      {/* Radial spotlight effect */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.12)_0,rgba(9,10,15,0.95)_70%)] pointer-events-none" />
-
-      {/* Main glass card container */}
-      <div className="relative z-10 w-full max-w-md mx-4 p-8 rounded-3xl bg-[#10131d]/85 border border-[#232838] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)] backdrop-blur-2xl flex flex-col items-center text-center">
-        {/* Glowing Brand Icon Capsule */}
-        <div className="relative mb-6">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 to-indigo-400 flex items-center justify-center shadow-[0_0_30px_rgba(99,102,241,0.5)]">
-            <Cpu size={32} weight="duotone" className="text-white" />
-          </div>
-          <div className="absolute -inset-1 rounded-2xl bg-indigo-500/20 blur-md -z-10 animate-pulse" />
+      <div className="relative z-10 w-full max-w-sm mx-4 p-8 rounded-xl bg-surface border border-line flex flex-col items-center text-center">
+        <div className="w-12 h-12 rounded-lg bg-raise border border-line flex items-center justify-center mb-5">
+          <Cpu size={26} weight="duotone" className="text-accent" />
         </div>
 
-        {/* Title & Tagline */}
-        <h1 className="text-xl font-bold tracking-tight text-[#f8fafc] mb-1 flex items-center gap-2">
-          <span>GraphFinder</span>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-400">
-            v0.0.1
+        <h1 className="text-lg font-semibold tracking-tight text-ink mb-0.5 flex items-center gap-2">
+          GraphFinder
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-raise border border-line text-muted">
+            v0.14
           </span>
         </h1>
-        <p className="text-xs text-[#8b9bb4] mb-6">
-          Neural Knowledge Graph &amp; Semantic Vault
-        </p>
+        <p className="text-xs text-muted mb-6">Neural Knowledge Graph &amp; Semantic Vault</p>
 
-        {/* Dynamic Status Display */}
-        <div className="w-full p-4 rounded-2xl bg-[#0a0c12]/90 border border-[#1f2434] mb-6">
+        <div className="w-full p-4 rounded-lg bg-canvas border border-line mb-5 text-left">
           <div className="flex items-center justify-between text-xs mb-2.5">
-            <span className="flex items-center gap-2 text-indigo-300 font-medium">
-              <Sparkle size={14} className="text-indigo-400 animate-spin" />
-              <span>{isError ? 'Initialization Error' : 'Initializing Environment'}</span>
+            <span className="flex items-center gap-2 text-ink font-medium">
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isError ? 'bg-bad' : 'bg-accent'
+                }`}
+                style={isError ? undefined : { animation: 'gfPulse 1.6s ease-in-out infinite' }}
+              />
+              {isError ? 'Initialization Error' : 'Initializing'}
             </span>
-            <span className="font-mono text-[10px] text-emerald-400 font-semibold">
-              OFFLINE / LOCAL
-            </span>
+            <span className="font-mono text-[10px] text-good">LOCAL</span>
           </div>
 
-          {/* Progress Shimmer Bar */}
-          <div className="w-full h-1.5 rounded-full bg-[#161a26] overflow-hidden relative">
-            <div className="absolute top-0 bottom-0 left-0 right-0 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 animate-pulse" />
+          {/* Indeterminate bar — transform-only */}
+          <div className="w-full h-1 rounded-full bg-raise overflow-hidden relative">
+            <div
+              className="absolute inset-y-0 w-1/3 rounded-full bg-accent will-change-transform"
+              style={{ animation: 'gfSlide 1.4s cubic-bezier(0.45,0,0.55,1) infinite' }}
+            />
           </div>
+          <style>{`
+            @keyframes gfSlide {
+              from { transform: translate3d(-110%, 0, 0); }
+              to { transform: translate3d(320%, 0, 0); }
+            }
+            @keyframes gfPulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.35; }
+            }
+          `}</style>
 
-          <p className="text-[11.5px] text-[#94a3b8] mt-2.5 leading-relaxed text-left">
-            {statusMessage}
-          </p>
+          <p className="text-[11.5px] text-muted mt-2.5 leading-relaxed">{statusMessage}</p>
         </div>
 
-        {/* Architecture Badges & Privacy Guarantee */}
-        <div className="grid grid-cols-2 gap-2 w-full text-left text-[11px] text-[#64748b]">
-          <div className="flex items-center gap-1.5 p-2 rounded-xl bg-[#141824]/60 border border-[#1e2333]">
-            <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
-            <span className="truncate">100% Local-First</span>
+        <div className="grid grid-cols-2 gap-2 w-full text-left text-[11px] text-muted">
+          <div className="flex items-center gap-1.5 p-2 rounded-lg bg-raise border border-line">
+            <ShieldCheck size={13} className="text-good shrink-0" />
+            <span className="truncate">Local-first</span>
           </div>
-          <div className="flex items-center gap-1.5 p-2 rounded-xl bg-[#141824]/60 border border-[#1e2333]">
-            <HardDrives size={14} className="text-indigo-400 shrink-0" />
+          <div className="flex items-center gap-1.5 p-2 rounded-lg bg-raise border border-line">
+            <HardDrives size={13} className="text-accent shrink-0" />
             <span className="truncate">FastEmbed ONNX</span>
           </div>
         </div>
 
-        <div className="mt-5 text-[10.5px] text-[#475569]">
-          Model download only occurs on initial launch.
+        <div className="mt-5 text-[10.5px] text-faint">
+          Model download only on first launch.
         </div>
       </div>
     </div>

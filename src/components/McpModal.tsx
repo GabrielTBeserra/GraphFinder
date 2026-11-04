@@ -78,22 +78,22 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-2xl max-h-[92vh] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-[#0f1117] border border-[#232838] p-6 shadow-2xl flex flex-col focus:outline-none overflow-hidden text-[#f1f5f9]">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-2xl max-h-[92vh] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-[#0f1117] border border-[#1e222c] p-6 shadow-2xl flex flex-col focus:outline-none overflow-hidden text-[#edeef0]">
           {/* Header */}
-          <div className="flex items-start justify-between gap-4 pb-4 border-b border-[#1f2433]">
+          <div className="flex items-start justify-between gap-4 pb-4 border-b border-[#1e222c]">
             <div className="flex items-center gap-3">
               <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
                 <Robot size={20} weight="duotone" />
               </div>
               <div>
-                <Dialog.Title className="text-base font-semibold text-[#f8fafc] flex items-center gap-2">
+                <Dialog.Title className="text-base font-semibold text-[#edeef0] flex items-center gap-2">
                   <span>AI Agent Hub: MCP, Rules &amp; Skills</span>
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 font-mono">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     Streamable HTTP Only
                   </span>
                 </Dialog.Title>
-                <Dialog.Description className="text-xs text-[#64748b] mt-0.5">
+                <Dialog.Description className="text-xs text-[#8a919e] mt-0.5">
                   Universal protocol for Cursor, Claude Desktop, VS Code, Windsurf, Zed, and AI Agents with zero-latency SQLite shared memory.
                 </Dialog.Description>
               </div>
@@ -102,7 +102,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
             <Dialog.Close asChild>
               <button
                 type="button"
-                className="rounded-lg p-1.5 text-[#64748b] hover:text-[#f8fafc] hover:bg-[#1a1f2e] transition-colors cursor-pointer"
+                className="rounded-lg p-1.5 text-[#8a919e] hover:text-[#edeef0] hover:bg-[#1a1f2c] transition-colors cursor-pointer"
                 title="Close"
               >
                 <X size={16} />
@@ -115,7 +115,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
             <button
               type="button"
               onClick={() => copyToClipboard(AGENT_RULE_CONTENT, 'rule-quick')}
-              className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-xl bg-[#141824] border border-[#202638] hover:bg-[#1c2233] hover:border-indigo-500/40 text-[#cbd5e1] transition-all cursor-pointer shadow-sm"
+              className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-xl bg-[#161922] border border-[#1e222c] hover:bg-[#1e222c] hover:border-indigo-500/40 text-[#d8dae0] transition-all cursor-pointer shadow-sm"
             >
               {copiedType === 'rule-quick' ? (
                 <>
@@ -133,7 +133,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
             <button
               type="button"
               onClick={() => copyToClipboard(SKILL_CONTENT, 'skill-quick')}
-              className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-xl bg-[#141824] border border-[#202638] hover:bg-[#1c2233] hover:border-indigo-500/40 text-[#cbd5e1] transition-all cursor-pointer shadow-sm"
+              className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-xl bg-[#161922] border border-[#1e222c] hover:bg-[#1e222c] hover:border-indigo-500/40 text-[#d8dae0] transition-all cursor-pointer shadow-sm"
             >
               {copiedType === 'skill-quick' ? (
                 <>
@@ -151,7 +151,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
             <button
               type="button"
               onClick={() => copyToClipboard(currentConfigJson, 'mcp-quick')}
-              className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-xl bg-[#141824] border border-[#202638] hover:bg-[#1c2233] hover:border-indigo-500/40 text-[#cbd5e1] transition-all cursor-pointer shadow-sm"
+              className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-xl bg-[#161922] border border-[#1e222c] hover:bg-[#1e222c] hover:border-indigo-500/40 text-[#d8dae0] transition-all cursor-pointer shadow-sm"
             >
               {copiedType === 'mcp-quick' ? (
                 <>
@@ -169,10 +169,10 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
 
           {/* Radix Tabs Section */}
           <Tabs.Root defaultValue="mcp" className="flex flex-col flex-1 min-h-0">
-            <Tabs.List className="flex items-center gap-1.5 border-b border-[#1f2433] pb-2">
+            <Tabs.List className="flex items-center gap-1.5 border-b border-[#1e222c] pb-2">
               <Tabs.Trigger
                 value="mcp"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#64748b] hover:text-[#cbd5e1] data-[state=active]:bg-[#1a1f2e] data-[state=active]:text-[#f8fafc] data-[state=active]:border data-[state=active]:border-indigo-500/30 transition-all cursor-pointer outline-none"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#8a919e] hover:text-[#d8dae0] data-[state=active]:bg-[#1a1f2c] data-[state=active]:text-[#edeef0] data-[state=active]:border data-[state=active]:border-indigo-500/30 transition-all cursor-pointer outline-none"
               >
                 <Cpu size={14} className="text-indigo-400" />
                 <span>MCP Server (/mcp)</span>
@@ -180,7 +180,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
 
               <Tabs.Trigger
                 value="rule"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#64748b] hover:text-[#cbd5e1] data-[state=active]:bg-[#1a1f2e] data-[state=active]:text-[#f8fafc] data-[state=active]:border data-[state=active]:border-indigo-500/30 transition-all cursor-pointer outline-none"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#8a919e] hover:text-[#d8dae0] data-[state=active]:bg-[#1a1f2c] data-[state=active]:text-[#edeef0] data-[state=active]:border data-[state=active]:border-indigo-500/30 transition-all cursor-pointer outline-none"
               >
                 <FileText size={14} className="text-blue-400" />
                 <span>Agent Rules (AGENTS.md)</span>
@@ -188,7 +188,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
 
               <Tabs.Trigger
                 value="skill"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#64748b] hover:text-[#cbd5e1] data-[state=active]:bg-[#1a1f2e] data-[state=active]:text-[#f8fafc] data-[state=active]:border data-[state=active]:border-indigo-500/30 transition-all cursor-pointer outline-none"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#8a919e] hover:text-[#d8dae0] data-[state=active]:bg-[#1a1f2c] data-[state=active]:text-[#edeef0] data-[state=active]:border data-[state=active]:border-indigo-500/30 transition-all cursor-pointer outline-none"
               >
                 <BookOpen size={14} className="text-purple-400" />
                 <span>Curator Skill (SKILL.md)</span>
@@ -198,11 +198,11 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
             {/* Tab 1: MCP Server (Default) */}
             <Tabs.Content value="mcp" className="flex-1 overflow-y-auto space-y-3 pt-3 outline-none pr-1">
               {/* Server Status Header */}
-              <div className="flex items-center justify-between p-3 rounded-xl bg-[#141824] border border-[#202638]">
+              <div className="flex items-center justify-between p-3 rounded-xl bg-[#161922] border border-[#1e222c]">
                 <div className="flex items-center gap-2.5">
                   <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.6)] animate-pulse" />
                   <div>
-                    <div className="text-xs font-semibold text-[#f8fafc] flex items-center gap-2">
+                    <div className="text-xs font-semibold text-[#edeef0] flex items-center gap-2">
                       <span>Streamable HTTP Server Online</span>
                       <span className="font-mono text-[11px] text-emerald-400">PORT 45123</span>
                       {isServerHealthy !== null && (
@@ -217,7 +217,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] text-[#94a3b8] font-mono mt-0.5">
+                    <div className="text-[11px] text-[#8a919e] font-mono mt-0.5">
                       {mcpUrl}
                     </div>
                   </div>
@@ -226,7 +226,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                 <button
                   type="button"
                   onClick={() => copyToClipboard(mcpUrl, 'url-copy')}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg bg-[#1c2233] hover:bg-[#252c42] border border-[#2b334a] text-[#cbd5e1] transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg bg-[#1e222c] hover:bg-[#252c42] border border-[#2b303e] text-[#d8dae0] transition-colors cursor-pointer"
                 >
                   {copiedType === 'url-copy' ? (
                     <>
@@ -255,15 +255,15 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
 
               {/* Client Configuration Selector */}
               <div>
-                <div className="flex items-center justify-between text-xs text-[#64748b] mb-1.5">
-                  <span className="font-medium text-[#cbd5e1] flex items-center gap-1.5">
+                <div className="flex items-center justify-between text-xs text-[#8a919e] mb-1.5">
+                  <span className="font-medium text-[#d8dae0] flex items-center gap-1.5">
                     <Lightning size={13} className="text-indigo-400" />
                     Select your editor / client:
                   </span>
                   <button
                     type="button"
                     onClick={() => copyToClipboard(getClientSnippet(activeClient), 'mcp-config-tab')}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#141824] border border-[#202638] text-[#cbd5e1] hover:text-[#f8fafc] hover:bg-[#1c2233] transition-colors cursor-pointer text-xs"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#161922] border border-[#1e222c] text-[#d8dae0] hover:text-[#edeef0] hover:bg-[#1e222c] transition-colors cursor-pointer text-xs"
                   >
                     {copiedType === 'mcp-config-tab' ? (
                       <>
@@ -279,14 +279,14 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                   </button>
                 </div>
 
-                <div className="flex items-center gap-1 p-1 rounded-xl bg-[#090b10] border border-[#1f2433] mb-2">
+                <div className="flex items-center gap-1 p-1 rounded-xl bg-[#0d0f14] border border-[#1e222c] mb-2">
                   <button
                     type="button"
                     onClick={() => setActiveClient('cursor')}
                     className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                       activeClient === 'cursor'
                         ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 font-semibold shadow-sm'
-                        : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#141824]'
+                        : 'text-[#8a919e] hover:text-[#edeef0] hover:bg-[#161922]'
                     }`}
                   >
                     Cursor (.cursor/mcp.json)
@@ -297,7 +297,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                     className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                       activeClient === 'claude'
                         ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 font-semibold shadow-sm'
-                        : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#141824]'
+                        : 'text-[#8a919e] hover:text-[#edeef0] hover:bg-[#161922]'
                     }`}
                   >
                     Claude Desktop
@@ -308,25 +308,25 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                     className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                       activeClient === 'universal'
                         ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 font-semibold shadow-sm'
-                        : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#141824]'
+                        : 'text-[#8a919e] hover:text-[#edeef0] hover:bg-[#161922]'
                     }`}
                   >
                     VS Code / Windsurf / Universal
                   </button>
                 </div>
 
-                <pre className="font-mono text-[11px] leading-relaxed p-3.5 rounded-xl bg-[#08090d] border border-[#1f2433] text-indigo-300 overflow-x-auto max-h-40">
+                <pre className="font-mono text-[11px] leading-relaxed p-3.5 rounded-xl bg-[#0a0b0e] border border-[#1e222c] text-indigo-300 overflow-x-auto max-h-40">
                   {getClientSnippet(activeClient)}
                 </pre>
               </div>
 
               {/* Atomic Tools Capability List */}
               <div className="space-y-1.5 pt-1">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#cbd5e1]">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#d8dae0]">
                   <ShieldCheck size={14} className="text-emerald-400" />
                   <span>Available Atomic MCP Tools (All 24 Tools Registered):</span>
                 </div>
-                <ul className="text-[11.5px] text-[#94a3b8] space-y-1 pl-4 list-disc leading-relaxed">
+                <ul className="text-[11.5px] text-[#8a919e] space-y-1 pl-4 list-disc leading-relaxed">
                   <li><strong>Semantic Vault</strong>: <code>search_semantic</code>, <code>get_compressed_context</code>, <code>read_section</code>, <code>store_context</code>, <code>suggest_links</code>, <code>link_notes</code>, <code>get_graph_neighborhood</code>.</li>
                   <li><strong>Code Intelligence</strong>: <code>search_code</code>, <code>find_files</code>, <code>get_file_context</code>, <code>read_code_chunk</code>, <code>get_code_dependencies</code>.</li>
                   <li><strong>Topological Audit</strong>: <code>get_community_report</code>, <code>explain_node</code>, <code>find_path</code>, <code>export_graph</code>.</li>
@@ -337,22 +337,22 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
 
             {/* Tab 2: Agent Rules */}
             <Tabs.Content value="rule" className="flex-1 overflow-y-auto space-y-3 pt-3 outline-none pr-1">
-              <div className="rounded-xl bg-[#141824] border border-[#202638] p-3 text-xs text-[#cbd5e1]">
-                <div className="flex items-center gap-1.5 font-semibold text-[#f8fafc] mb-1">
+              <div className="rounded-xl bg-[#161922] border border-[#1e222c] p-3 text-xs text-[#d8dae0]">
+                <div className="flex items-center gap-1.5 font-semibold text-[#edeef0] mb-1">
                   <CheckCircle size={14} className="text-emerald-400" />
                   <span>How to use in your editor:</span>
                 </div>
-                <p className="text-[11px] text-[#94a3b8] leading-relaxed">
+                <p className="text-[11px] text-[#8a919e] leading-relaxed">
                   Paste this into <code>AGENTS.md</code> or <code>.cursorrules</code> at your workspace root, or in the custom instructions of Cursor, Windsurf, Claude Desktop, or Antigravity.
                 </p>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-[#64748b]">
-                <span className="font-medium text-[#cbd5e1]">Preview of AGENTS.md:</span>
+              <div className="flex items-center justify-between text-xs text-[#8a919e]">
+                <span className="font-medium text-[#d8dae0]">Preview of AGENTS.md:</span>
                 <button
                   type="button"
                   onClick={() => copyToClipboard(AGENT_RULE_CONTENT, 'rule-tab')}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#141824] border border-[#202638] text-[#cbd5e1] hover:text-[#f8fafc] hover:bg-[#1c2233] transition-colors cursor-pointer text-xs"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#161922] border border-[#1e222c] text-[#d8dae0] hover:text-[#edeef0] hover:bg-[#1e222c] transition-colors cursor-pointer text-xs"
                 >
                   {copiedType === 'rule-tab' ? (
                     <>
@@ -368,29 +368,29 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                 </button>
               </div>
 
-              <pre className="font-mono text-[11px] leading-relaxed p-3.5 rounded-xl bg-[#08090d] border border-[#1f2433] text-[#cbd5e1] overflow-x-auto max-h-56">
+              <pre className="font-mono text-[11px] leading-relaxed p-3.5 rounded-xl bg-[#0a0b0e] border border-[#1e222c] text-[#d8dae0] overflow-x-auto max-h-56">
                 {AGENT_RULE_CONTENT}
               </pre>
             </Tabs.Content>
 
             {/* Tab 3: Skill */}
             <Tabs.Content value="skill" className="flex-1 overflow-y-auto space-y-3 pt-3 outline-none pr-1">
-              <div className="rounded-xl bg-[#141824] border border-[#202638] p-3 text-xs text-[#cbd5e1]">
-                <div className="flex items-center gap-1.5 font-semibold text-[#f8fafc] mb-1">
+              <div className="rounded-xl bg-[#161922] border border-[#1e222c] p-3 text-xs text-[#d8dae0]">
+                <div className="flex items-center gap-1.5 font-semibold text-[#edeef0] mb-1">
                   <CheckCircle size={14} className="text-purple-400" />
                   <span>How to install this skill:</span>
                 </div>
-                <p className="text-[11px] text-[#94a3b8] leading-relaxed">
+                <p className="text-[11px] text-[#8a919e] leading-relaxed">
                   Save this into <code>.agents/skills/graphfinder-curator/SKILL.md</code>. Antigravity and compatible agents will automatically discover and load it on demand.
                 </p>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-[#64748b]">
-                <span className="font-medium text-[#cbd5e1]">Preview of SKILL.md:</span>
+              <div className="flex items-center justify-between text-xs text-[#8a919e]">
+                <span className="font-medium text-[#d8dae0]">Preview of SKILL.md:</span>
                 <button
                   type="button"
                   onClick={() => copyToClipboard(SKILL_CONTENT, 'skill-tab')}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#141824] border border-[#202638] text-[#cbd5e1] hover:text-[#f8fafc] hover:bg-[#1c2233] transition-colors cursor-pointer text-xs"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#161922] border border-[#1e222c] text-[#d8dae0] hover:text-[#edeef0] hover:bg-[#1e222c] transition-colors cursor-pointer text-xs"
                 >
                   {copiedType === 'skill-tab' ? (
                     <>
@@ -406,14 +406,14 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
                 </button>
               </div>
 
-              <pre className="font-mono text-[11px] leading-relaxed p-3.5 rounded-xl bg-[#08090d] border border-[#1f2433] text-purple-300 overflow-x-auto max-h-56">
+              <pre className="font-mono text-[11px] leading-relaxed p-3.5 rounded-xl bg-[#0a0b0e] border border-[#1e222c] text-purple-300 overflow-x-auto max-h-56">
                 {SKILL_CONTENT}
               </pre>
             </Tabs.Content>
           </Tabs.Root>
 
           {/* Footer */}
-          <div className="flex items-center justify-end pt-3 border-t border-[#1f2433] mt-3">
+          <div className="flex items-center justify-end pt-3 border-t border-[#1e222c] mt-3">
             <button
               type="button"
               onClick={onClose}
