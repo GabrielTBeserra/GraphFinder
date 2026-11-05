@@ -439,10 +439,19 @@ impl EmbeddingEngine {
     }
 
     pub fn init_reranker(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut opt = RerankInitOptions::default();
-        opt.model_name = RerankerModel::BGERerankerBase;
-        opt.show_download_progress = false;
-        let reranker = TextRerank::try_new(opt)?;
+        let opt = RerankInitOptions::new(RerankerModel::BGERerankerBase)
+            .with_execution_providers(provider_chain())
+            .with_show_download_progress(false);
+        let reranker = match TextRerank::try_new(opt) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[GraphFinder] execution-provider init failed ({e}); retrying CPU-only");
+                TextRerank::try_new(
+                    RerankInitOptions::new(RerankerModel::BGERerankerBase)
+                        .with_show_download_progress(false),
+                )?
+            }
+        };
         if let Ok(mut lock) = self.reranker.lock() {
             *lock = Some(reranker);
         }
