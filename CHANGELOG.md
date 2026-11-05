@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+* **Automatic GPU/CPU execution providers**: ONNX Runtime now registers platform GPU EPs — DirectML on Windows (Intel iGPU, NVIDIA, AMD), CoreML on macOS — with silent per-operator fallback to CPU. No device selection needed on any hardware. `GRAPHFINDER_DEVICE=auto|cpu|dml|coreml|cuda|rocm` forces a backend; `gpu-cuda`/`gpu-rocm` remain opt-in cargo features (they swap the downloaded ORT binary flavor). Same chain applied to the bge-reranker session.
+* **`GRAPHFINDER_BATCH`**: embedding batch size per ONNX call (default 16) with `yield_now()` between spawn_blocking chunks — keeps the UI responsive while fastembed saturates all physical cores during indexing.
+* **`provider` field in `engine-status` events**: reports the requested chain (e.g. `auto(dml->cpu)`) for support/debugging.
+
 ## [0.15.0] - 2026-01-XX
 
 ### Added
