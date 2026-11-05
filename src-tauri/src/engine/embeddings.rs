@@ -394,27 +394,44 @@ impl EmbeddingEngine {
             return Ok(Vec::new());
         }
         self.ensure_initialized().await?;
-        let model = Arc::clone(&self.model);
-        tokio::task::spawn_blocking(move || {
-            let trimmed_texts: Vec<String> = texts
-                .into_iter()
-                .map(|mut s| {
-                    if s.len() > 800 {
-                        let mut end = 800;
-                        while end > 0 && !s.is_char_boundary(end) {
-                            end -= 1;
-                        }
-                        s.truncate(end);
-                    }
-                    s
-                })
-                .collect();
-            let guard = model.lock().map_err(|e| e.to_string())?;
-            let m = guard.as_ref().ok_or("Neural model not loaded")?;
-            let embeddings = m.embed(trimmed_texts, Some(64))?;
-            Ok(embeddings)
-        })
-        .await?
+        let batch_size = std::env::var("GRAPHFINDER_BATCH")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(16);
+        let mut all: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
+        // Chunked spawn_blocking + yield between batches keeps the runtime
+        // responsive while ONNX saturates all physical cores per inference.
+        for chunk in texts.chunks(batch_size) {
+            let chunk: Vec<String> = chunk.to_vec();
+            let model = Arc::clone(&self.model);
+            let mut embeddings = tokio::task::spawn_blocking(
+                move || -> Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
+                    let trimmed_texts: Vec<String> = chunk
+                        .into_iter()
+                        .map(|mut s| {
+                            if s.len() > 800 {
+                                let mut end = 800;
+                                while end > 0 && !s.is_char_boundary(end) {
+                                    end -= 1;
+                                }
+                                s.truncate(end);
+                            }
+                            s
+                        })
+                        .collect();
+                    let guard = model.lock().map_err(|e| e.to_string())?;
+                    let m = guard.as_ref().ok_or("Neural model not loaded")?;
+                    Ok(m.embed(trimmed_texts, Some(64))?)
+                },
+            )
+            .await??;
+            all.append(&mut embeddings);
+            if all.len() < texts.len() {
+                tokio::task::yield_now().await;
+            }
+        }
+        Ok(all)
     }
 
     pub fn is_reranker_ready(&self) -> bool {
