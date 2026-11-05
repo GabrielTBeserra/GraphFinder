@@ -1,4 +1,5 @@
 use axum::{
+    body::{to_bytes, Body},
     extract::{Request, State},
     http::{header, HeaderMap, Method, StatusCode},
     middleware::{self, Next},
@@ -10,18 +11,36 @@ use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager,
     StreamableHttpServerConfig, StreamableHttpService,
 };
+use serde::Serialize;
 use serde_json::json;
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    collections::VecDeque,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 use tauri::AppHandle;
 
 use super::GraphFinderMcpServer;
 use crate::engine::VaultManager;
+
+const CALL_LOG_CAP: usize = 300;
+
+#[derive(Clone, Serialize)]
+pub struct CallLogEntry {
+    pub ts_ms: u128,
+    pub method: String,
+    pub tool: Option<String>,
+    pub status: u16,
+    pub duration_ms: u128,
+}
 
 #[derive(Clone)]
 pub struct ServerState {
     pub manager: Arc<VaultManager>,
     pub app_handle: Option<AppHandle>,
     pub port: u16,
+    pub call_log: Arc<Mutex<VecDeque<CallLogEntry>>>,
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -117,6 +136,112 @@ async fn security_middleware(req: Request, next: Next) -> Result<Response, Statu
         }
     }
     Ok(response)
+}
+
+/// Records every JSON-RPC call hitting /mcp (or /sse) into a bounded ring
+/// buffer so the UI can show live tool-call telemetry.
+async fn telemetry_middleware(
+    State(state): State<ServerState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let path = req.uri().path().to_string();
+    let is_rpc = req.method() == Method::POST && (path == "/mcp" || path == "/sse");
+    if !is_rpc {
+        return next.run(req).await;
+    }
+
+    let (parts, body) = req.into_parts();
+    let bytes = match to_bytes(body, 4 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    };
+
+    // Extract JSON-RPC method + tool name (single object or batch array)
+    let mut calls: Vec<(String, Option<String>)> = Vec::new();
+    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+        let msgs: Vec<&serde_json::Value> = if v.is_array() {
+            v.as_array().map(|a| a.iter().collect()).unwrap_or_default()
+        } else {
+            vec![&v]
+        };
+        for m in msgs {
+            let method = m
+                .get("method")
+                .and_then(|x| x.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let tool = if method == "tools/call" {
+                m.pointer("/params/name")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            };
+            calls.push((method, tool));
+        }
+    }
+
+    let start = Instant::now();
+    let req = Request::from_parts(parts, Body::from(bytes));
+    let response = next.run(req).await;
+    let elapsed = start.elapsed().as_millis();
+
+    if !calls.is_empty() {
+        if let Ok(mut log) = state.call_log.lock() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            for (method, tool) in calls {
+                log.push_back(CallLogEntry {
+                    ts_ms: now,
+                    method,
+                    tool,
+                    status: response.status().as_u16(),
+                    duration_ms: elapsed,
+                });
+                while log.len() > CALL_LOG_CAP {
+                    log.pop_front();
+                }
+            }
+        }
+    }
+
+    response
+}
+
+/// Exposes the live tool registry (names, descriptions, annotations).
+async fn tools_handler() -> Response {
+    let router = GraphFinderMcpServer::tool_router();
+    let tools: Vec<serde_json::Value> = router
+        .list_all()
+        .iter()
+        .map(|t| {
+            let a = t.annotations.as_ref();
+            json!({
+                "name": t.name,
+                "description": t.description,
+                "annotations": {
+                    "readOnly": a.and_then(|x| x.read_only_hint).unwrap_or(false),
+                    "destructive": a.and_then(|x| x.destructive_hint).unwrap_or(false),
+                    "idempotent": a.and_then(|x| x.idempotent_hint).unwrap_or(false),
+                    "openWorld": a.and_then(|x| x.open_world_hint).unwrap_or(true),
+                }
+            })
+        })
+        .collect();
+    Json(json!({ "count": tools.len(), "tools": tools })).into_response()
+}
+
+/// Returns the most recent JSON-RPC/tool calls for the activity feed.
+async fn activity_handler(State(state): State<ServerState>) -> Response {
+    let entries: Vec<CallLogEntry> = state
+        .call_log
+        .lock()
+        .map(|l| l.iter().rev().take(60).cloned().collect())
+        .unwrap_or_default();
+    Json(json!({ "calls": entries })).into_response()
 }
 
 async fn info_handler(
@@ -355,6 +480,7 @@ pub async fn start_http_mcp_server(
         manager: Arc::clone(&manager),
         app_handle: app_handle.clone(),
         port,
+        call_log: Arc::new(Mutex::new(VecDeque::new())),
     };
 
     let server = GraphFinderMcpServer::new(Arc::clone(&manager), app_handle);
@@ -380,9 +506,15 @@ pub async fn start_http_mcp_server(
     let app = Router::new()
         .route("/", get(info_handler))
         .route("/health", get(info_handler))
+        .route("/api/tools", get(tools_handler))
+        .route("/api/mcp-activity", get(activity_handler))
         .route("/mcp", get(info_handler).post_service(mcp_service))
         .route("/sse", get(info_handler).post_service(sse_service))
         .layer(middleware::from_fn(security_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            telemetry_middleware,
+        ))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));

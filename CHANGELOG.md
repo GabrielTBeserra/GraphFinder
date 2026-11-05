@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-01-XX
+
+### Added
+* **Embedding migration to `multilingual-e5-small`** (384d, multilingual PT/EN): automatic vault re-embed driven by a model stamp in the DB meta table — no manual index.db rebuild. E5 `query:`/`passage:` prefixes applied at search vs index time. `GRAPHFINDER_MODEL=minilm` keeps the legacy model; local `models/multilingual-e5-small/` dirs auto-detected.
+* **26 MCP tools** (was 24): `update_section` (surgical `##`/`###` section replacement, heading preserved) and `validate_vault` (AGENTS.md schema audit: H1+summary, 40-150 token sections, broken wikilinks, orphan notes, missing tags).
+* **MCP tool annotations**: read-only/destructive/idempotent/open-world hints on all 26 tools for safer client auto-approval.
+* **MCP prompts**: `onboard_project`, `answer_question`, `investigate_code`, `write_note`, `audit_vault` — encoding the AGENTS.md pipelines as slash commands.
+* **MCP resources**: `graphfinder://instructions`, `//stats`, `//note/{id}`, `//code/{path}` + URI templates.
+* **MCP telemetry**: JSON-RPC call log ring buffer (method, tool, status, latency) exposed via `GET /api/tools` and `GET /api/mcp-activity`; rebuilt agent hub modal with live tool registry, annotation badges and activity feed.
+* **Fuzzy "did you mean"** suggestions on failed note/node lookups (bigram-Jaccard) + `read_section` lists available headings on misses.
+* **Omnisearch (Ctrl+K)**: local fuzzy scorer + semantic chunks + code search (debounced), grouped results, recent items, actions (new note, sync, theme, filters, re-layout, Alt+Enter reveal-in-graph).
+* **Redesigned sidebar**: pinned notes (localStorage), A-Z/recency sort, expandable tag/language chips, reveal-in-graph hover, semantic results strip.
+* **Toolbar tooltips** (PT-BR) on every graph control; `Tip` CSS-only component.
+* **Dark-first design tokens**, self-hosted Geist/JetBrains Mono/Instrument Serif fonts (removed Google Fonts CDN — fully offline).
+* **Code-splitting**: modals + NoteEditor + CodeInspector lazy-loaded; `getLanguageStyle` extracted to shared module.
+
+### Changed
+* Graph renderer restored to force-graph with `autoPauseRedraw` on-demand repaints (idle CPU fix) and a bounded repaint loop for the MCP glow animation.
+* Sidebar search input removed — global Ctrl+K omnisearch is the single search entry point.
+* Auto-link threshold retuned 0.65 → 0.70; `suggest_links` default 0.60 → 0.65 (E5 cosine distribution).
+* Code file list cap raised 200 → 5000 (sidebar count now matches the graph).
+
+### Fixed
+* Embedding-model detection stamps and migrates automatically on the next sync after any model swap.
+
+---
+
 ## [0.4.0] - 2026-10-22
 
 ### Added

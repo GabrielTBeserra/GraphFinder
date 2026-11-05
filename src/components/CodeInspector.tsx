@@ -18,29 +18,9 @@ import {
 import { getFileContext, readCodeChunk } from '../services/api';
 import type { FileContext, CodeChunkHit, SymbolInfo } from '../types';
 
-export const LANGUAGE_COLORS: Record<string, { bg: string; text: string; border: string; hex: string }> = {
-  typescript: { bg: 'bg-sky-500/10', text: 'text-sky-400', border: 'border-sky-500/30', hex: '#38bdf8' },
-  javascript: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/30', hex: '#facc15' },
-  rust: { bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/30', hex: '#f97316' },
-  python: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/30', hex: '#10b981' },
-  go: { bg: 'bg-cyan-500/10', text: 'text-cyan-400', border: 'border-cyan-500/30', hex: '#06b6d4' },
-  c: { bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/30', hex: '#3b82f6' },
-  cpp: { bg: 'bg-blue-600/10', text: 'text-blue-400', border: 'border-blue-600/30', hex: '#2563eb' },
-  csharp: { bg: 'bg-purple-500/10', text: 'text-purple-400', border: 'border-purple-500/30', hex: '#a855f7' },
-  java: { bg: 'bg-amber-600/10', text: 'text-amber-400', border: 'border-amber-600/30', hex: '#ea580c' },
-  kotlin: { bg: 'bg-violet-500/10', text: 'text-violet-400', border: 'border-violet-500/30', hex: '#8b5cf6' },
-  php: { bg: 'bg-indigo-500/10', text: 'text-indigo-400', border: 'border-indigo-500/30', hex: '#6366f1' },
-  ruby: { bg: 'bg-rose-500/10', text: 'text-rose-400', border: 'border-rose-500/30', hex: '#e11d48' },
-  swift: { bg: 'bg-pink-500/10', text: 'text-pink-400', border: 'border-pink-500/30', hex: '#f43f5e' },
-  css: { bg: 'bg-pink-600/10', text: 'text-pink-400', border: 'border-pink-600/30', hex: '#ec4899' },
-  shell: { bg: 'bg-teal-500/10', text: 'text-teal-400', border: 'border-teal-500/30', hex: '#14b8a6' },
-  generic: { bg: 'bg-slate-500/10', text: 'text-slate-400', border: 'border-slate-500/30', hex: '#94a3b8' },
-};
+import { getLanguageStyle, LANGUAGE_COLORS } from './languageStyle';
 
-export function getLanguageStyle(lang: string) {
-  const key = lang.toLowerCase();
-  return LANGUAGE_COLORS[key] || LANGUAGE_COLORS.generic;
-}
+export { getLanguageStyle };
 
 interface CodeInspectorProps {
   fileId: string | null;
@@ -146,11 +126,11 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
         isFullscreen
           ? 'left-0 right-0 w-full'
           : 'right-0 w-full md:w-[480px] lg:w-[540px]'
-      } ${isLight ? 'bg-white border-slate-200 shadow-slate-200/50' : 'bg-[#0b0d13] border-[#181c26]'}`}
+      } ${isLight ? 'bg-white border-slate-200 shadow-slate-200/50' : 'bg-[#0d0f14] border-[#1e222c]'}`}
     >
       {/* Header */}
       <div className={`p-3.5 border-b flex items-start justify-between gap-3 transition-colors ${
-        isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-[#0e1118] border-[#181c26]'
+        isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-[#0d0f14] border-[#1e222c]'
       }`}>
         <div className="flex items-start gap-2.5 min-w-0">
           <div className={`p-2 rounded-lg ${style.bg} border ${style.border} ${style.text} shrink-0 mt-0.5`}>
@@ -158,7 +138,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className={`text-sm font-semibold truncate ${isLight ? 'text-slate-900' : 'text-[#f8fafc]'}`} title={context?.name || fileId}>
+              <h2 className={`text-sm font-semibold truncate ${isLight ? 'text-slate-900' : 'text-[#edeef0]'}`} title={context?.name || fileId}>
                 {context?.name || fileId}
               </h2>
               {context && (
@@ -169,7 +149,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                 </span>
               )}
             </div>
-            <p className="text-[11px] font-mono text-[#64748b] truncate mt-0.5" title={fileId}>
+            <p className="text-[11px] font-mono text-[#8a919e] truncate mt-0.5" title={fileId}>
               {fileId}
             </p>
           </div>
@@ -182,7 +162,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
             className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
               isLight
                 ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700'
-                : 'bg-[#131722] hover:bg-[#181d2a] border-[#202636] text-[#cbd5e1]'
+                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] text-[#d8dae0]'
             }`}
             title="Copy Deep Link wikilink for this file/symbol"
           >
@@ -204,7 +184,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
               isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#64748b] hover:text-[#f8fafc] hover:bg-[#161a24]'
+                : 'text-[#8a919e] hover:text-[#edeef0] hover:bg-[#161922]'
             }`}
             title={isFullscreen ? 'Exit Fullscreen' : 'Focus Mode (Fullscreen)'}
           >
@@ -216,7 +196,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
               isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#64748b] hover:text-[#f8fafc] hover:bg-[#161a24]'
+                : 'text-[#8a919e] hover:text-[#edeef0] hover:bg-[#161922]'
             }`}
             title="Close"
           >
@@ -228,13 +208,13 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
       {loading ? (
         <div
           className={`flex-1 flex flex-col items-center justify-center p-8 text-center ${
-            isLight ? 'text-slate-400' : 'text-[#64748b]'
+            isLight ? 'text-slate-400' : 'text-[#8a919e]'
           }`}
         >
           <Cpu size={28} className="animate-spin text-indigo-500 mb-3" />
           <span
             className={`text-xs font-medium ${
-              isLight ? 'text-slate-700' : 'text-[#cbd5e1]'
+              isLight ? 'text-slate-700' : 'text-[#d8dae0]'
             }`}
           >
             Analyzing AST & Dependencies...
@@ -243,7 +223,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
       ) : !context ? (
         <div
           className={`flex-1 flex flex-col items-center justify-center p-8 text-center ${
-            isLight ? 'text-slate-400' : 'text-[#64748b]'
+            isLight ? 'text-slate-400' : 'text-[#8a919e]'
           }`}
         >
           <span className="text-xs">File not found in index.</span>
@@ -255,7 +235,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
             className={`px-4 py-2 border-b flex items-center justify-between text-[11px] font-mono ${
               isLight
                 ? 'border-slate-200 bg-slate-50 text-slate-500'
-                : 'border-[#1b202c] bg-[#0e1118] text-[#64748b]'
+                : 'border-[#1b202c] bg-[#0d0f14] text-[#8a919e]'
             }`}
           >
             <div className="flex items-center gap-3">
@@ -275,7 +255,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
             className={`flex items-center border-b px-3 ${
               isLight
                 ? 'border-slate-200 bg-white'
-                : 'border-[#1f2433] bg-[#11141c]'
+                : 'border-[#1e222c] bg-[#11141c]'
             }`}
             role="tablist"
           >
@@ -288,10 +268,10 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                 activeTab === 'symbols'
                   ? isLight
                     ? 'border-indigo-600 text-indigo-600 font-semibold'
-                    : 'border-indigo-500 text-[#f8fafc]'
+                    : 'border-indigo-500 text-[#edeef0]'
                   : isLight
                   ? 'border-transparent text-slate-500 hover:text-slate-800'
-                  : 'border-transparent text-[#64748b] hover:text-[#cbd5e1]'
+                  : 'border-transparent text-[#8a919e] hover:text-[#d8dae0]'
               }`}
             >
               <BracketsCurly size={14} />
@@ -307,10 +287,10 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                 activeTab === 'deps'
                   ? isLight
                     ? 'border-indigo-600 text-indigo-600 font-semibold'
-                    : 'border-indigo-500 text-[#f8fafc]'
+                    : 'border-indigo-500 text-[#edeef0]'
                   : isLight
                   ? 'border-transparent text-slate-500 hover:text-slate-800'
-                  : 'border-transparent text-[#64748b] hover:text-[#cbd5e1]'
+                  : 'border-transparent text-[#8a919e] hover:text-[#d8dae0]'
               }`}
             >
               <GitBranch size={14} />
@@ -328,10 +308,10 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                 activeTab === 'code'
                   ? isLight
                     ? 'border-indigo-600 text-indigo-600 font-semibold'
-                    : 'border-indigo-500 text-[#f8fafc]'
+                    : 'border-indigo-500 text-[#edeef0]'
                   : isLight
                   ? 'border-transparent text-slate-500 hover:text-slate-800'
-                  : 'border-transparent text-[#64748b] hover:text-[#cbd5e1]'
+                  : 'border-transparent text-[#8a919e] hover:text-[#d8dae0]'
               }`}
             >
               <Code size={14} />
@@ -345,13 +325,13 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
               <div className="space-y-3">
                 <div
                   className={`text-[11px] font-medium uppercase tracking-wider ${
-                    isLight ? 'text-slate-500' : 'text-[#64748b]'
+                    isLight ? 'text-slate-500' : 'text-[#8a919e]'
                   }`}
                 >
                   Declared Symbols (Functions, Classes, Structs)
                 </div>
                 {context.symbols.length === 0 ? (
-                  <p className={`text-xs italic ${isLight ? 'text-slate-400' : 'text-[#64748b]'}`}>
+                  <p className={`text-xs italic ${isLight ? 'text-slate-400' : 'text-[#8a919e]'}`}>
                     No isolated top-level symbols detected in this file.
                   </p>
                 ) : (
@@ -366,10 +346,10 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                             isCurrent
                               ? isLight
                                 ? 'bg-indigo-50 border-indigo-300 text-indigo-950 font-medium shadow-xs'
-                                : 'bg-indigo-600/10 border-indigo-500/50 text-[#f8fafc]'
+                                : 'bg-indigo-600/10 border-indigo-500/50 text-[#edeef0]'
                               : isLight
                               ? 'bg-slate-50/70 border-slate-200 hover:bg-slate-100 text-slate-800'
-                              : 'bg-[#12151f] border-[#1f2434] hover:bg-[#161a26] text-[#cbd5e1]'
+                              : 'bg-[#161922] border-[#1e222c] hover:bg-[#161922] text-[#d8dae0]'
                           }`}
                         >
                           <div className="flex items-center justify-between">
@@ -385,7 +365,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                             </div>
                             <div
                               className={`flex items-center gap-2 shrink-0 text-[10px] font-mono ${
-                                isLight ? 'text-slate-500' : 'text-[#64748b]'
+                                isLight ? 'text-slate-500' : 'text-[#8a919e]'
                               }`}
                             >
                               <span>
@@ -395,7 +375,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                                 className={`px-1.5 py-0.5 rounded border ${
                                   isLight
                                     ? 'bg-white border-slate-200 text-slate-600 shadow-2xs'
-                                    : 'bg-[#1a1f2c] border-[#262c3e] text-[#64748b]'
+                                    : 'bg-[#1a1f2c] border-[#262c3e] text-[#8a919e]'
                                 }`}
                               >
                                 ~{sym.token_estimate} tok
@@ -447,14 +427,14 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                 <div>
                   <div
                     className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider mb-2 ${
-                      isLight ? 'text-sky-600' : 'text-[#38bdf8]'
+                      isLight ? 'text-sky-600' : 'text-[#5fa8d9]'
                     }`}
                   >
                     <ArrowUpRight size={13} weight="bold" />
                     <span>Imported Files ({context.imported_files.length})</span>
                   </div>
                   {context.imported_files.length === 0 ? (
-                    <p className={`text-xs italic ${isLight ? 'text-slate-400' : 'text-[#64748b]'}`}>
+                    <p className={`text-xs italic ${isLight ? 'text-slate-400' : 'text-[#8a919e]'}`}>
                       Does not import other local project files.
                     </p>
                   ) : (
@@ -466,7 +446,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                           className={`flex items-center justify-between p-2 rounded-lg border text-xs font-mono transition-all cursor-pointer group ${
                             isLight
                               ? 'bg-slate-50 border-slate-200 hover:border-sky-400 hover:bg-sky-50/50 text-slate-800'
-                              : 'bg-[#12151f] border-[#1f2434] hover:border-sky-500/40 hover:bg-[#161a26] text-[#cbd5e1]'
+                              : 'bg-[#161922] border-[#1e222c] hover:border-sky-500/40 hover:bg-[#161922] text-[#d8dae0]'
                           }`}
                         >
                           <span className="truncate">{imp}</span>
@@ -475,7 +455,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                             className={`shrink-0 ${
                               isLight
                                 ? 'text-slate-400 group-hover:text-sky-600'
-                                : 'text-[#64748b] group-hover:text-sky-400'
+                                : 'text-[#8a919e] group-hover:text-sky-400'
                             }`}
                           />
                         </div>
@@ -495,7 +475,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                     <span>External Packages ({context.external_packages.length})</span>
                   </div>
                   {context.external_packages.length === 0 ? (
-                    <p className={`text-xs italic ${isLight ? 'text-slate-400' : 'text-[#64748b]'}`}>
+                    <p className={`text-xs italic ${isLight ? 'text-slate-400' : 'text-[#8a919e]'}`}>
                       No external dependencies declared.
                     </p>
                   ) : (
@@ -506,7 +486,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                           className={`px-2 py-1 rounded-md border text-[11px] font-mono ${
                             isLight
                               ? 'bg-slate-50 border-slate-200 text-slate-700'
-                              : 'bg-[#12151f] border-[#1f2434] text-[#94a3b8]'
+                              : 'bg-[#161922] border-[#1e222c] text-[#8a919e]'
                           }`}
                         >
                           {pkg}
@@ -527,7 +507,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                     <span>Imported By ({context.dependent_files.length})</span>
                   </div>
                   {context.dependent_files.length === 0 ? (
-                    <p className={`text-xs italic ${isLight ? 'text-slate-400' : 'text-[#64748b]'}`}>
+                    <p className={`text-xs italic ${isLight ? 'text-slate-400' : 'text-[#8a919e]'}`}>
                       No local files import this file directly.
                     </p>
                   ) : (
@@ -539,7 +519,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                           className={`flex items-center justify-between p-2 rounded-lg border text-xs font-mono transition-all cursor-pointer group ${
                             isLight
                               ? 'bg-slate-50 border-slate-200 hover:border-violet-400 hover:bg-violet-50/50 text-slate-800'
-                              : 'bg-[#12151f] border-[#1f2434] hover:border-violet-500/40 hover:bg-[#161a26] text-[#cbd5e1]'
+                              : 'bg-[#161922] border-[#1e222c] hover:border-violet-500/40 hover:bg-[#161922] text-[#d8dae0]'
                           }`}
                         >
                           <span className="truncate">{dep}</span>
@@ -548,7 +528,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                             className={`shrink-0 ${
                               isLight
                                 ? 'text-slate-400 group-hover:text-violet-600'
-                                : 'text-[#64748b] group-hover:text-violet-400'
+                                : 'text-[#8a919e] group-hover:text-violet-400'
                             }`}
                           />
                         </div>
@@ -564,7 +544,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                 <div className="flex items-center justify-between">
                   <div
                     className={`text-[11px] font-medium uppercase tracking-wider ${
-                      isLight ? 'text-slate-500' : 'text-[#64748b]'
+                      isLight ? 'text-slate-500' : 'text-[#8a919e]'
                     }`}
                   >
                     {activeChunk?.symbol_name
@@ -578,7 +558,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                       className={`flex items-center gap-1 text-[11px] font-mono cursor-pointer transition-colors ${
                         isLight
                           ? 'text-slate-500 hover:text-slate-900'
-                          : 'text-[#64748b] hover:text-[#f8fafc]'
+                          : 'text-[#8a919e] hover:text-[#edeef0]'
                       }`}
                     >
                       {copiedCode ? (
@@ -599,7 +579,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                 {loadingChunk ? (
                   <div
                     className={`py-12 text-center text-xs ${
-                      isLight ? 'text-slate-400' : 'text-[#64748b]'
+                      isLight ? 'text-slate-400' : 'text-[#8a919e]'
                     }`}
                   >
                     <Cpu size={20} className="animate-spin text-indigo-500 mx-auto mb-2" />
@@ -610,7 +590,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                     className={`relative rounded-xl border overflow-hidden ${
                       isLight
                         ? 'bg-slate-900 border-slate-700 text-slate-100 shadow-sm'
-                        : 'bg-[#090b10] border-[#1b202c] text-[#e2e8f0]'
+                        : 'bg-[#0d0f14] border-[#1b202c] text-[#d8dae0]'
                     }`}
                   >
                     <pre className="p-3 text-[11.5px] font-mono leading-relaxed overflow-x-auto whitespace-pre">
@@ -622,7 +602,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                     className={`p-4 rounded-lg border text-xs text-center ${
                       isLight
                         ? 'bg-slate-50 border-slate-200 text-slate-500'
-                        : 'bg-[#12151f] border-[#1f2434] text-[#64748b]'
+                        : 'bg-[#161922] border-[#1e222c] text-[#8a919e]'
                     }`}
                   >
                     Select a symbol in the "Symbols" tab to inspect its isolated excerpt.

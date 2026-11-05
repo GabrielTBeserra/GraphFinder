@@ -80,18 +80,18 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#111318] border border-[#262933] p-6 shadow-2xl focus:outline-none text-[#f1f5f9]">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#0d0f14] border border-[#1e222c] p-6 shadow-2xl focus:outline-none text-[#edeef0]">
           {/* Header */}
-          <div className="flex items-start justify-between gap-4 mb-5 pb-3 border-b border-[#1f232d]">
+          <div className="flex items-start justify-between gap-4 mb-5 pb-3 border-b border-[#1e222c]">
             <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#161922] border border-[#262a36] text-[#cbd5e1]">
+              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#161922] border border-[#1e222c] text-[#d8dae0]">
                 <FolderPlus size={16} weight="regular" />
               </div>
               <div>
-                <Dialog.Title className="text-sm font-semibold text-[#f8fafc]">
+                <Dialog.Title className="text-sm font-semibold text-[#edeef0]">
                   Create or Open Knowledge Vault
                 </Dialog.Title>
-                <Dialog.Description className="text-xs text-[#64748b] mt-0.5">
+                <Dialog.Description className="text-xs text-[#8a919e] mt-0.5">
                   Local-first storage in any directory on your computer.
                 </Dialog.Description>
               </div>
@@ -100,7 +100,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             <Dialog.Close asChild>
               <button
                 type="button"
-                className="rounded-md p-1.5 text-[#64748b] hover:text-[#f8fafc] hover:bg-[#1a1e28] transition-colors cursor-pointer"
+                className="rounded-md p-1.5 text-[#8a919e] hover:text-[#edeef0] hover:bg-[#1a1f2c] transition-colors cursor-pointer"
                 title="Close"
               >
                 <X size={15} />
@@ -113,14 +113,14 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             <div>
               <label
                 htmlFor="project-name-input"
-                className="block text-xs font-medium text-[#cbd5e1] mb-1.5"
+                className="block text-xs font-medium text-[#d8dae0] mb-1.5"
               >
                 Project / Vault Name
               </label>
               <input
                 id="project-name-input"
                 type="text"
-                className="w-full px-3 py-2 text-xs rounded-md bg-[#0d0f14] border border-[#1f232d] text-[#f8fafc] placeholder-[#64748b] focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/40 transition-all"
+                className="w-full px-3 py-2 text-xs rounded-md bg-[#0d0f14] border border-[#1e222c] text-[#edeef0] placeholder-[#8a919e] focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/40 transition-all"
                 placeholder="e.g., Research Notes, AI Engineering, Second Brain..."
                 value={name}
                 onChange={(e) => {
@@ -137,7 +137,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               <div className="flex items-center justify-between mb-1.5">
                 <label
                   htmlFor="project-path-input"
-                  className="text-xs font-medium text-[#cbd5e1]"
+                  className="text-xs font-medium text-[#d8dae0]"
                 >
                   Storage Location on Disk
                 </label>
@@ -145,7 +145,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setCustomPath('')}
-                    className="text-[10px] text-[#64748b] hover:text-[#cbd5e1] transition-colors cursor-pointer"
+                    className="text-[10px] text-[#8a919e] hover:text-[#d8dae0] transition-colors cursor-pointer"
                   >
                     Restore default location
                   </button>
@@ -157,7 +157,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   <input
                     id="project-path-input"
                     type="text"
-                    className="w-full px-3 py-2 text-xs rounded-md bg-[#0d0f14] border border-[#1f232d] text-[#f8fafc] placeholder-[#64748b] focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/40 transition-all font-mono"
+                    className="w-full px-3 py-2 text-xs rounded-md bg-[#0d0f14] border border-[#1e222c] text-[#edeef0] placeholder-[#8a919e] focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/40 transition-all font-mono"
                     placeholder="Select a folder or leave blank for default..."
                     value={customPath}
                     onChange={(e) => setCustomPath(e.target.value)}
@@ -168,41 +168,41 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 <button
                   type="button"
                   onClick={handleBrowseFolder}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md bg-[#13161f] hover:bg-[#1a1e28] text-[#cbd5e1] border border-[#1e222d] hover:border-[#2d3342] transition-colors cursor-pointer shrink-0"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md bg-[#161922] hover:bg-[#1a1f2c] text-[#d8dae0] border border-[#1e222c] hover:border-[#2d3342] transition-colors cursor-pointer shrink-0"
                   title="Open folder picker dialog"
                 >
-                  <FolderOpen size={14} className="text-[#38bdf8]" />
+                  <FolderOpen size={14} className="text-[#5fa8d9]" />
                   <span>Choose Folder</span>
                 </button>
               </div>
             </div>
 
             {/* Architecture Preview matching banner.svg lines 53-56 */}
-            <div className="rounded-lg bg-[#12151c] border border-[#1e222d] p-3 space-y-2">
-              <div className="flex items-center gap-2 text-[#cbd5e1] text-xs font-medium">
-                <Database size={13} className="text-[#64748b]" />
+            <div className="rounded-lg bg-[#12151c] border border-[#1e222c] p-3 space-y-2">
+              <div className="flex items-center gap-2 text-[#d8dae0] text-xs font-medium">
+                <Database size={13} className="text-[#8a919e]" />
                 <span>Selected Directory:</span>
               </div>
 
-              <div className="font-mono text-[11px] space-y-1 text-[#94a3b8]">
+              <div className="font-mono text-[11px] space-y-1 text-[#8a919e]">
                 <div className="flex items-center gap-1.5 truncate">
                   {customPath ? (
-                    <HardDrive size={12} className="text-[#38bdf8] shrink-0" />
+                    <HardDrive size={12} className="text-[#5fa8d9] shrink-0" />
                   ) : (
-                    <Folder size={12} className="text-[#64748b] shrink-0" />
+                    <Folder size={12} className="text-[#8a919e] shrink-0" />
                   )}
                   <span>Vault Folder:</span>
-                  <span className="text-[#f8fafc] truncate">{effectiveVaultPath}</span>
+                  <span className="text-[#edeef0] truncate">{effectiveVaultPath}</span>
                 </div>
                 <div className="flex items-center gap-1.5 truncate">
-                  <Database size={12} className="text-[#64748b] shrink-0" />
+                  <Database size={12} className="text-[#8a919e] shrink-0" />
                   <span>SQLite Index:</span>
-                  <span className="text-[#f8fafc] truncate">{effectiveVaultPath.replace(/[\\/]$/, '')}/index.db</span>
+                  <span className="text-[#edeef0] truncate">{effectiveVaultPath.replace(/[\\/]$/, '')}/index.db</span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 text-[11px] text-[#64748b] pt-1">
-                <CheckCircle size={12} className="text-[#10b981] shrink-0" />
+              <div className="flex items-center gap-1.5 text-[11px] text-[#8a919e] pt-1">
+                <CheckCircle size={12} className="text-[#4fb08c] shrink-0" />
                 <span>Existing Markdown notes in the folder will be indexed automatically.</span>
               </div>
             </div>
@@ -214,12 +214,12 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             )}
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1f232d]">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1e222c]">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="px-3 py-1.5 text-xs font-medium text-[#64748b] hover:text-[#f8fafc] hover:bg-[#1a1e28] rounded-md transition-colors cursor-pointer"
+                className="px-3 py-1.5 text-xs font-medium text-[#8a919e] hover:text-[#edeef0] hover:bg-[#1a1f2c] rounded-md transition-colors cursor-pointer"
               >
                 Cancel
               </button>

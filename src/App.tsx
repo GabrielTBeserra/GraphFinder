@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
   fetchGraph,
@@ -26,15 +26,26 @@ import type {
   SyncProgress,
 } from './types';
 import { GraphView } from './components/GraphView';
-import { NoteEditor } from './components/NoteEditor';
-import { CodeInspector } from './components/CodeInspector';
 import { Sidebar } from './components/Sidebar';
-import { McpModal } from './components/McpModal';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
-import { NewProjectModal } from './components/NewProjectModal';
 import { OmnisearchModal } from './components/OmnisearchModal';
 import { UpdateBanner } from './components/UpdateBanner';
-import { ReleaseModal } from './components/ReleaseModal';
+
+const NoteEditorLazy = React.lazy(() =>
+  import('./components/NoteEditor').then((m) => ({ default: m.NoteEditor }))
+);
+const CodeInspectorLazy = React.lazy(() =>
+  import('./components/CodeInspector').then((m) => ({ default: m.CodeInspector }))
+);
+const McpModal = React.lazy(() =>
+  import('./components/McpModal').then((m) => ({ default: m.McpModal }))
+);
+const NewProjectModal = React.lazy(() =>
+  import('./components/NewProjectModal').then((m) => ({ default: m.NewProjectModal }))
+);
+const ReleaseModal = React.lazy(() =>
+  import('./components/ReleaseModal').then((m) => ({ default: m.ReleaseModal }))
+);
 import { checkForUpdates, type ReleaseInfo } from './services/updater';
 import {
   ArrowClockwise,
@@ -90,7 +101,13 @@ export const App: React.FC = () => {
   const [isOmnisearchOpen, setIsOmnisearchOpen] = useState(false);
   const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('gf_sidebar') !== '0';
+    } catch {
+      return true;
+    }
+  });
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null);
   const loadGenRef = useRef<number>(0);
@@ -124,6 +141,14 @@ export const App: React.FC = () => {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gf_sidebar', isSidebarOpen ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, [isSidebarOpen]);
 
   useEffect(() => {
     if (theme === 'light') {
@@ -188,6 +213,11 @@ export const App: React.FC = () => {
       if (note) {
         setActiveNote(note);
         setSelectedNoteId(note.id);
+        try {
+          localStorage.setItem('gf_last_note', note.id);
+        } catch {
+          // ignore
+        }
         return;
       }
       // If not found directly by id, search in notes list
@@ -228,6 +258,10 @@ export const App: React.FC = () => {
     setSelectedNoteId(path);
     setSelectedCodeSymbol(symbol || null);
     setIsCodeInspectorOpen(true);
+  }, []);
+
+  const handleRevealNode = useCallback((id: string) => {
+    setGlowingNode({ id, timestamp: Date.now() });
   }, []);
 
   const handleClearSelection = useCallback(() => {
@@ -305,10 +339,17 @@ export const App: React.FC = () => {
             if (!isCancelled) {
               setNotes(nData);
               if (nData.length > 0) {
-                setSelectedNoteId(nData[0].id);
+                let initialId = nData[0].id;
+                try {
+                  const last = localStorage.getItem('gf_last_note');
+                  if (last && nData.some((n) => n.id === last)) initialId = last;
+                } catch {
+                  // ignore
+                }
+                setSelectedNoteId(initialId);
                 setIsEditorOpen(false);
                 try {
-                  const firstNote = await fetchNote(nData[0].id);
+                  const firstNote = await fetchNote(initialId);
                   if (!isCancelled && firstNote) {
                     setActiveNote(firstNote);
                   }
@@ -616,13 +657,13 @@ export const App: React.FC = () => {
   return (
     <div
       className={`flex flex-col w-screen h-screen overflow-hidden select-none transition-colors ${
-        isLight ? 'bg-slate-50 text-slate-800' : 'bg-[#090a0f] text-[#f1f5f9]'
+        isLight ? 'bg-slate-50 text-slate-800' : 'bg-[#0a0b0e] text-[#edeef0]'
       }`}
     >
       {/* Titlebar / Minimalist Header */}
       <header
         className={`h-12 px-3.5 flex items-center justify-between border-b shrink-0 z-40 transition-colors ${
-          isLight ? 'border-slate-200 bg-white shadow-2xs' : 'border-[#181c26] bg-[#0c0e14]'
+          isLight ? 'border-slate-200 bg-white shadow-2xs' : 'border-[#1e222c] bg-[#0d0f14]'
         }`}
       >
         {/* Left Section: Brand & Integrated Project Switcher */}
@@ -633,7 +674,7 @@ export const App: React.FC = () => {
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
               isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#161a24]'
+                : 'text-[#8a919e] hover:text-[#edeef0] hover:bg-[#161922]'
             }`}
             title={isSidebarOpen ? 'Collapse Sidebar (Ctrl+B)' : 'Expand Sidebar (Ctrl+B)'}
           >
@@ -643,14 +684,14 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-2 mr-1">
             <span
               className={`text-[13px] font-bold tracking-[0.2px] ${
-                isLight ? 'text-slate-900' : 'text-[#f8fafc]'
+                isLight ? 'text-slate-900' : 'text-[#edeef0]'
               }`}
             >
               GraphFinder
             </span>
           </div>
 
-          <div className={`w-[1px] h-4 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-[#1f2433]'}`} />
+          <div className={`w-[1px] h-4 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-[#1e222c]'}`} />
 
           {/* Project Switcher */}
           <ProjectSwitcher
@@ -670,14 +711,14 @@ export const App: React.FC = () => {
             className={`flex items-center justify-between w-64 md:w-80 h-7 px-2.5 rounded-lg border text-xs transition-all cursor-pointer shadow-xs ${
               isLight
                 ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 hover:border-slate-300 text-slate-500'
-                : 'bg-[#12151f] hover:bg-[#161b28] border-[#1f2536] hover:border-[#2f384f] text-[#64748b] hover:text-[#94a3b8]'
+                : 'bg-[#161922] hover:bg-[#161922] border-[#1e222c] hover:border-[#2b303e] text-[#8a919e] hover:text-[#8a919e]'
             }`}
             title="Search entire project (Ctrl+K)"
           >
             <div className="flex items-center gap-2 truncate">
               <MagnifyingGlass
                 size={13}
-                className={`${isLight ? 'text-slate-400' : 'text-[#64748b]'} shrink-0`}
+                className={`${isLight ? 'text-slate-400' : 'text-[#8a919e]'} shrink-0`}
               />
               <span className="truncate">Search notes or code...</span>
             </div>
@@ -685,7 +726,7 @@ export const App: React.FC = () => {
               className={`hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded border text-[9px] font-mono shrink-0 ${
                 isLight
                   ? 'bg-white border-slate-200 text-slate-500 shadow-2xs'
-                  : 'bg-[#1a2030] border-[#252e44] text-[#94a3b8]'
+                  : 'bg-[#1a1f2c] border-[#2b303e] text-[#8a919e]'
               }`}
             >
               Ctrl K
@@ -725,7 +766,7 @@ export const App: React.FC = () => {
             className={`inline-flex items-center justify-center w-7 h-7 rounded-lg border transition-all cursor-pointer ${
               isLight
                 ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-amber-500 hover:text-amber-600 shadow-2xs'
-                : 'bg-[#131620] hover:bg-[#191d2c] border-[#202636] hover:border-[#2f384f] text-amber-300 hover:text-amber-200'
+                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-amber-300 hover:text-amber-200'
             }`}
             title={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
           >
@@ -751,7 +792,7 @@ export const App: React.FC = () => {
             className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer disabled:opacity-50 ${
               isLight
                 ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 hover:border-slate-300 text-slate-700 shadow-2xs'
-                : 'bg-[#131620] hover:bg-[#191d2c] border-[#202636] hover:border-[#2f384f] text-[#cbd5e1]'
+                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-[#d8dae0]'
             }`}
             title="Synchronize notes and code vault"
           >
@@ -763,7 +804,7 @@ export const App: React.FC = () => {
                   ? 'animate-spin text-indigo-500'
                   : isLight
                   ? 'text-slate-500'
-                  : 'text-[#64748b]'
+                  : 'text-[#8a919e]'
               }
             />
             <span className="text-[11px]">{isSyncing ? 'Sync...' : 'Sync'}</span>
@@ -793,14 +834,14 @@ export const App: React.FC = () => {
             className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
               isLight
                 ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 hover:border-slate-300 text-slate-700 shadow-2xs'
-                : 'bg-[#131620] hover:bg-[#191d2c] border-[#202636] hover:border-[#2f384f] text-[#cbd5e1]'
+                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-[#d8dae0]'
             }`}
             title="MCP Connection &amp; Agent Rules"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             <span
               className={`text-[11px] font-mono ${
-                isLight ? 'text-slate-600' : 'text-[#94a3b8]'
+                isLight ? 'text-slate-600' : 'text-[#8a919e]'
               }`}
             >
               MCP
@@ -821,7 +862,7 @@ export const App: React.FC = () => {
       {syncProgress && (
         <div
           className={`shrink-0 border-b px-4 py-2 ${
-            isLight ? 'border-slate-200 bg-white' : 'border-[#202636] bg-[#0d1017]'
+            isLight ? 'border-slate-200 bg-white' : 'border-[#1e222c] bg-[#0d0f14]'
           }`}
           role="status"
           aria-live="polite"
@@ -836,7 +877,7 @@ export const App: React.FC = () => {
             </span>
             <span
               className={`min-w-0 flex-1 truncate text-[10px] font-mono ${
-                isLight ? 'text-slate-600' : 'text-[#aab4c5]'
+                isLight ? 'text-slate-600' : 'text-[#8a919e]'
               }`}
               title={syncProgress.current_file ?? undefined}
             >
@@ -853,7 +894,7 @@ export const App: React.FC = () => {
             )}
             <div
               className={`h-1 w-20 shrink-0 overflow-hidden rounded-full sm:w-28 ${
-                isLight ? 'bg-slate-200' : 'bg-[#252c3b]'
+                isLight ? 'bg-slate-200' : 'bg-[#2b303e]'
               }`}
               role="progressbar"
               aria-label="Vault synchronization progress"
@@ -880,7 +921,7 @@ export const App: React.FC = () => {
       {/* Main Studio Body */}
       <div
         className={`flex-1 flex overflow-hidden relative ${
-          isLight ? 'bg-slate-100' : 'bg-[#111318]'
+          isLight ? 'bg-slate-100' : 'bg-[#0d0f14]'
         }`}
       >
         <Sidebar
@@ -895,19 +936,20 @@ export const App: React.FC = () => {
           onDeleteNote={handleDeleteNote}
           onSearchSemantic={handleSearchSemantic}
           onSearchCode={handleSearchCode}
+          onRevealInGraph={(id) => setGlowingNode({ id, timestamp: Date.now() })}
           chunkResults={chunkResults}
           codeChunkResults={codeChunkResults}
           isSearching={isSearching}
           isCollapsed={!isSidebarOpen}
           theme={theme}
-          appVersion={releaseInfo?.currentVersion || '0.14.0'}
+          appVersion={releaseInfo?.currentVersion || '0.15.0'}
           hasUpdate={releaseInfo?.hasUpdate}
           onOpenReleases={() => setIsReleaseModalOpen(true)}
         />
 
         <main
           className={`flex-1 relative h-full overflow-hidden ${
-            isLight ? 'bg-[#f8fafc]' : 'bg-[#090a0f]'
+            isLight ? 'bg-[#f7f6f3]' : 'bg-[#0a0b0e]'
           }`}
         >
           <GraphView
@@ -923,7 +965,8 @@ export const App: React.FC = () => {
           />
 
           {isEditorOpen && (
-            <NoteEditor
+            <Suspense fallback={null}>
+            <NoteEditorLazy
               note={activeNote}
               onSave={handleSaveNote}
               onDelete={handleDeleteNote}
@@ -932,10 +975,12 @@ export const App: React.FC = () => {
               availableNotes={notes}
               theme={theme}
             />
+            </Suspense>
           )}
 
           {isCodeInspectorOpen && selectedCodePath && (
-            <CodeInspector
+            <Suspense fallback={null}>
+            <CodeInspectorLazy
               fileId={selectedCodePath}
               initialSymbol={selectedCodeSymbol}
               onClose={() => setIsCodeInspectorOpen(false)}
@@ -945,6 +990,7 @@ export const App: React.FC = () => {
               }}
               theme={theme}
             />
+            </Suspense>
           )}
         </main>
       </div>
@@ -957,21 +1003,37 @@ export const App: React.FC = () => {
         codeFiles={codeFiles}
         onSelectNote={handleSelectNote}
         onSelectCodeFile={handleSelectCodeFile}
+        onRevealNode={handleRevealNode}
+        onNewNote={handleNewNote}
+        onSync={handleSync}
+        onToggleTheme={toggleTheme}
         theme={theme}
       />
-      <McpModal isOpen={isMcpModalOpen} onClose={() => setIsMcpModalOpen(false)} />
-      <NewProjectModal
-        isOpen={isNewProjectModalOpen}
-        onClose={() => setIsNewProjectModalOpen(false)}
-        onCreate={handleCreateProject}
-      />
-      <ReleaseModal
-        isOpen={isReleaseModalOpen}
-        onClose={() => setIsReleaseModalOpen(false)}
-        releaseInfo={releaseInfo}
-        onUpdateReleaseInfo={(info) => setReleaseInfo(info)}
-        theme={theme}
-      />
+      <Suspense fallback={null}>
+        {isMcpModalOpen && (
+          <McpModal
+            isOpen={isMcpModalOpen}
+            onClose={() => setIsMcpModalOpen(false)}
+            theme={theme}
+          />
+        )}
+        {isNewProjectModalOpen && (
+          <NewProjectModal
+            isOpen={isNewProjectModalOpen}
+            onClose={() => setIsNewProjectModalOpen(false)}
+            onCreate={handleCreateProject}
+          />
+        )}
+        {isReleaseModalOpen && (
+          <ReleaseModal
+            isOpen={isReleaseModalOpen}
+            onClose={() => setIsReleaseModalOpen(false)}
+            releaseInfo={releaseInfo}
+            onUpdateReleaseInfo={(info) => setReleaseInfo(info)}
+            theme={theme}
+          />
+        )}
+      </Suspense>
 
       {/* Toast Notifications */}
       {toasts.length > 0 && (
@@ -982,13 +1044,13 @@ export const App: React.FC = () => {
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium shadow-2xl backdrop-blur-md pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-200 ${
                 isLight
                   ? 'bg-white/95 border-slate-200 text-slate-800'
-                  : 'bg-[#14171f] border-[#262933] text-[#f1f5f9]'
+                  : 'bg-[#101216] border-[#1e222c] text-[#edeef0]'
               }`}
             >
               {toast.type === 'error' ? (
                 <WarningCircle size={14} weight="fill" className="shrink-0 text-rose-500" />
               ) : (
-                <CheckCircle size={14} weight="fill" className="shrink-0 text-[#10b981]" />
+                <CheckCircle size={14} weight="fill" className="shrink-0 text-[#4fb08c]" />
               )}
               <span>{toast.message}</span>
             </div>

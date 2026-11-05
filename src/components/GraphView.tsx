@@ -19,6 +19,7 @@ import {
 import type { GraphData, PathResult, PathStep } from '../types';
 import { findPath } from '../services/api';
 import { ArchitecturalReportModal } from './ArchitecturalReportModal';
+import { Tip } from './Tip';
 
 interface GraphViewProps {
   projectId?: string;
@@ -405,14 +406,22 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
     setTimeout(attemptCenter, 80);
 
+    // Keep repainting while the neon glow animates (autoPauseRedraw is on-demand)
+    const repaintInterval = setInterval(() => {
+      requestCanvasRepaint();
+    }, 50);
+
     const timer = setTimeout(() => {
       glowingStateRef.current = null;
+      clearInterval(repaintInterval);
+      requestCanvasRepaint();
     }, glowingStateRef.current.duration);
 
     return () => {
       clearTimeout(timer);
+      clearInterval(repaintInterval);
     };
-  }, [glowingNode]);
+  }, [glowingNode, requestCanvasRepaint]);
 
   // Initialize ForceGraph once
   useEffect(() => {
@@ -430,7 +439,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
       .width(width)
       .height(height)
       .backgroundColor(themeRef.current === 'light' ? '#f8fafc' : '#090a0f')
-      .autoPauseRedraw(false)
+      .autoPauseRedraw(true)
       .minZoom(0.05)
       .maxZoom(8)
       .nodeRelSize(4)
@@ -1089,97 +1098,102 @@ export const GraphView: React.FC<GraphViewProps> = ({
         <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
           isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#090b10] border-[#171b26]'
         }`}>
-          <button
-            type="button"
-            onClick={() => setFilterMode('all')}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-              filterMode === 'all'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : isLight
-                ? 'text-slate-600 hover:text-slate-900'
-                : 'text-[#64748b] hover:text-[#f1f5f9]'
-            }`}
-            title="Show all nodes"
-          >
-            <CirclesThree size={12} weight="bold" />
-            <span>All ({stats.total})</span>
-          </button>
+          <Tip label="Exibe todos os nós — notas e arquivos de código juntos no grafo.">
+            <button
+              type="button"
+              onClick={() => setFilterMode('all')}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                filterMode === 'all'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-[#64748b] hover:text-[#f1f5f9]'
+              }`}
+            >
+              <CirclesThree size={12} weight="bold" />
+              <span>All ({stats.total})</span>
+            </button>
+          </Tip>
 
-          <button
-            type="button"
-            onClick={() => setFilterMode('notes')}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-              filterMode === 'notes'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : isLight
-                ? 'text-slate-600 hover:text-slate-900'
-                : 'text-[#64748b] hover:text-[#f1f5f9]'
-            }`}
-            title="Filter notes only"
-          >
-            <FileText size={12} />
-            <span>Notes ({stats.notes})</span>
-          </button>
+          <Tip label="Mostra apenas as notas Markdown do vault e seus wikilinks.">
+            <button
+              type="button"
+              onClick={() => setFilterMode('notes')}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                filterMode === 'notes'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-[#64748b] hover:text-[#f1f5f9]'
+              }`}
+            >
+              <FileText size={12} />
+              <span>Notes ({stats.notes})</span>
+            </button>
+          </Tip>
 
-          <button
-            type="button"
-            onClick={() => setFilterMode('code')}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-              filterMode === 'code'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : isLight
-                ? 'text-slate-600 hover:text-slate-900'
-                : 'text-[#64748b] hover:text-[#f1f5f9]'
-            }`}
-            title="Filter code files only"
-          >
-            <Code size={12} weight="bold" />
-            <span>Code ({stats.code})</span>
-          </button>
+          <Tip label="Mostra apenas arquivos de código e suas dependências (imports).">
+            <button
+              type="button"
+              onClick={() => setFilterMode('code')}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                filterMode === 'code'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-[#64748b] hover:text-[#f1f5f9]'
+              }`}
+            >
+              <Code size={12} weight="bold" />
+              <span>Code ({stats.code})</span>
+            </button>
+          </Tip>
         </div>
 
         <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
 
         {/* Communities / Clusters toggle */}
-        <button
-          type="button"
-          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-            colorMode === 'communities'
-              ? isLight
-                ? 'bg-purple-100 text-purple-700 border border-purple-200'
-                : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
-              : isLight
-              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
-          }`}
-          title={colorMode === 'communities' ? 'Color Mode: Communities (Active)' : 'Color by Communities'}
-          onClick={() => setColorMode(colorMode === 'communities' ? 'default' : 'communities')}
-        >
-          <SquaresFour size={12} weight={colorMode === 'communities' ? 'bold' : 'regular'} />
-          <span>Clusters</span>
-        </button>
+        <Tip label="Clusters: colore os nós por comunidade detectada (LPA) — revela fronteiras arquiteturais e agrupamentos naturais.">
+          <button
+            type="button"
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              colorMode === 'communities'
+                ? isLight
+                  ? 'bg-purple-100 text-purple-700 border border-purple-200'
+                  : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
+                : isLight
+                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+            }`}
+            onClick={() => setColorMode(colorMode === 'communities' ? 'default' : 'communities')}
+          >
+            <SquaresFour size={12} weight={colorMode === 'communities' ? 'bold' : 'regular'} />
+            <span>Clusters</span>
+          </button>
+        </Tip>
 
         {/* God Nodes / Hubs toggle */}
-        <button
-          type="button"
-          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-            highlightGodNodes
-              ? isLight
-                ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                : 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
-              : isLight
-              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
-          }`}
-          title={highlightGodNodes ? 'Highlight Architectural Hubs / God Nodes' : 'God Nodes Hidden'}
-          onClick={() => setHighlightGodNodes(!highlightGodNodes)}
-        >
-          <Crown size={12} weight={highlightGodNodes ? 'bold' : 'regular'} />
-          <span>Hubs</span>
-        </button>
+        <Tip label="Hubs: destaca God Nodes (degree ≥ 12) com anel dourado — os pontos de maior centralidade do sistema.">
+          <button
+            type="button"
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              highlightGodNodes
+                ? isLight
+                  ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                  : 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                : isLight
+                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+            }`}
+            onClick={() => setHighlightGodNodes(!highlightGodNodes)}
+          >
+            <Crown size={12} weight={highlightGodNodes ? 'bold' : 'regular'} />
+            <span>Hubs</span>
+          </button>
+        </Tip>
 
         {/* Path Inspector toggle */}
-        <button
+        <Tip label="Path Inspector: clique em 2 nós para descobrir o caminho mais curto entre eles (wikilinks + imports)."><button
           type="button"
           className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
             pathMode
@@ -1190,49 +1204,48 @@ export const GraphView: React.FC<GraphViewProps> = ({
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
               : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
           }`}
-          title="Path Inspector: Click any 2 nodes to find shortest path"
           onClick={() => setPathMode(!pathMode)}
         >
           <GitBranch size={12} weight={pathMode ? 'bold' : 'regular'} />
           <span>Path</span>
-        </button>
+        </button></Tip>
 
         {/* Architectural Audit Modal */}
-        <button
+        <Tip label="Abre o relatório de auditoria arquitetural — comunidades, god nodes e acoplamentos suspeitos."><button
           type="button"
           className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
             isLight
               ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               : 'text-[#94a3b8] hover:text-white hover:bg-[#1a2030]'
           }`}
-          title="Open Architectural Audit Report"
           onClick={() => setShowAuditModal(true)}
         >
           <ChartBar size={12} weight="bold" />
           <span>Audit</span>
-        </button>
+        </button></Tip>
 
         <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
 
         {/* Ego Network (N-Hop Focus) toggle + Dynamic Depth Slider */}
         <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-              localOnly
-                ? isLight
-                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
-                  : 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
-                : isLight
-                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
-            }`}
-            title={localOnly ? 'Disable Ego Network Focus (Show Full Graph)' : 'Enable Ego Network (N-Hop Focus)'}
-            onClick={() => setLocalOnly(!localOnly)}
-          >
-            {localOnly ? <Crosshair size={12} weight="bold" /> : <Compass size={12} />}
-            <span>Ego {egoDepth}H</span>
-          </button>
+          <Tip label={localOnly ? 'Ego Network ativa — clique pra voltar a exibir o grafo completo.' : 'Ego Network: foca só no nó selecionado e seus vizinhos em até N saltos — ideal pra navegar regiões específicas.'}>
+            <button
+              type="button"
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                localOnly
+                  ? isLight
+                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                    : 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
+                  : isLight
+                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                  : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              }`}
+              onClick={() => setLocalOnly(!localOnly)}
+            >
+              {localOnly ? <Crosshair size={12} weight="bold" /> : <Compass size={12} />}
+              <span>Ego {egoDepth}H</span>
+            </button>
+          </Tip>
 
           {(localOnly || selectedNodeId) && (
             <div
@@ -1241,7 +1254,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   ? 'bg-slate-100/90 border-slate-200 text-slate-600'
                   : 'bg-[#090b10]/90 border-[#171b26] text-slate-300'
               }`}
-              title={`Profundidade da Ego Network: ${egoDepth} salto(s)`}
+              title={`Profundidade da Ego Network: quantos saltos de vizinhança entram no foco (1–5)`}
             >
               <span className="text-[9.5px] uppercase tracking-wider opacity-75">Hops</span>
               <input
@@ -1261,57 +1274,53 @@ export const GraphView: React.FC<GraphViewProps> = ({
           )}
         </div>
 
-        <button
+        <Tip label="Ampliar o grafo (zoom in)."><button
           type="button"
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
               : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
           }`}
-          title="Zoom In (+)"
           onClick={handleZoomIn}
         >
           <MagnifyingGlassPlus size={13} />
-        </button>
+        </button></Tip>
 
-        <button
+        <Tip label="Reduzir o grafo (zoom out)."><button
           type="button"
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
               : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
           }`}
-          title="Zoom Out (-)"
           onClick={handleZoomOut}
         >
           <MagnifyingGlassMinus size={13} />
-        </button>
+        </button></Tip>
 
-        <button
+        <Tip label="Enquadra todos os nós na área visível."><button
           type="button"
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
               : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
           }`}
-          title="Fit to Screen"
           onClick={handleFit}
         >
           <ArrowsOut size={13} />
-        </button>
+        </button></Tip>
 
-        <button
+        <Tip label="Re-executa o layout force-directed — reorganiza as posições dos nós."><button
           type="button"
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
               : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
           }`}
-          title="Reorganize Graph"
           onClick={onRefresh}
         >
           <ArrowClockwise size={13} />
-        </button>
+        </button></Tip>
       </div>
 
       {/* Floating Path Inspector Banner */}
@@ -1345,14 +1354,15 @@ export const GraphView: React.FC<GraphViewProps> = ({
               </button>
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => setPathMode(false)}
-            className="p-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
-            title="Fechar Inspetor de Caminhos"
-          >
-            <X size={12} />
-          </button>
+          <Tip label="Fecha o Path Inspector.">
+            <button
+              type="button"
+              onClick={() => setPathMode(false)}
+              className="p-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X size={12} />
+            </button>
+          </Tip>
         </div>
       )}
 

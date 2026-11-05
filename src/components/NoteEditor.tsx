@@ -517,25 +517,25 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         isFullscreen
           ? 'left-0 right-0 w-full'
           : 'right-0 w-full md:w-[480px] lg:w-[540px]'
-      } ${isLight ? 'bg-white border-slate-200 shadow-slate-200/50' : 'bg-[#0b0d13] border-[#181c26]'}`}
+      } ${isLight ? 'bg-white border-slate-200 shadow-slate-200/50' : 'bg-[#0d0f14] border-[#1e222c]'}`}
       aria-label="Note Editor"
     >
       {/* Editor Header */}
       <div className={`flex items-center justify-between gap-3 px-4 py-3 border-b transition-colors ${
-        isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-[#0e1118] border-[#181c26]'
+        isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-[#0d0f14] border-[#1e222c]'
       }`}>
         <div className="flex-1 min-w-0">
           <input
             type="text"
             className={`w-full bg-transparent text-sm font-bold focus:outline-none ${
-              isLight ? 'text-slate-900 placeholder:text-slate-400' : 'text-[#f8fafc] placeholder-[#64748b]'
+              isLight ? 'text-slate-900 placeholder:text-slate-400' : 'text-[#edeef0] placeholder-[#8a919e]'
             }`}
             value={title}
             onChange={handleTitleChange}
             placeholder="Note Title..."
             aria-label="Note Title"
           />
-          <div className={`flex items-center gap-2 mt-0.5 text-[11px] ${isLight ? 'text-slate-500' : 'text-[#64748b]'}`}>
+          <div className={`flex items-center gap-2 mt-0.5 text-[11px] ${isLight ? 'text-slate-500' : 'text-[#8a919e]'}`}>
             <span className="font-mono">{displayFilename}</span>
             <span>•</span>
             <span className="font-mono text-emerald-500">~{estimatedTokens} tokens</span>
@@ -554,7 +554,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs'
                 : isLight
                 ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
-                : 'bg-[#131620] hover:bg-[#181c28] text-[#cbd5e1] border border-[#202534]'
+                : 'bg-[#161922] hover:bg-[#181c28] text-[#d8dae0] border border-[#202534]'
             }`}
             title="Save changes (Ctrl+S / Cmd+S)"
           >
@@ -566,7 +566,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             ) : (
               <>
                 <Check size={12} weight="bold" className="text-emerald-500" />
-                <span className={isLight ? 'text-slate-700' : 'text-[#cbd5e1]'}>Saved</span>
+                <span className={isLight ? 'text-slate-700' : 'text-[#d8dae0]'}>Saved</span>
               </>
             )}
           </button>
@@ -583,7 +583,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
                 isLight
                   ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent'
-                  : 'text-[#64748b] hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/40'
+                  : 'text-[#8a919e] hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/40'
               }`}
               title="Delete note permanently"
             >
@@ -597,7 +597,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
               isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#64748b] hover:text-[#f8fafc] hover:bg-[#161a24]'
+                : 'text-[#8a919e] hover:text-[#edeef0] hover:bg-[#161922]'
             }`}
             title={isFullscreen ? 'Exit Fullscreen' : 'Focus Mode (Fullscreen)'}
           >
@@ -610,7 +610,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
               isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#64748b] hover:text-[#f8fafc] hover:bg-[#161a24]'
+                : 'text-[#8a919e] hover:text-[#edeef0] hover:bg-[#161922]'
             }`}
             title="Close Panel (Esc)"
           >
@@ -621,10 +621,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
       {/* Editor Toolbar */}
       <div className={`flex items-center justify-between px-4 py-1.5 border-b text-xs transition-colors ${
-        isLight ? 'bg-white border-slate-200' : 'bg-[#0c0e15] border-[#181c26]'
+        isLight ? 'bg-white border-slate-200' : 'bg-[#0d0f14] border-[#1e222c]'
       }`}>
         <div className={`flex items-center gap-0.5 border p-0.5 rounded-lg ${
-          isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#12151f] border-[#1f2536]'
+          isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#161922] border-[#1e222c]'
         }`}>
           <button
             type="button"
@@ -636,7 +636,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : isLight
                 ? 'text-slate-600 hover:text-slate-900'
-                : 'text-[#64748b] hover:text-[#cbd5e1]'
+                : 'text-[#8a919e] hover:text-[#d8dae0]'
             }`}
           >
             <PencilSimple size={12} />
@@ -653,7 +653,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : isLight
                 ? 'text-slate-600 hover:text-slate-900'
-                : 'text-[#64748b] hover:text-[#cbd5e1]'
+                : 'text-[#8a919e] hover:text-[#d8dae0]'
             }`}
           >
             <Columns size={12} />
@@ -670,7 +670,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : isLight
                 ? 'text-slate-600 hover:text-slate-900'
-                : 'text-[#64748b] hover:text-[#cbd5e1]'
+                : 'text-[#8a919e] hover:text-[#d8dae0]'
             }`}
           >
             <Eye size={12} />
@@ -686,11 +686,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             className={`inline-flex items-center gap-1.5 h-6 px-2 rounded-md text-[11px] transition-colors cursor-pointer ${
               isLight
                 ? 'bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-700'
-                : 'bg-[#131722] border border-[#202636] hover:bg-[#181d2a] text-[#cbd5e1]'
+                : 'bg-[#161922] border border-[#1e222c] hover:bg-[#1a1f2c] text-[#d8dae0]'
             }`}
             title="Semantic Auto-Linker: discover conceptual connections"
           >
-            <LinkSimple size={11} className={isLight ? 'text-sky-600' : 'text-[#38bdf8]'} />
+            <LinkSimple size={11} className={isLight ? 'text-sky-600' : 'text-[#5fa8d9]'} />
             <span>{isSuggesting ? 'Analyzing...' : 'Semantic Links'}</span>
           </button>
 
@@ -700,7 +700,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             className={`flex items-center justify-center w-6 h-6 rounded-md border transition-colors cursor-pointer ${
               isLight
                 ? 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
-                : 'bg-[#131722] border border-[#202636] text-[#64748b] hover:text-[#f8fafc]'
+                : 'bg-[#161922] border border-[#1e222c] text-[#8a919e] hover:text-[#edeef0]'
             }`}
             title="Insert Wikilink [[Link]]"
           >
@@ -712,17 +712,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       {/* Auto-Linker Drawer */}
       {suggestions.length > 0 && (
         <div className={`p-3 border-b space-y-2 ${
-          isLight ? 'bg-indigo-50/50 border-indigo-100' : 'bg-[#111318] border-[#1f232d]'
+          isLight ? 'bg-indigo-50/50 border-indigo-100' : 'bg-[#0d0f14] border-[#1e222c]'
         }`}>
           <div className="flex items-center justify-between text-xs">
-            <span className={`flex items-center gap-1.5 font-medium ${isLight ? 'text-slate-800' : 'text-[#cbd5e1]'}`}>
-              <LinkSimple size={12} className={isLight ? 'text-sky-600' : 'text-[#38bdf8]'} />
+            <span className={`flex items-center gap-1.5 font-medium ${isLight ? 'text-slate-800' : 'text-[#d8dae0]'}`}>
+              <LinkSimple size={12} className={isLight ? 'text-sky-600' : 'text-[#5fa8d9]'} />
               Semantic Suggestions ({suggestions.length})
             </span>
             <button
               type="button"
               onClick={() => setSuggestions([])}
-              className={`cursor-pointer ${isLight ? 'text-slate-400 hover:text-slate-800' : 'text-[#64748b] hover:text-[#f8fafc]'}`}
+              className={`cursor-pointer ${isLight ? 'text-slate-400 hover:text-slate-800' : 'text-[#8a919e] hover:text-[#edeef0]'}`}
             >
               <X size={12} />
             </button>
@@ -733,14 +733,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               <div
                 key={s.deep_link}
                 className={`flex items-center justify-between gap-2 p-2 rounded-lg border text-xs ${
-                  isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-[#13161f] border-[#222736]'
+                  isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-[#161922] border-[#1e222c]'
                 }`}
               >
                 <div className="min-w-0">
                   <div className="font-mono text-[10px] font-semibold text-emerald-500">
                     Match {Math.round(s.similarity_score * 100)}% affinity
                   </div>
-                  <strong className={`font-sans text-xs truncate block ${isLight ? 'text-slate-900' : 'text-[#e2e8f0]'}`}>
+                  <strong className={`font-sans text-xs truncate block ${isLight ? 'text-slate-900' : 'text-[#d8dae0]'}`}>
                     {s.deep_link}
                   </strong>
                 </div>
@@ -767,7 +767,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               className={`w-full h-full p-4 font-mono text-xs bg-transparent resize-none focus:outline-none border-r leading-relaxed ${
                 isLight
                   ? 'text-slate-800 border-slate-200 placeholder-slate-400 selection:bg-indigo-100'
-                  : 'text-[#e2e8f0] border-[#1f232d] placeholder-[#64748b] selection:bg-indigo-950'
+                  : 'text-[#d8dae0] border-[#1e222c] placeholder-[#8a919e] selection:bg-indigo-950'
               }`}
               value={content}
               onChange={handleContentChange}
@@ -781,19 +781,19 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             {/* Floating Autocomplete Dropdown */}
             {autocomplete.isOpen && autocompleteCandidates.length > 0 && (
               <div className={`absolute left-4 bottom-4 z-40 w-80 max-h-60 rounded-xl border shadow-2xl backdrop-blur-xl overflow-hidden flex flex-col transition-all ${
-                isLight ? 'bg-white/95 border-slate-300' : 'bg-[#10131d]/95 border-[#2b334a]'
+                isLight ? 'bg-white/95 border-slate-300' : 'bg-[#101216]/95 border-[#2b303e]'
               }`}>
                 <div className={`flex items-center justify-between px-3 py-1.5 border-b text-[10.5px] font-semibold ${
-                  isLight ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-[#141824] border-[#1e2436] text-[#94a3b8]'
+                  isLight ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-[#161922] border-[#1e2436] text-[#8a919e]'
                 }`}>
                   <span className="flex items-center gap-1.5 text-indigo-500">
                     <LinkSimple size={12} weight="bold" />
                     <span>Autocomplete [[Wikilink]]</span>
                   </span>
-                  <span className="font-mono text-[9px] text-[#64748b]">↑↓ navigate • ↵ Tab insert</span>
+                  <span className="font-mono text-[9px] text-[#8a919e]">↑↓ navigate • ↵ Tab insert</span>
                 </div>
 
-                <div className={`overflow-y-auto max-h-48 divide-y ${isLight ? 'divide-slate-100' : 'divide-[#181d2a]'}`}>
+                <div className={`overflow-y-auto max-h-48 divide-y ${isLight ? 'divide-slate-100' : 'divide-[#1a1f2c]'}`}>
                   {autocompleteCandidates.map((item, idx) => {
                     const isSelected = idx === autocomplete.selectedIndex;
                     return (
@@ -810,10 +810,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                           isSelected
                             ? isLight
                               ? 'bg-indigo-50 text-indigo-950 font-semibold'
-                              : 'bg-indigo-600/20 text-[#f8fafc]'
+                              : 'bg-indigo-600/20 text-[#edeef0]'
                             : isLight
                             ? 'text-slate-700 hover:bg-slate-50'
-                            : 'text-[#cbd5e1] hover:bg-[#151926]'
+                            : 'text-[#d8dae0] hover:bg-[#161922]'
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
@@ -827,14 +827,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                               <span>{item.type === 'section' ? item.heading : item.title}</span>
                               {item.tag && (
                                 <span className={`font-mono text-[9.5px] px-1.5 py-0.2 rounded border ${
-                                  isLight ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-[#1c2233] text-[#94a3b8] border-[#2b334a]'
+                                  isLight ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-[#1e222c] text-[#8a919e] border-[#2b303e]'
                                 }`}>
                                   #{item.tag}
                                 </span>
                               )}
                             </div>
                             {item.preview && (
-                              <div className="text-[10px] text-[#64748b] truncate mt-0.5 font-sans">
+                              <div className="text-[10px] text-[#8a919e] truncate mt-0.5 font-sans">
                                 {item.preview}
                               </div>
                             )}
@@ -860,7 +860,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         {(viewMode === 'preview' || viewMode === 'split') && (
           <div
             className={`h-full p-4 overflow-y-auto preview-content ${
-              viewMode === 'split' ? (isLight ? 'w-1/2 bg-slate-50/40' : 'w-1/2 bg-[#090a0f]') : 'w-full'
+              viewMode === 'split' ? (isLight ? 'w-1/2 bg-slate-50/40' : 'w-1/2 bg-[#0a0b0e]') : 'w-full'
             }`}
             dangerouslySetInnerHTML={{ __html: renderedHtml }}
             onClick={handlePreviewClick}
@@ -871,11 +871,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       {/* Connections Explorer (Footer) */}
       {note && (
         <div className={`p-3 border-t space-y-2 text-xs transition-colors ${
-          isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-[#111318] border-[#1f232d]'
+          isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-[#0d0f14] border-[#1e222c]'
         }`}>
           {note.backlinks && note.backlinks.length > 0 && (
             <div>
-              <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-[#64748b] uppercase tracking-[0.5px] mb-1">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-[#8a919e] uppercase tracking-[0.5px] mb-1">
                 <ArrowLeft size={10} />
                 <span>Backlinks to this note ({note.backlinks.length})</span>
               </div>
@@ -888,7 +888,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     className={`px-2 py-0.5 rounded font-mono text-[10.5px] transition-colors cursor-pointer border ${
                       isLight
                         ? 'bg-white hover:bg-slate-100 border-slate-200 text-sky-700'
-                        : 'bg-[#13161f] hover:bg-[#1a1e28] border-[#1e222d] hover:border-[#2c3242] text-[#38bdf8]'
+                        : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-[#5fa8d9]'
                     }`}
                   >
                     [[{b}]]
@@ -900,7 +900,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
           {note.outgoing_links && note.outgoing_links.length > 0 && (
             <div>
-              <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-[#64748b] uppercase tracking-[0.5px] mb-1">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-[#8a919e] uppercase tracking-[0.5px] mb-1">
                 <ArrowRight size={10} />
                 <span>Outgoing links in this note ({note.outgoing_links.length})</span>
               </div>
@@ -913,7 +913,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     className={`px-2 py-0.5 rounded font-mono text-[10.5px] transition-colors cursor-pointer border ${
                       isLight
                         ? 'bg-white hover:bg-slate-100 border-slate-200 text-sky-700'
-                        : 'bg-[#13161f] hover:bg-[#1a1e28] border-[#1e222d] hover:border-[#2c3242] text-[#38bdf8]'
+                        : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-[#5fa8d9]'
                     }`}
                   >
                     [[{l}]]

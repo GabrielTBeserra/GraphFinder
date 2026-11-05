@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>GraphFinder — Grafo de Conhecimento Local-First e Servidor MCP para Agentes de IA</title>
-  <meta name="description" content="GraphFinder transforma vaults Markdown e bases de código em um grafo de conhecimento com indexação semântica. Busca híbrida vetorial + BM25, indexação AST de código, análise de grafos e servidor MCP nativo com 24 ferramentas. 100% local." />
+  <meta name="description" content="GraphFinder transforma vaults Markdown e bases de código em um grafo de conhecimento com indexação semântica. Busca híbrida vetorial + BM25, indexação AST de código, análise de grafos e servidor MCP nativo com 26 ferramentas. 100% local." />
   <meta name="theme-color" content="#07080b" />
   <link rel="canonical" href="https://graphfinder.gteles.dev/pt/" />
   <link rel="alternate" hreflang="en" href="https://graphfinder.gteles.dev/" />
@@ -30,7 +30,7 @@
   <div class="container nav-inner">
     <a class="brand" href="#top" aria-label="Início do GraphFinder">
       <img src="../assets/logo.svg" alt="" width="28" height="28" />
-      GraphFinder <span class="ver" data-version>v0.10.0</span>
+      GraphFinder <span class="ver" data-version>v0.15.0</span>
     </a>
     <nav class="nav-links" id="nav-links" aria-label="Principal">
       <a href="#features">Recursos</a>
@@ -61,13 +61,13 @@
 <section class="hero" aria-labelledby="hero-title">
   <canvas id="graph-canvas" aria-hidden="true"></canvas>
   <div class="container hero-content">
-    <span class="eyebrow"><span class="pill" data-version>v0.10.0</span> Local-first · Markdown puro · MCP nativo</span>
+    <span class="eyebrow"><span class="pill" data-version>v0.15.0</span> Local-first · Markdown puro · MCP nativo</span>
     <h1 id="hero-title">Seu conhecimento,<br /><span class="grad">conectado como grafo.</span></h1>
     <p class="lead">O GraphFinder transforma vaults Markdown e bases de código inteiras em um grafo de conhecimento com indexação semântica — um lugar bonito para humanos pensarem e recuperação cirúrgica de ~50 tokens para agentes de IA via servidor MCP nativo.</p>
     <div class="hero-ctas">
       <a class="btn btn-primary" id="hero-download" href="https://github.com/GabrielTBeserra/GraphFinder/releases/latest" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>
-        Baixar <span data-version>v0.10.0</span>
+        Baixar <span data-version>v0.15.0</span>
       </a>
       <a class="btn btn-ghost" id="hero-docs" href="#docs">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5Z"/><path d="M4 19a2 2 0 0 1 2-2h13"/></svg>
@@ -138,7 +138,7 @@ $ graphfinder search "como a autenticação é tratada?"</pre>
       <article class="card span-3 reveal">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg></div>
         <h3>Servidor MCP nativo</h3>
-        <p>24 ferramentas via Streamable HTTP/SSE (<code>127.0.0.1:45123</code>) com o app aberto, ou stdio headless com <code>graphfinder mcp</code>. Funciona com Cursor, Claude Desktop, Antigravity, Windsurf, Cline, Roo Code e Zed.</p>
+        <p>26 ferramentas, prompts e resources via Streamable HTTP/SSE (<code>127.0.0.1:45123</code>) com o app aberto, ou stdio headless com <code>graphfinder mcp</code>. Funciona com Cursor, Claude Desktop, Antigravity, Windsurf, Cline, Roo Code e Zed.</p>
       </article>
       <article class="card span-3 reveal">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg></div>
@@ -176,7 +176,7 @@ $ graphfinder search "como a autenticação é tratada?"</pre>
     <div class="section-head reveal">
       <span class="kicker">Documentação</span>
       <h2 id="docs-title">Tudo sobre o GraphFinder.</h2>
-      <p>Da instalação aos detalhes internos do motor de busca. Versão atual: <strong data-version>v0.10.0</strong>.</p>
+      <p>Da instalação aos detalhes internos do motor de busca. Versão atual: <strong data-version>v0.15.0</strong>.</p>
     </div>
 
     <div class="docs-wrap">
@@ -278,7 +278,7 @@ npm run app
 npm run tauri build</pre></div>
           <div class="callout tip">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2Z"/></svg>
-            <p>Na primeira execução o modelo de embeddings (all-MiniLM-L6-v2, ~90 MB) é baixado uma única vez para <code>.fastembed_cache</code>. Depois disso o GraphFinder funciona totalmente offline.</p>
+            <p>Na primeira execução o modelo de embeddings (multilingual-e5-small, ~118 MB, PT/EN) é baixado uma única vez para <code>.fastembed_cache</code>. Depois disso o GraphFinder funciona totalmente offline.</p>
           </div>
         </section>
 
@@ -290,7 +290,7 @@ npm run tauri build</pre></div>
             <li><strong>Crie ou abra um projeto</strong>Use o seletor de projetos na barra superior → <em>Novo projeto</em>, dê um nome e, opcionalmente, escolha uma pasta existente (de notas ou um repositório de código).</li>
             <li><strong>Escreva uma nota</strong>Crie uma nota começando com <code># Título</code>, um resumo curto e depois seções <code>##</code>. Conecte conceitos com <code>[[Outra Nota]]</code> e termine com tags como <code>#arquitetura</code>. Salve com <kbd>Ctrl</kbd>+<kbd>S</kbd>.</li>
             <li><strong>Pesquise</strong>Pressione <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> para abrir o Omnisearch — busca semântica híbrida em notas e símbolos de código.</li>
-            <li><strong>Conecte seu editor de IA</strong>Rode <code>graphfinder config --install</code> ou copie um snippet do modal MCP no app. Seu agente passa a ter 24 ferramentas do GraphFinder.</li>
+            <li><strong>Conecte seu editor de IA</strong>Rode <code>graphfinder config --install</code> ou copie um snippet do modal MCP no app. Seu agente passa a ter 26 ferramentas do GraphFinder.</li>
           </ol>
           <p>Prefere o terminal? O mesmo fluxo, sem interface:</p>
           <div class="code"><div class="code-bar">bash</div>
@@ -374,7 +374,7 @@ Cada refresh invalida a família de tokens anterior para impedir ataques de repl
           <div class="table-wrap"><table>
             <thead><tr><th>Etapa</th><th>Detalhes</th></tr></thead>
             <tbody>
-              <tr><td><strong>Vetores densos</strong></td><td>FastEmbed sobre ONNX Runtime. Modelo padrão <code>all-MiniLM-L6-v2</code> (384 dimensões). Opcional <code>MultilingualE5Small</code> para vaults em outros idiomas. Similaridade de cosseno sobre <code>note_chunks</code> / <code>code_chunks</code>.</td></tr>
+              <tr><td><strong>Vetores densos</strong></td><td>FastEmbed sobre ONNX Runtime. Modelo padrão <code>multilingual-e5-small</code> (384 dimensões, multilíngue PT/EN). Legado <code>all-MiniLM-L6-v2</code> via <code>GRAPHFINDER_MODEL=minilm</code>. Similaridade de cosseno sobre <code>note_chunks</code> / <code>code_chunks</code>.</td></tr>
               <tr><td><strong>Palavra-chave (BM25)</strong></td><td>Índice full-text SQLite FTS5 — encontra identificadores exatos, códigos de erro e termos raros que embeddings deixam passar.</td></tr>
               <tr><td><strong>Fusão</strong></td><td>Reciprocal Rank Fusion: <code>score = Σ 1 / (60 + rank)</code>. Robusto sem normalização de scores.</td></tr>
               <tr><td><strong>Saída</strong></td><td>Top-N chunks com título, seção, deep link, score de afinidade e estimativa de tokens.</td></tr>
@@ -456,7 +456,7 @@ Cada refresh invalida a família de tokens anterior para impedir ataques de repl
               <tr><td><code>explain &lt;nó&gt;</code></td><td><code>--path</code> <code>--json</code></td><td>Cartão de contexto arquitetural de um nó.</td></tr>
               <tr><td><code>export [caminho]</code></td><td><code>--out-dir</code></td><td>Gera <code>graph.json</code>, <code>GRAPH_REPORT.md</code> e <code>graph.html</code> sem relatório no terminal.</td></tr>
               <tr><td><code>config</code> (<code>mcp-config</code>, <code>setup</code>)</td><td><code>--install</code> / <code>-i</code> <code>--json</code></td><td>Imprime a configuração MCP para editores de IA. <code>--install</code> detecta os editores instalados, registra o GraphFinder neles e adiciona a CLI ao PATH.</td></tr>
-              <tr><td><code>tools</code> (<code>schemas</code>, <code>mcp-tools</code>, <code>export-schemas</code>) <code>[pasta]</code></td><td>—</td><td>Exporta os schemas JSON das 24 ferramentas, um manifesto <code>tools.json</code> e <code>instructions.md</code> para <code>./mcp-tools</code>.</td></tr>
+              <tr><td><code>tools</code> (<code>schemas</code>, <code>mcp-tools</code>, <code>export-schemas</code>) <code>[pasta]</code></td><td>—</td><td>Exporta os schemas JSON das 26 ferramentas, um manifesto <code>tools.json</code> e <code>instructions.md</code> para <code>./mcp-tools</code>.</td></tr>
               <tr><td><code>install-cli</code> (<code>install-path</code>)</td><td>—</td><td>Adiciona <code>graphfinder</code> ao PATH do sistema.</td></tr>
               <tr><td><code>mcp</code> (<code>--mcp</code>)</td><td>—</td><td>Inicia o servidor MCP stdio headless.</td></tr>
               <tr><td><code>help</code> (<code>--help</code>, <code>-h</code>)</td><td>—</td><td>Mostra a ajuda.</td></tr>
@@ -585,7 +585,7 @@ graphfinder config --json      # apenas imprime o snippet JSON</pre></div>
 
           <p class="tool-group">Autoria e conexões</p>
           <div class="tools">
-            <div class="tool"><h4>suggest_links</h4><p>Vetoriza um rascunho e recomenda notas/seções existentes para linkar (evita órfãos).</p><div class="params"><span>text</span><span class="opt">current_note</span><span class="opt">threshold=0.60</span></div></div>
+            <div class="tool"><h4>suggest_links</h4><p>Vetoriza um rascunho e recomenda notas/seções existentes para linkar (evita órfãos).</p><div class="params"><span>text</span><span class="opt">current_note</span><span class="opt">threshold=0.65</span></div></div>
             <div class="tool"><h4>store_context</h4><p>Cria ou atualiza uma nota, faz o parsing e a indexa imediatamente.</p><div class="params"><span>title</span><span>content</span><span class="opt">tags[]</span><span class="opt">links[]</span></div></div>
             <div class="tool"><h4>link_notes</h4><p>Adiciona um <code>[[wikilink]]</code> de uma nota para outra e atualiza o grafo.</p><div class="params"><span>from_note</span><span>to_note</span></div></div>
             <div class="tool"><h4>rename_note</h4><p>Renomeia uma nota e refatora todos os wikilinks de entrada no vault.</p><div class="params"><span>old_title</span><span>new_title</span></div></div>
@@ -701,8 +701,8 @@ graphfinder config --json      # apenas imprime o snippet JSON</pre></div>
               <tr><td><code>GRAPHFINDER_DATA_DIR</code></td><td>ver acima</td><td>Diretório base para vaults, registro e bancos.</td></tr>
               <tr><td><code>GRAPHFINDER_VAULT</code></td><td><code>&lt;dados&gt;/vault</code></td><td>Substitui a pasta do vault padrão.</td></tr>
               <tr><td><code>GRAPHFINDER_DB</code></td><td><code>&lt;dados&gt;/index.db</code></td><td>Substitui o caminho do banco SQLite padrão.</td></tr>
-              <tr><td><code>GRAPHFINDER_MODEL</code> / <code>GRAPHFINDER_EMBEDDING_MODEL</code></td><td><code>auto</code></td><td><code>multilingual</code>, <code>multilingual-e5-small</code> ou <code>e5</code> carregam o MultilingualE5Small; caso contrário, all-MiniLM-L6-v2.</td></tr>
-              <tr><td><code>GRAPHFINDER_MODELS</code></td><td>—</td><td>Pasta com <code>model.onnx</code> + <code>tokenizer.json</code> locais para uso totalmente offline (também detectado em <code>models/all-MiniLM-L6-v2</code>).</td></tr>
+              <tr><td><code>GRAPHFINDER_MODEL</code> / <code>GRAPHFINDER_EMBEDDING_MODEL</code></td><td><code>auto</code></td><td>Padrão é <code>multilingual-e5-small</code> (prefixos E5 aplicados automaticamente). <code>minilm</code> carrega o legado all-MiniLM-L6-v2.</td></tr>
+              <tr><td><code>GRAPHFINDER_MODELS</code></td><td>—</td><td>Pasta com <code>model.onnx</code> + <code>tokenizer.json</code> locais para uso totalmente offline (também detectado em <code>models/multilingual-e5-small</code> ou <code>models/all-MiniLM-L6-v2</code>).</td></tr>
               <tr><td><code>GRAPHFINDER_MCP_PORT</code></td><td><code>45123</code></td><td>Porta do servidor MCP HTTP/SSE embarcado.</td></tr>
               <tr><td><code>GRAPHFINDER_AUTO_APPEND_LINKS</code></td><td><code>false</code></td><td><code>1</code>/<code>true</code> adiciona automaticamente os wikilinks sugeridos ao salvar notas.</td></tr>
             </tbody>
@@ -717,7 +717,7 @@ graphfinder</pre></div>
 graphfinder sync</pre></div>
           <div class="callout warn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
-            <p>Trocar o modelo de embeddings muda a semântica dos vetores. Reindexe seus projetos (apague o <code>index.db</code> do projeto e rode <code>graphfinder sync</code>) após a troca.</p>
+            <p>Trocas de modelo são detectadas automaticamente: o engine grava <code>embedding_model</code> no DB e re-embeda todas as notas e chunks de código no próximo sync. Sem rebuild manual.</p>
           </div>
         </section>
 
@@ -832,10 +832,14 @@ git push origin v0.11.0</pre></div>
           <p>Histórico completo no <a href="https://github.com/GabrielTBeserra/GraphFinder/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md</a> e na <a href="https://github.com/GabrielTBeserra/GraphFinder/releases" target="_blank" rel="noopener">página de Releases</a>.</p>
           <div class="timeline">
             <div class="release current">
-              <div class="release-head"><b>v0.10.0</b><span class="badge latest">atual</span><span class="date">Outubro de 2026</span></div>
+              <div class="release-head"><b>v0.15.0</b><span class="badge latest">atual</span><span class="date">Janeiro de 2026</span></div>
               <ul>
+                <li>Migração de embeddings para <code>multilingual-e5-small</code> (PT/EN): re-embed automático do vault via stamp do modelo no DB.</li>
+                <li>Novas ferramentas MCP <code>update_section</code> e <code>validate_vault</code> (26 no total); annotations nas tools, prompts MCP e resources <code>graphfinder://</code>.</li>
+                <li>Telemetria de chamadas MCP (<code>/api/mcp-activity</code>) e modal de agente refeito com registry real de tools.</li>
+                <li>Omnisearch (Ctrl+K): fuzzy + semântico + código + ações + recentes; sidebar redesenhada com pin, ordenação e reveal-in-graph; tooltips na toolbar; fontes self-hosted; design tokens dark-first.</li>
                 <li>Motor de análise de grafos: comunidades, God Nodes, acoplamentos surpresa, ciclos.</li>
-                <li>Novas ferramentas MCP <code>find_path</code>, <code>explain_node</code>, <code>get_community_report</code>, <code>export_graph</code> (24 no total).</li>
+                <li>Ferramentas MCP <code>find_path</code>, <code>explain_node</code>, <code>get_community_report</code>, <code>export_graph</code>.</li>
                 <li>Comandos de CLI <code>report</code>, <code>path</code>, <code>explain</code>, <code>export</code>, <code>config --install</code>, <code>tools</code>, <code>install-cli</code>.</li>
                 <li>Artefatos <code>graph.json</code>, <code>GRAPH_REPORT.md</code>, <code>graph.html</code> offline; modal de relatório arquitetural no app.</li>
               </ul>
@@ -886,7 +890,7 @@ git push origin v0.11.0</pre></div>
       <div class="hero-ctas">
         <a class="btn btn-primary" id="cta-download" href="https://github.com/GabrielTBeserra/GraphFinder/releases/latest" target="_blank" rel="noopener">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>
-          Baixar <span data-version>v0.10.0</span>
+          Baixar <span data-version>v0.15.0</span>
         </a>
         <a class="btn btn-ghost" id="cta-star" href="https://github.com/GabrielTBeserra/GraphFinder" target="_blank" rel="noopener">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2Z"/></svg>

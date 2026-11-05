@@ -122,6 +122,26 @@ impl Engine {
         let sync_started_at = std::time::Instant::now();
         on_progress(SyncProgress::scanning(0, 0, None));
 
+        // Embedding-model migration: if the stamped model differs from the
+        // loaded one, wipe all content hashes so this sync re-embeds every
+        // note and code file under the new model, then re-stamp at the end.
+        let current_model_id = self.embeddings.model_id();
+        {
+            let db = self.db.lock().await;
+            let stamped = db.get_meta("embedding_model")?.unwrap_or_default();
+            if stamped != current_model_id {
+                if stamped.is_empty() {
+                    eprintln!("[GraphFinder] Stamping embedding model: {}", current_model_id);
+                } else {
+                    eprintln!(
+                        "[GraphFinder] Embedding model changed {} -> {}; re-embedding vault...",
+                        stamped, current_model_id
+                    );
+                }
+                db.clear_all_hashes()?;
+            }
+        }
+
         // 1. Fetch existing timestamps and content hashes for instant incremental sync
         let (existing_note_meta, existing_code_meta) = {
             let db = self.db.lock().await;
@@ -436,7 +456,7 @@ impl Engine {
                 batch_texts.push(chunk_text);
             }
 
-            let mut all_vectors = self.embeddings.embed_batch(batch_texts).await?;
+            let mut all_vectors = self.embeddings.embed_passages(batch_texts).await?;
             if all_vectors.is_empty() {
                 processed += 1;
                 on_progress(SyncProgress::indexing(
@@ -555,7 +575,7 @@ impl Engine {
             }
 
             let flat_vectors = if !flat_texts.is_empty() {
-                self.embeddings.embed_batch(flat_texts).await?
+                self.embeddings.embed_passages(flat_texts).await?
             } else {
                 Vec::new()
             };
@@ -628,6 +648,13 @@ impl Engine {
             }
         }
 
+        // Stamp the embedder that produced this vault's vectors so the next
+        // sync detects any future model change.
+        {
+            let db = self.db.lock().await;
+            let _ = db.set_meta("embedding_model", &current_model_id);
+        }
+
         on_progress(SyncProgress::complete(
             processed,
             total_work,
@@ -697,7 +724,7 @@ impl Engine {
             batch_texts.push(chunk_text);
         }
 
-        let mut all_vectors = self.embeddings.embed_batch(batch_texts).await?;
+        let mut all_vectors = self.embeddings.embed_passages(batch_texts).await?;
         let note_embedding = if !all_vectors.is_empty() {
             all_vectors.remove(0)
         } else {
@@ -718,7 +745,7 @@ impl Engine {
 
             {
                 let db = self.db.lock().await;
-                if let Ok(suggestions) = db.suggest_links(&note_embedding, &id, 0.65, 10) {
+                if let Ok(suggestions) = db.suggest_links(&note_embedding, &id, 0.70, 10) {
                     for s in suggestions {
                         let key = s.target_title.to_lowercase();
                         if !seen_targets.contains(&key) {
@@ -730,7 +757,7 @@ impl Engine {
 
                 for (chunk, chunk_vec) in parsed_initial.chunks.iter().zip(chunk_vectors.iter()) {
                     if chunk.content.trim().len() > 30 {
-                        if let Ok(suggestions) = db.suggest_links(chunk_vec, &id, 0.65, 5) {
+                        if let Ok(suggestions) = db.suggest_links(chunk_vec, &id, 0.70, 5) {
                             for s in suggestions {
                                 let key = s.target_title.to_lowercase();
                                 if !seen_targets.contains(&key) {
@@ -812,7 +839,7 @@ impl Engine {
                     chunk.tags.join(" "),
                     chunk.content
                 );
-                self.embeddings.embed_text(&chunk_text).await.unwrap_or_default()
+                self.embeddings.embed_passage(&chunk_text).await.unwrap_or_default()
             };
             chunk_embeddings.push((chunk, vec));
         }
@@ -1029,7 +1056,7 @@ impl Engine {
         query: &str,
         limit: usize,
     ) -> Result<Vec<SearchHit>, Box<dyn std::error::Error + Send + Sync>> {
-        let query_emb = self.embeddings.embed_text(query).await?;
+        let query_emb = self.embeddings.embed_query(query).await?;
         let db = self.db.lock().await;
         Ok(db.semantic_search(&query_emb, limit)?)
     }
@@ -1040,7 +1067,7 @@ impl Engine {
         query: &str,
         limit: usize,
     ) -> Result<Vec<ChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
-        let query_emb = self.embeddings.embed_text(query).await.unwrap_or_default();
+        let query_emb = self.embeddings.embed_query(query).await.unwrap_or_default();
         let candidate_limit = if self.embeddings.is_reranker_ready() {
             (limit * 2).max(20)
         } else {
@@ -1062,7 +1089,7 @@ impl Engine {
         threshold: f32,
         limit: usize,
     ) -> Result<Vec<LinkSuggestion>, Box<dyn std::error::Error + Send + Sync>> {
-        let text_emb = self.embeddings.embed_text(text).await?;
+        let text_emb = self.embeddings.embed_passage(text).await?;
         let db = self.db.lock().await;
         Ok(db.suggest_links(&text_emb, exclude_note_id, threshold, limit)?)
     }
@@ -1084,6 +1111,25 @@ impl Engine {
     ) -> Result<Option<ChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
         let db = self.db.lock().await;
         Ok(db.get_section(target, section)?)
+    }
+
+    /// Surgically replaces the body of a `##`/`###` section, keeping the
+    /// heading line intact and re-indexing the note afterwards.
+    pub async fn update_section(
+        &self,
+        target: &str,
+        heading: &str,
+        content: &str,
+    ) -> Result<NoteRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let note = self
+            .get_note(target)
+            .await?
+            .ok_or_else(|| format!("Note '{}' not found", target))?;
+        let new_content = replace_section_body(&note.content, heading, content).ok_or_else(|| {
+            format!("Section '{}' not found in note '{}'", heading, note.title)
+        })?;
+        self.save_note(&note.title, &new_content, Some(&note.path))
+            .await
     }
 
 
@@ -1117,7 +1163,7 @@ impl Engine {
         limit: usize,
         lang_filter: Option<&str>,
     ) -> Result<Vec<CodeChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
-        let query_emb = self.embeddings.embed_text(query).await.unwrap_or_default();
+        let query_emb = self.embeddings.embed_query(query).await.unwrap_or_default();
         let candidate_limit = if self.embeddings.is_reranker_ready() {
             (limit * 2).max(20)
         } else {
@@ -1173,5 +1219,97 @@ impl Engine {
     ) -> Result<Vec<CodeFileRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let db = self.db.lock().await;
         Ok(db.list_code_files(limit)?)
+    }
+}
+
+/// Returns (level, title) if a line is a markdown heading `##` through `######`.
+fn heading_level(line: &str) -> Option<(usize, String)> {
+    let t = line.trim_end();
+    let level = t.chars().take_while(|c| *c == '#').count();
+    if (2..=6).contains(&level) && t.chars().nth(level) == Some(' ') {
+        Some((level, t[level..].trim().to_string()))
+    } else {
+        None
+    }
+}
+
+/// Replaces the body of a `##`/`###` section (including its nested
+/// subsections), preserving the heading line and everything else.
+fn replace_section_body(md: &str, heading: &str, body: &str) -> Option<String> {
+    let target = heading
+        .trim()
+        .trim_start_matches('#')
+        .trim()
+        .to_lowercase();
+    if target.is_empty() {
+        return None;
+    }
+
+    let lines: Vec<&str> = md.lines().collect();
+    let mut start: Option<(usize, usize)> = None;
+
+    // Pass 1: exact heading match (case-insensitive)
+    for (i, l) in lines.iter().enumerate() {
+        if let Some((lvl, text)) = heading_level(l) {
+            if text.to_lowercase() == target {
+                start = Some((i, lvl));
+                break;
+            }
+        }
+    }
+    // Pass 2: contains fallback
+    if start.is_none() {
+        for (i, l) in lines.iter().enumerate() {
+            if let Some((lvl, text)) = heading_level(l) {
+                if text.to_lowercase().contains(&target) {
+                    start = Some((i, lvl));
+                    break;
+                }
+            }
+        }
+    }
+
+    let (start_idx, level) = start?;
+    let mut end_idx = lines.len();
+    for (i, l) in lines.iter().enumerate().skip(start_idx + 1) {
+        if let Some((lvl, _)) = heading_level(l) {
+            if lvl <= level {
+                end_idx = i;
+                break;
+            }
+        }
+    }
+
+    let mut out: Vec<String> = lines[..=start_idx].iter().map(|s| s.to_string()).collect();
+    out.push(String::new());
+    out.push(body.trim().to_string());
+    if end_idx < lines.len() {
+        out.push(String::new());
+        out.extend(lines[end_idx..].iter().map(|s| s.to_string()));
+    }
+    out.push(String::new());
+    Some(out.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replaces_body_keeps_heading_and_following_sections() {
+        let md = "# T\n\nIntro.\n\n## Alpha\nold body\n\n### AlphaSub\nsub\n\n## Beta\nbeta body\n";
+        let out = replace_section_body(md, "Alpha", "new body").unwrap();
+        assert!(out.contains("## Alpha\n\nnew body"));
+        assert!(out.contains("## Beta\nbeta body"));
+        assert!(!out.contains("old body"));
+        assert!(!out.contains("AlphaSub"));
+    }
+
+    #[test]
+    fn contains_match_and_eof() {
+        let md = "# T\n\n## SQLite WAL Config\nA\n";
+        let out = replace_section_body(md, "wal", "B").unwrap();
+        assert!(out.ends_with("## SQLite WAL Config\n\nB\n"));
+        assert!(replace_section_body(md, "missing", "B").is_none());
     }
 }

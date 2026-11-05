@@ -1,22 +1,23 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  MagnifyingGlass,
+  PushPin,
   Plus,
   FileText,
   Hash,
   Lightning,
-  X,
   Trash,
   Code,
   FileCode,
   ArrowUpRight,
   ArrowDownLeft,
   ArrowClockwise,
-  Clock,
-  Sparkle,
+  Crosshair,
+  SortAscending,
+  SortDescending,
+  CaretDown,
 } from '@phosphor-icons/react';
 import type { ChunkHit, CodeChunkHit, CodeFileRecord, NoteSummary } from '../types';
-import { getLanguageStyle } from './CodeInspector';
+import { getLanguageStyle } from './languageStyle';
 
 interface SidebarProps {
   projectId?: string;
@@ -30,6 +31,7 @@ interface SidebarProps {
   onDeleteNote?: (id: string, title: string) => Promise<void>;
   onSearchSemantic: (query: string) => Promise<void>;
   onSearchCode?: (query: string) => Promise<void>;
+  onRevealInGraph?: (id: string) => void;
   chunkResults: ChunkHit[];
   codeChunkResults?: CodeChunkHit[];
   isSearching: boolean;
@@ -38,6 +40,16 @@ interface SidebarProps {
   appVersion?: string;
   hasUpdate?: boolean;
   onOpenReleases?: () => void;
+}
+
+const PINNED_KEY = 'gf_pinned_notes';
+
+function loadPinned(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'));
+  } catch {
+    return new Set();
+  }
 }
 
 function formatRelativeTime(timestamp?: number): string {
@@ -64,30 +76,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectCodeFile,
   onNewNote,
   onDeleteNote,
-  onSearchSemantic,
-  onSearchCode,
+  onRevealInGraph,
   chunkResults,
   codeChunkResults = [],
   isSearching,
   isCollapsed = false,
-  theme = 'dark',
   appVersion,
   hasUpdate = false,
   onOpenReleases,
 }) => {
-  const isLight = theme === 'light';
   const [mode, setMode] = useState<'notes' | 'code'>('notes');
-  const [searchTerm, setSearchTerm] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [codeLanguageFilter, setCodeLanguageFilter] = useState<string | null>(null);
-  const [isSemanticView, setIsSemanticView] = useState(false);
+  const [dismissedResults, setDismissedResults] = useState(false);
+  const [sortAz, setSortAz] = useState(false);
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const [pinned, setPinned] = useState<Set<string>>(loadPinned);
+
+  const hasResults = chunkResults.length > 0 || codeChunkResults.length > 0;
+  const showResults = hasResults && !dismissedResults;
 
   useEffect(() => {
-    setSearchTerm('');
     setSelectedTag(null);
     setCodeLanguageFilter(null);
-    setIsSemanticView(false);
+    setDismissedResults(false);
   }, [projectId]);
+
+  useEffect(() => {
+    if (hasResults) setDismissedResults(false);
+  }, [chunkResults.length, codeChunkResults.length]);
 
   useEffect(() => {
     if (notes.length === 0 && codeFiles.length > 0) {
@@ -96,6 +113,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setMode('notes');
     }
   }, [projectId, notes.length, codeFiles.length]);
+
+  const togglePin = (id: string) => {
+    setPinned((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      localStorage.setItem(PINNED_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   const tagCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -115,718 +142,461 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
   }, [codeFiles]);
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchTerm.trim()) {
-      setIsSemanticView(false);
-      return;
-    }
-    setIsSemanticView(true);
-    if (mode === 'code' && onSearchCode) {
-      onSearchCode(searchTerm);
-    } else {
-      onSearchSemantic(searchTerm);
-    }
-  };
-
-  const handleClearSearch = () => {
-    setSearchTerm('');
-    setIsSemanticView(false);
-  };
-
-  const handleResetFilters = () => {
-    setSearchTerm('');
-    setSelectedTag(null);
-    setCodeLanguageFilter(null);
-    setIsSemanticView(false);
-  };
-
   const filteredNotes = useMemo(() => {
-    return notes.filter((n) => {
-      const matchesSearch =
-        !searchTerm ||
-        n.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        n.summary.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        n.tags.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()));
+    const list = notes.filter((n) => !selectedTag || n.tags.includes(selectedTag));
+    const sorted = sortAz
+      ? [...list].sort((a, b) => a.title.localeCompare(b.title))
+      : list;
+    return sorted;
+  }, [notes, selectedTag, sortAz]);
 
-      const matchesTag = !selectedTag || n.tags.includes(selectedTag);
-      return matchesSearch && matchesTag;
-    });
-  }, [notes, searchTerm, selectedTag]);
+  const pinnedNotes = useMemo(() => filteredNotes.filter((n) => pinned.has(n.id)), [filteredNotes, pinned]);
+  const unpinnedNotes = useMemo(() => filteredNotes.filter((n) => !pinned.has(n.id)), [filteredNotes, pinned]);
 
   const filteredCodeFiles = useMemo(() => {
-    return codeFiles.filter((cf) => {
-      const matchesSearch =
-        !searchTerm ||
-        cf.path.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        cf.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        cf.language.toLowerCase().includes(searchTerm.toLowerCase());
-
-      const matchesLang =
-        !codeLanguageFilter || cf.language.toLowerCase() === codeLanguageFilter.toLowerCase();
-      return matchesSearch && matchesLang;
-    });
-  }, [codeFiles, searchTerm, codeLanguageFilter]);
+    const list = codeFiles.filter(
+      (cf) => !codeLanguageFilter || cf.language.toLowerCase() === codeLanguageFilter.toLowerCase(),
+    );
+    return sortAz ? [...list].sort((a, b) => a.name.localeCompare(b.name)) : list;
+  }, [codeFiles, codeLanguageFilter, sortAz]);
 
   if (isCollapsed) return null;
 
+  const chipCls = (active: boolean, accent?: { bg: string; text: string; border: string }) =>
+    `inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors cursor-pointer shrink-0 border ${
+      active
+        ? accent
+          ? `${accent.bg} ${accent.text} ${accent.border}`
+          : 'bg-accent/15 text-accent border-accent/30'
+        : 'bg-raise text-muted border-line hover:text-ink hover:border-line-strong'
+    }`;
+
+  const sectionLabel = 'px-1 pt-1 pb-0.5 text-[9.5px] font-mono uppercase tracking-[0.12em] text-faint';
+
+  const renderNoteItem = (note: NoteSummary) => {
+    const isSelected = selectedNoteId === note.id;
+    const isPinned = pinned.has(note.id);
+    return (
+      <div
+        key={note.id}
+        onClick={() => onSelectNote(note.id)}
+        className={`group relative p-2 rounded-lg border transition-colors cursor-pointer ${
+          isSelected
+            ? 'bg-accent/10 border-accent/40 border-l-[3px] border-l-accent'
+            : 'bg-surface border-line hover:bg-raise hover:border-line-strong'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-1.5">
+          <span
+            className={`text-[11.5px] font-semibold leading-tight truncate ${
+              isSelected ? 'text-ink' : 'text-ink'
+            }`}
+          >
+            {note.title.replace(/\.md$/, '')}
+          </span>
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            {onRevealInGraph && (
+              <button
+                type="button"
+                title="Reveal in graph"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRevealInGraph(note.id);
+                }}
+                className="p-1 rounded text-faint hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
+              >
+                <Crosshair size={11} />
+              </button>
+            )}
+            <button
+              type="button"
+              title={isPinned ? 'Unpin' : 'Pin'}
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePin(note.id);
+              }}
+              className={`p-1 rounded transition-colors cursor-pointer ${
+                isPinned ? 'text-accent' : 'text-faint hover:text-accent hover:bg-accent/10'
+              }`}
+            >
+              <PushPin size={11} weight={isPinned ? 'fill' : 'regular'} />
+            </button>
+            {onDeleteNote && (
+              <button
+                type="button"
+                title="Delete note"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteNote(note.id, note.title);
+                }}
+                className="p-1 rounded text-faint hover:text-bad hover:bg-bad/10 transition-colors cursor-pointer"
+              >
+                <Trash size={11} />
+              </button>
+            )}
+          </div>
+          {isPinned && (
+            <PushPin
+              size={10}
+              weight="fill"
+              className="text-accent shrink-0 group-hover:hidden mt-0.5"
+            />
+          )}
+        </div>
+        {note.summary && (
+          <p className="text-[10px] text-muted leading-snug mt-1 line-clamp-2">{note.summary}</p>
+        )}
+        <div className="flex items-center justify-between gap-1.5 mt-1.5">
+          <div className="flex items-center gap-1 min-w-0">
+            {note.tags.slice(0, 3).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMode('notes');
+                  setSelectedTag(t);
+                }}
+                className="text-[9px] px-1 py-0.5 rounded bg-raise border border-line text-muted hover:text-accent hover:border-accent/30 transition-colors cursor-pointer font-mono"
+              >
+                #{t}
+              </button>
+            ))}
+          </div>
+          {note.updated_at && (
+            <span className="text-[9px] text-faint shrink-0 font-mono">
+              {formatRelativeTime(note.updated_at)}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <aside
-      className={`w-72 h-full flex flex-col border-r shrink-0 select-none z-10 transition-colors duration-200 ${
-        isLight ? 'bg-slate-50/95 border-slate-200' : 'bg-[#0b0d13] border-[#181c26]'
-      }`}
+      className="w-72 h-full flex flex-col border-r shrink-0 select-none z-10 bg-surface border-line transition-colors duration-200"
       aria-label="Sidebar"
     >
-      {/* 2-Mode Segmented Selector: Notes vs Code */}
-      <div className="p-2.5 pb-1 flex items-center gap-1.5">
-        <div
-          className={`flex-1 flex p-0.5 rounded-lg border shadow-2xs transition-colors ${
-            isLight ? 'bg-slate-200/60 border-slate-300/60' : 'bg-[#12151f] border-[#1f2536]'
+      {/* Mode tabs */}
+      <div className="p-2 pb-1.5 flex items-center gap-1.5">
+        <div className="flex-1 flex p-0.5 rounded-lg border bg-canvas border-line">
+          {(
+            [
+              { key: 'notes', label: 'Notes', icon: FileText, count: notes.length },
+              { key: 'code', label: 'Code', icon: Code, count: codeFiles.length },
+            ] as const
+          ).map(({ key, label, icon: Icon, count }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setMode(key)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
+                mode === key ? 'bg-accent/15 text-accent' : 'text-muted hover:text-ink'
+              }`}
+            >
+              <Icon size={13} weight={mode === key ? 'bold' : 'regular'} />
+              <span>{label}</span>
+              <span
+                className={`px-1 rounded text-[9.5px] font-mono ${
+                  mode === key ? 'bg-accent/20 text-accent' : 'bg-raise text-faint'
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          title={sortAz ? 'Sort by recency' : 'Sort A–Z'}
+          onClick={() => setSortAz(!sortAz)}
+          className={`p-1.5 rounded-md border transition-colors cursor-pointer ${
+            sortAz
+              ? 'text-accent border-accent/30 bg-accent/10'
+              : 'text-muted border-line bg-canvas hover:text-ink'
           }`}
         >
+          {sortAz ? <SortAscending size={13} /> : <SortDescending size={13} />}
+        </button>
+        {mode === 'notes' && (
           <button
             type="button"
-            onClick={() => {
-              setMode('notes');
-              setIsSemanticView(false);
-            }}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-              mode === 'notes'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : isLight
-                ? 'text-slate-600 hover:text-slate-900'
-                : 'text-[#64748b] hover:text-[#cbd5e1]'
-            }`}
-          >
-            <FileText size={13} weight={mode === 'notes' ? 'bold' : 'regular'} />
-            <span>Notes</span>
-            <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-                mode === 'notes'
-                  ? 'bg-white/20 text-white'
-                  : isLight
-                  ? 'bg-slate-300/60 text-slate-700'
-                  : 'bg-[#1a2030] text-[#94a3b8]'
-              }`}
-            >
-              {notes.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setMode('code');
-              setIsSemanticView(false);
-            }}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-              mode === 'code'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : isLight
-                ? 'text-slate-600 hover:text-slate-900'
-                : 'text-[#64748b] hover:text-[#cbd5e1]'
-            }`}
-          >
-            <Code size={13} weight={mode === 'code' ? 'bold' : 'regular'} />
-            <span>Code</span>
-            <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-                mode === 'code'
-                  ? 'bg-white/20 text-white'
-                  : isLight
-                  ? 'bg-slate-300/60 text-slate-700'
-                  : 'bg-[#1a2030] text-[#94a3b8]'
-              }`}
-            >
-              {codeFiles.length}
-            </span>
-          </button>
-        </div>
-
-        {onNewNote && mode === 'notes' && (
-          <button
-            type="button"
+            title="New note"
             onClick={onNewNote}
-            className={`flex items-center justify-center w-7 h-7 rounded-lg border transition-colors cursor-pointer shrink-0 shadow-2xs ${
-              isLight
-                ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700 hover:text-indigo-600'
-                : 'bg-[#12151f] hover:bg-[#181d2a] border-[#1f2536] text-[#cbd5e1] hover:text-indigo-400'
-            }`}
-            title="Create new note"
+            className="p-1.5 rounded-md text-muted hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
           >
             <Plus size={13} weight="bold" />
           </button>
         )}
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="px-2.5 py-1.5">
-        <form onSubmit={handleSearchSubmit}>
+      {/* Tag / language chips — one scrollable row, expandable */}
+      {mode === 'notes' && tagCounts.length > 0 && (
+        <div className="px-2 pb-1.5 border-b border-line">
+          <button
+            type="button"
+            onClick={() => setTagsOpen(!tagsOpen)}
+            className="w-full flex items-center justify-between px-1 py-1 text-[9.5px] font-mono uppercase tracking-[0.12em] text-faint hover:text-muted transition-colors cursor-pointer"
+          >
+            <span className="flex items-center gap-1">
+              <Hash size={10} />
+              Tags {selectedTag && <span className="text-accent">· #{selectedTag}</span>}
+            </span>
+            <CaretDown size={10} className={`transition-transform ${tagsOpen ? 'rotate-180' : ''}`} />
+          </button>
           <div
-            className={`relative flex items-center w-full rounded-lg border transition-all ${
-              isLight
-                ? 'bg-white border-slate-200 focus-within:border-indigo-500/70 focus-within:ring-1 focus-within:ring-indigo-500/20'
-                : 'bg-[#12151f] border-[#1f2536] focus-within:border-indigo-500/70 focus-within:ring-1 focus-within:ring-indigo-500/20'
+            className={`flex gap-1 overflow-x-auto pb-1 ${
+              tagsOpen ? 'flex-wrap max-h-24 overflow-y-auto' : 'flex-nowrap'
             }`}
           >
-            <MagnifyingGlass
-              size={13}
-              className={`absolute left-2.5 ${
-                isLight ? 'text-slate-400' : 'text-[#64748b]'
-              } pointer-events-none`}
-            />
-            <input
-              type="text"
-              className={`w-full pl-8 pr-7 py-1.5 text-xs bg-transparent focus:outline-none ${
-                isLight
-                  ? 'text-slate-800 placeholder-slate-400'
-                  : 'text-[#f1f5f9] placeholder-[#64748b]'
-              }`}
-              placeholder={
-                mode === 'notes'
-                  ? 'Filter notes... (↵ search)'
-                  : 'Filter code... (↵ search)'
-              }
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            {searchTerm ? (
-              <button
-                type="button"
-                onClick={handleClearSearch}
-                className="absolute right-2 p-0.5 rounded text-[#64748b] hover:text-slate-900 transition-colors cursor-pointer"
-                title="Clear search"
-              >
-                <X size={12} />
-              </button>
-            ) : null}
-          </div>
-        </form>
-      </div>
-
-      {/* Chips: Tags (Notes) or Languages (Code) */}
-      {mode === 'notes' && tagCounts.length > 0 && !isSemanticView && (
-        <div
-          className={`flex items-center gap-1 px-2.5 py-1.5 overflow-x-auto border-b scrollbar-none ${
-            isLight ? 'border-slate-200 bg-white/40' : 'border-[#181c26]'
-          }`}
-        >
-          {selectedTag && (
             <button
               type="button"
               onClick={() => setSelectedTag(null)}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/10 text-rose-600 border border-rose-500/30 hover:bg-rose-500/20 transition-colors cursor-pointer shrink-0"
+              className={chipCls(!selectedTag)}
             >
-              <X size={10} />
-              Clear
+              All
             </button>
-          )}
-          {tagCounts.slice(0, 10).map(([tag, count]) => {
-            const isSelected = selectedTag === tag;
-            return (
+            {tagCounts.map(([tag, count]) => (
               <button
                 key={tag}
                 type="button"
-                onClick={() => setSelectedTag(isSelected ? null : tag)}
-                className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer shrink-0 ${
-                  isSelected
-                    ? 'bg-indigo-600 text-white shadow-2xs'
-                    : isLight
-                    ? 'bg-slate-200/70 text-slate-700 border border-slate-300/60 hover:bg-slate-200'
-                    : 'bg-[#12151f] text-[#8e9bb2] border border-[#1f2536] hover:bg-[#181d2a] hover:text-[#f1f5f9]'
-                }`}
+                onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                className={chipCls(selectedTag === tag)}
               >
-                <Hash size={9} />
-                <span>{tag}</span>
-                <span
-                  className={`ml-0.5 ${
-                    isSelected
-                      ? 'text-white/80'
-                      : isLight
-                      ? 'text-slate-500'
-                      : 'text-[#64748b]'
-                  }`}
-                >
-                  {count}
-                </span>
+                #{tag}
+                <span className="opacity-60">{count}</span>
               </button>
-            );
-          })}
+            ))}
+          </div>
         </div>
       )}
-
-      {mode === 'code' && languageCounts.length > 0 && !isSemanticView && (
-        <div
-          className={`flex items-center gap-1 px-2.5 py-1.5 overflow-x-auto border-b scrollbar-none ${
-            isLight ? 'border-slate-200 bg-white/40' : 'border-[#181c26]'
-          }`}
-        >
-          <button
-            type="button"
-            onClick={() => setCodeLanguageFilter(null)}
-            className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer shrink-0 ${
-              codeLanguageFilter === null
-                ? 'bg-indigo-600 text-white shadow-2xs'
-                : isLight
-                ? 'bg-slate-200/70 text-slate-700 border border-slate-300/60 hover:bg-slate-200'
-                : 'bg-[#12151f] text-[#8e9bb2] border border-[#1f2536] hover:bg-[#181d2a]'
-            }`}
-          >
-            All
-          </button>
-          {languageCounts.map(([lang, count]) => {
-            const isSelected = codeLanguageFilter?.toLowerCase() === lang.toLowerCase();
-            const style = getLanguageStyle(lang);
-            return (
-              <button
-                key={lang}
-                type="button"
-                onClick={() => setCodeLanguageFilter(isSelected ? null : lang)}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer shrink-0 ${
-                  isSelected
-                    ? `${style.bg} ${style.text} border ${style.border} font-semibold`
-                    : isLight
-                    ? 'bg-slate-200/70 text-slate-700 border border-slate-300/60 hover:bg-slate-200'
-                    : 'bg-[#12151f] text-[#8e9bb2] border border-[#1f2536] hover:bg-[#181d2a]'
-                }`}
-              >
-                <span>{lang}</span>
-                <span className={isLight ? 'text-slate-500' : 'text-[#64748b]'}>({count})</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Semantic Results Banner */}
-      {isSemanticView && (
-        <div
-          className={`px-3 py-1.5 border-b flex items-center justify-between ${
-            isLight ? 'bg-amber-50/70 border-amber-200/60' : 'bg-[#12151f] border-[#181c26]'
-          }`}
-        >
-          <div className="flex items-center gap-1.5 text-[11px] truncate">
-            <Lightning size={12} className="text-amber-500 shrink-0" />
-            <span
-              className={`truncate ${
-                isLight ? 'text-slate-700 font-medium' : 'text-[#94a3b8]'
-              }`}
+      {mode === 'code' && languageCounts.length > 0 && (
+        <div className="px-2 pb-1.5 border-b border-line">
+          <div className="px-1 py-1 text-[9.5px] font-mono uppercase tracking-[0.12em] text-faint">
+            Languages {codeLanguageFilter && <span className="text-accent">· {codeLanguageFilter}</span>}
+          </div>
+          <div className="flex gap-1 overflow-x-auto pb-1 flex-nowrap">
+            <button
+              type="button"
+              onClick={() => setCodeLanguageFilter(null)}
+              className={chipCls(!codeLanguageFilter)}
             >
-              Neural Search: &quot;{searchTerm}&quot;
-            </span>
+              All
+            </button>
+            {languageCounts.map(([lang, count]) => {
+              const style = getLanguageStyle(lang);
+              return (
+                <button
+                  key={lang}
+                  type="button"
+                  onClick={() =>
+                    setCodeLanguageFilter(codeLanguageFilter === lang ? null : lang)
+                  }
+                  className={chipCls(codeLanguageFilter === lang, style)}
+                >
+                  {lang}
+                  <span className="opacity-60">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Semantic results (fed by engine search / omnisearch) */}
+      {showResults && (
+        <div className="px-2.5 py-1.5 border-b border-line bg-accent/5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-[10.5px] text-muted truncate">
+            <Lightning size={11} className="text-accent shrink-0" weight="fill" />
+            <span>Neural results</span>
           </div>
           <button
             type="button"
-            onClick={() => setIsSemanticView(false)}
-            className="text-[10px] text-indigo-500 hover:text-indigo-600 font-medium cursor-pointer shrink-0"
+            onClick={() => setDismissedResults(true)}
+            className="text-[10px] text-accent hover:underline cursor-pointer shrink-0"
           >
-            Back
+            Hide
           </button>
         </div>
       )}
 
-      {/* Items List */}
+      {/* List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-        {/* SEMANTIC RESULTS MODE */}
-        {isSemanticView ? (
+        {showResults ? (
           isSearching ? (
-            <div className="py-12 text-center text-[#64748b] text-xs">
-              <ArrowClockwise size={18} className="mx-auto mb-2 text-indigo-500 animate-spin" />
+            <div className="py-12 text-center text-faint text-[11px]">
+              <ArrowClockwise size={18} className="mx-auto mb-2 text-accent animate-spin" />
               <span>Computing embeddings...</span>
             </div>
           ) : mode === 'notes' ? (
-            chunkResults.length === 0 ? (
-              <div className="py-12 text-center text-[#64748b] text-xs">
-                No note chunks found for &quot;{searchTerm}&quot;.
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {chunkResults.map((chunk) => (
-                  <div
-                    key={chunk.chunk_id}
-                    onClick={() => onSelectNote(chunk.note_id)}
-                    className={`p-2.5 rounded-lg border transition-all cursor-pointer ${
-                      selectedNoteId === chunk.note_id
-                        ? isLight
-                          ? 'bg-indigo-50/90 border-indigo-300 text-slate-900 shadow-xs border-l-[3px] border-l-indigo-600'
-                          : 'bg-[#171b28] border-indigo-500/40 text-white border-l-[3px] border-l-indigo-500'
-                        : isLight
-                        ? 'bg-white border-slate-200 hover:bg-slate-50'
-                        : 'bg-[#10131c] border-[#1c2130] hover:bg-[#141824]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1.5">
-                      <span
-                        className={`text-xs font-semibold truncate ${
-                          isLight ? 'text-slate-800' : 'text-[#e2e8f0]'
-                        }`}
-                      >
-                        {chunk.deep_link}
-                      </span>
-                      <span className="text-[10px] font-mono font-semibold text-emerald-500 shrink-0">
-                        {Math.round(chunk.score * 100)}% match
-                      </span>
-                    </div>
-                    <p
-                      className={`text-[10.5px] line-clamp-2 mt-1 leading-relaxed ${
-                        isLight ? 'text-slate-600' : 'text-[#94a3b8]'
-                      }`}
-                    >
-                      &quot;{chunk.content}&quot;
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )
-          ) : codeChunkResults.length === 0 ? (
-            <div className="py-12 text-center text-[#64748b] text-xs">
-              No code symbols found for &quot;{searchTerm}&quot;.
-            </div>
-          ) : (
             <div className="space-y-1.5">
-              {codeChunkResults.map((chunk) => (
+              {chunkResults.map((chunk) => (
                 <div
                   key={chunk.chunk_id}
-                  onClick={() =>
-                    onSelectCodeFile?.(chunk.file_name, chunk.symbol_name || undefined)
-                  }
-                  className={`p-2.5 rounded-lg border transition-all cursor-pointer ${
-                    isLight
-                      ? 'bg-white border-slate-200 hover:border-sky-400 hover:bg-sky-50/30'
-                      : 'bg-[#10131c] border-[#1c2130] hover:bg-[#141824] hover:border-sky-500/40'
+                  onClick={() => onSelectNote(chunk.note_id)}
+                  className={`p-2 rounded-lg border transition-colors cursor-pointer ${
+                    selectedNoteId === chunk.note_id
+                      ? 'bg-accent/10 border-accent/40 border-l-[3px] border-l-accent'
+                      : 'bg-surface border-line hover:bg-raise'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1.5">
-                    <span
-                      className={`text-xs font-mono font-semibold truncate ${
-                        isLight ? 'text-sky-700' : 'text-sky-300'
-                      }`}
-                    >
-                      {chunk.deep_link}
+                    <span className="text-[11px] font-semibold text-ink truncate">
+                      {chunk.note_title}
                     </span>
-                    <span className="text-[10px] font-mono font-semibold text-emerald-500 shrink-0">
-                      {Math.round(chunk.score * 100)}% match
+                    <span className="text-[9px] font-mono text-good shrink-0">
+                      {Math.round(chunk.score * 100)}%
                     </span>
                   </div>
-                  <p
-                    className={`text-[10px] font-mono line-clamp-2 mt-1 p-1.5 rounded border ${
-                      isLight
-                        ? 'bg-slate-50 text-slate-700 border-slate-200'
-                        : 'bg-[#090b10] text-[#94a3b8] border-[#161a26]'
-                    }`}
-                  >
+                  {chunk.heading && (
+                    <div className="text-[9.5px] font-mono text-accent mt-0.5 truncate">
+                      § {chunk.heading}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted leading-snug mt-1 line-clamp-3">
                     {chunk.content}
                   </p>
-                  <div className="flex items-center justify-between text-[9px] font-mono text-[#64748b] mt-1.5">
-                    <span>
-                      L{chunk.start_line}–{chunk.end_line}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {codeChunkResults.map((chunk, i) => (
+                <div
+                  key={`${chunk.file_id}-${i}`}
+                  onClick={() => onSelectCodeFile?.(chunk.file_id, chunk.symbol_name || undefined)}
+                  className="p-2 rounded-lg border bg-surface border-line hover:bg-raise transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className="text-[11px] font-semibold text-ink truncate font-mono">
+                      {chunk.symbol_name || chunk.file_name}
                     </span>
-                    <span>~{chunk.token_estimate} tokens</span>
+                    <span className="text-[9px] font-mono text-good shrink-0">
+                      {Math.round(chunk.score * 100)}%
+                    </span>
                   </div>
+                  <div className="text-[9.5px] font-mono text-faint mt-0.5 truncate">
+                    {chunk.file_id}
+                  </div>
+                  {chunk.content && (
+                    <pre className="text-[9px] text-muted leading-snug mt-1 line-clamp-3 font-mono whitespace-pre-wrap">
+                      {chunk.content}
+                    </pre>
+                  )}
                 </div>
               ))}
             </div>
           )
         ) : mode === 'notes' ? (
-          /* REGULAR NOTES LIST */
           filteredNotes.length === 0 ? (
-            <div className="py-12 px-4 text-center text-xs">
-              <FileText
-                size={26}
-                className={`mx-auto mb-2 opacity-35 ${
-                  isLight ? 'text-slate-400' : 'text-slate-500'
-                }`}
-              />
-              <p className={isLight ? 'text-slate-600' : 'text-slate-400'}>
-                {searchTerm || selectedTag
-                  ? 'No notes match your filters.'
-                  : 'No notes in this vault yet.'}
-              </p>
-              {searchTerm || selectedTag ? (
-                <button
-                  type="button"
-                  onClick={handleResetFilters}
-                  className="mt-2 text-xs text-indigo-500 hover:text-indigo-600 font-medium cursor-pointer"
-                >
-                  Reset filters
-                </button>
-              ) : onNewNote ? (
-                <button
-                  type="button"
-                  onClick={onNewNote}
-                  className="mt-2.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer shadow-xs"
-                >
-                  <Plus size={11} weight="bold" />
-                  <span>Create First Note</span>
-                </button>
-              ) : null}
+            <div className="py-12 text-center text-faint text-[11px]">
+              <FileText size={20} className="mx-auto mb-2 opacity-40" />
+              {selectedTag ? `No notes tagged #${selectedTag}` : 'No notes yet — Ctrl+K to search or create.'}
             </div>
           ) : (
-            filteredNotes.map((note) => {
-              const isSelected =
-                selectedNoteId !== null &&
-                (selectedNoteId === note.id ||
-                  selectedNoteId.toLowerCase() === note.id.toLowerCase() ||
-                  selectedNoteId.replace(/\.md$/i, '').toLowerCase() ===
-                    note.id.replace(/\.md$/i, '').toLowerCase() ||
-                  (note.title && selectedNoteId.toLowerCase() === note.title.toLowerCase()) ||
-                  (note.title &&
-                    selectedNoteId.replace(/\.md$/i, '').toLowerCase() ===
-                      note.title.replace(/\.md$/i, '').toLowerCase()));
-
-              const displayTitle = note.title.replace(/\.md$/, '');
-              const relativeTime = formatRelativeTime(note.updated_at);
-
+            <>
+              {pinnedNotes.length > 0 && (
+                <>
+                  <div className={sectionLabel}>Pinned · {pinnedNotes.length}</div>
+                  {pinnedNotes.map(renderNoteItem)}
+                </>
+              )}
+              <div className={sectionLabel}>
+                {selectedTag ? `#${selectedTag}` : 'Notes'} · {unpinnedNotes.length}
+              </div>
+              {unpinnedNotes.map(renderNoteItem)}
+            </>
+          )
+        ) : filteredCodeFiles.length === 0 ? (
+          <div className="py-12 text-center text-faint text-[11px]">
+            <FileCode size={20} className="mx-auto mb-2 opacity-40" />
+            {codeLanguageFilter
+              ? `No ${codeLanguageFilter} files`
+              : 'No code files indexed.'}
+          </div>
+        ) : (
+          <>
+            <div className={sectionLabel}>
+              {codeLanguageFilter || 'Files'} · {filteredCodeFiles.length}
+            </div>
+            {filteredCodeFiles.map((cf) => {
+              const style = getLanguageStyle(cf.language);
+              const isSelected = selectedCodePath === cf.path;
               return (
                 <div
-                  key={note.id}
-                  onClick={() => onSelectNote(note.id)}
-                  className={`group px-3 py-2.5 rounded-lg border transition-all cursor-pointer relative ${
+                  key={cf.path}
+                  onClick={() => onSelectCodeFile?.(cf.path)}
+                  className={`group p-2 rounded-lg border transition-colors cursor-pointer ${
                     isSelected
-                      ? isLight
-                        ? 'bg-indigo-50/90 border-indigo-200 text-slate-900 shadow-xs border-l-[3px] border-l-indigo-600'
-                        : 'bg-[#181d2a] border-indigo-500/40 text-white shadow-xs border-l-[3px] border-l-indigo-500'
-                      : isLight
-                      ? 'bg-white/90 border-slate-200/80 hover:bg-white hover:border-slate-300 hover:shadow-xs'
-                      : 'bg-transparent border-transparent hover:bg-[#12151f] hover:border-[#1d2230]'
+                      ? 'bg-accent/10 border-accent/40 border-l-[3px] border-l-accent'
+                      : 'bg-surface border-line hover:bg-raise hover:border-line-strong'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5">
                     <span
-                      className={`text-xs font-semibold truncate flex-1 ${
-                        isSelected
-                          ? isLight
-                            ? 'text-indigo-950 font-bold'
-                            : 'text-[#f8fafc]'
-                          : isLight
-                          ? 'text-slate-800 group-hover:text-slate-950'
-                          : 'text-[#cbd5e1] group-hover:text-[#f8fafc]'
-                      }`}
-                    >
-                      {displayTitle}
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ backgroundColor: style.hex }}
+                    />
+                    <span className="text-[11px] font-semibold text-ink truncate font-mono">
+                      {cf.name}
                     </span>
-                    {onDeleteNote && (
+                    {onRevealInGraph && (
                       <button
                         type="button"
+                        title="Reveal in graph"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (
-                            window.confirm(
-                              `Are you sure you want to delete note "${displayTitle}"?`
-                            )
-                          ) {
-                            onDeleteNote(note.id, note.title);
-                          }
+                          onRevealInGraph(cf.path);
                         }}
-                        className={`opacity-0 group-hover:opacity-100 p-1 rounded transition-all shrink-0 cursor-pointer ${
-                          isLight
-                            ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
-                            : 'text-[#64748b] hover:text-rose-400 hover:bg-rose-950/40'
-                        }`}
-                        title="Delete note"
+                        className="ml-auto p-1 rounded text-faint opacity-0 group-hover:opacity-100 hover:text-accent hover:bg-accent/10 transition-all cursor-pointer shrink-0"
                       >
-                        <Trash size={12} />
+                        <Crosshair size={11} />
                       </button>
                     )}
                   </div>
-
-                  {note.summary && (
-                    <p
-                      className={`text-[11px] line-clamp-2 mt-0.5 leading-relaxed ${
-                        isLight ? 'text-slate-500' : 'text-[#828f9f]'
-                      }`}
-                    >
-                      {note.summary}
-                    </p>
-                  )}
-
-                  <div className="flex items-center justify-between gap-1 mt-1.5 pt-0.5">
-                    <div className="flex items-center gap-1 flex-wrap min-w-0">
-                      {note.tags.slice(0, 3).map((t) => (
-                        <span
-                          key={t}
-                          className={`text-[9px] font-mono px-1.5 py-0.2 rounded border truncate ${
-                            isLight
-                              ? 'bg-slate-100 text-slate-600 border-slate-200'
-                              : 'bg-[#171a25] text-[#8e9bb2] border-[#202534]'
-                          }`}
-                        >
-                          #{t}
-                        </span>
-                      ))}
-                    </div>
-
-                    {relativeTime && (
-                      <span
-                        className={`text-[9.5px] flex items-center gap-1 shrink-0 ${
-                          isLight ? 'text-slate-400' : 'text-[#556276]'
-                        }`}
-                        title={`Updated ${relativeTime}`}
-                      >
-                        <Clock size={10} />
-                        {relativeTime}
+                  <div className="text-[9.5px] font-mono text-faint mt-0.5 truncate pl-3">
+                    {cf.path}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1 pl-3">
+                    <span className={`text-[9px] px-1 py-0.5 rounded border font-mono ${style.bg} ${style.text} ${style.border}`}>
+                      {cf.language}
+                    </span>
+                    {cf.imports_count > 0 && (
+                      <span className="text-[8.5px] font-mono text-faint flex items-center gap-0.5">
+                        <ArrowUpRight size={8} />
+                        {cf.imports_count}
+                      </span>
+                    )}
+                    {cf.dependents_count > 0 && (
+                      <span className="text-[8.5px] font-mono text-faint flex items-center gap-0.5">
+                        <ArrowDownLeft size={8} />
+                        {cf.dependents_count}
                       </span>
                     )}
                   </div>
                 </div>
               );
-            })
-          )
-        ) : (
-          /* REGULAR CODE FILES LIST */
-          filteredCodeFiles.length === 0 ? (
-            <div className="py-12 px-4 text-center text-xs">
-              <FileCode
-                size={26}
-                className={`mx-auto mb-2 opacity-35 ${
-                  isLight ? 'text-slate-400' : 'text-slate-500'
-                }`}
-              />
-              <p className={isLight ? 'text-slate-600' : 'text-slate-400'}>
-                {searchTerm || codeLanguageFilter
-                  ? 'No code files match your filters.'
-                  : 'No code files found in this vault.'}
-              </p>
-              {searchTerm || codeLanguageFilter ? (
-                <button
-                  type="button"
-                  onClick={handleResetFilters}
-                  className="mt-2 text-xs text-indigo-500 hover:text-indigo-600 font-medium cursor-pointer"
-                >
-                  Reset filters
-                </button>
-              ) : null}
-            </div>
-          ) : (
-            filteredCodeFiles.map((cf) => {
-              const isSelected =
-                selectedCodePath === cf.path ||
-                selectedCodePath === cf.id ||
-                (selectedNoteId !== null &&
-                  (selectedNoteId === cf.path ||
-                    selectedNoteId === cf.id ||
-                    selectedNoteId.toLowerCase() === cf.path.toLowerCase()));
-
-              const style = getLanguageStyle(cf.language);
-              return (
-                <div
-                  key={cf.id}
-                  onClick={() => onSelectCodeFile?.(cf.path)}
-                  className={`group px-2.5 py-2.5 rounded-lg border transition-all cursor-pointer relative ${
-                    isSelected
-                      ? isLight
-                        ? 'bg-sky-50 border-sky-300 shadow-xs border-l-[3px] border-l-sky-500'
-                        : 'bg-[#181d2a] border-sky-500/40 shadow-xs border-l-[3px] border-l-sky-400'
-                      : isLight
-                      ? 'bg-white/90 border-slate-200/80 hover:bg-white hover:border-slate-300'
-                      : 'bg-[#10131d]/60 border-transparent hover:bg-[#131722] hover:border-[#1d2232]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span
-                        className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-semibold shrink-0 ${style.bg} ${style.text}`}
-                      >
-                        {cf.extension.toUpperCase().replace('.', '') ||
-                          cf.language.slice(0, 3).toUpperCase()}
-                      </span>
-                      <span
-                        className={`text-xs font-semibold truncate ${
-                          isSelected
-                            ? isLight
-                              ? 'text-sky-950 font-bold'
-                              : 'text-[#f8fafc]'
-                            : isLight
-                            ? 'text-slate-800 group-hover:text-slate-950'
-                            : 'text-[#cbd5e1] group-hover:text-[#f8fafc]'
-                        }`}
-                      >
-                        {cf.name}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0 text-[10px] font-mono text-[#64748b]">
-                      {cf.imports_count > 0 && (
-                        <span
-                          className="flex items-center text-sky-500"
-                          title={`${cf.imports_count} imports`}
-                        >
-                          <ArrowUpRight size={10} />
-                          {cf.imports_count}
-                        </span>
-                      )}
-                      {cf.dependents_count > 0 && (
-                        <span
-                          className="flex items-center text-violet-500"
-                          title={`Imported by ${cf.dependents_count} files`}
-                        >
-                          <ArrowDownLeft size={10} />
-                          {cf.dependents_count}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <p
-                    className={`text-[10px] font-mono truncate mt-1 ${
-                      isLight ? 'text-slate-400' : 'text-[#64748b]'
-                    }`}
-                  >
-                    {cf.path}
-                  </p>
-                </div>
-              );
-            })
-          )
+            })}
+          </>
         )}
       </div>
 
-      {/* Footer Info Pill */}
-      <div
-        className={`px-3 py-2 border-t flex items-center justify-between text-[10.5px] font-mono transition-colors ${
-          isLight
-            ? 'bg-slate-100/70 border-slate-200 text-slate-500'
-            : 'bg-[#090b10] border-[#181c26] text-[#64748b]'
-        }`}
-      >
-        <span className="truncate">
-          {notes.length} notes • {codeFiles.length} files
+      {/* Footer */}
+      <div className="px-2.5 py-1.5 border-t border-line flex items-center justify-between text-[9.5px] font-mono text-faint">
+        <span>
+          {notes.length} notes · {codeFiles.length} files
         </span>
-
-        <div className="flex items-center gap-2.5 shrink-0">
-          {onOpenReleases && (
-            <button
-              type="button"
-              onClick={onOpenReleases}
-              className={`hover:underline cursor-pointer flex items-center gap-1 transition-colors ${
-                hasUpdate
-                  ? 'text-emerald-500 font-semibold'
-                  : isLight
-                  ? 'text-slate-500 hover:text-slate-800'
-                  : 'text-[#64748b] hover:text-[#94a3b8]'
-              }`}
-              title={
-                hasUpdate
-                  ? 'New version available! Click to view'
-                  : 'View installed version & releases'
-              }
-            >
-              {hasUpdate ? (
-                <>
-                  <Sparkle size={11} weight="fill" className="text-emerald-400 animate-pulse" />
-                  <span>Update</span>
-                </>
-              ) : (
-                <span>v{appVersion || '0.14.0'}</span>
-              )}
-            </button>
-          )}
-
-          <span className="flex items-center gap-1.5 text-emerald-500">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            Ready
-          </span>
-        </div>
+        <button
+          type="button"
+          onClick={onOpenReleases}
+          className={`flex items-center gap-1 transition-colors cursor-pointer ${
+            hasUpdate ? 'text-accent hover:text-accent' : 'hover:text-muted'
+          }`}
+        >
+          {hasUpdate && <span className="w-1.5 h-1.5 rounded-full bg-accent" />}
+          {appVersion && `v${appVersion}`}
+        </button>
       </div>
     </aside>
   );
