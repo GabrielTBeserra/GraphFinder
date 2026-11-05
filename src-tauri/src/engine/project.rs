@@ -14,6 +14,8 @@ pub struct ProjectInfo {
     pub path: String,
     pub db_path: String,
     pub note_count: usize,
+    #[serde(default)]
+    pub code_count: usize,
     pub is_active: bool,
 }
 
@@ -253,39 +255,44 @@ impl VaultManager {
         }
     }
 
-    async fn get_fast_project_count(&self, id: &str, vault_path: &Path, db_path: &Path) -> usize {
-        // 1. Check loaded Engine atomic counter (0ns)
-        {
-            let engines = self.engines.read().await;
-            if let Some(eng) = engines.get(id) {
-                let c = eng.cached_count();
-                if c > 0 {
-                    return c;
-                }
+    /// Returns (notes, code_files) counts.
+    async fn get_fast_project_counts(
+        &self,
+        id: &str,
+        vault_path: &Path,
+        db_path: &Path,
+    ) -> (usize, usize) {
+        // 1. Check loaded Engine live counts
+        let eng = { self.engines.read().await.get(id).cloned() };
+        if let Some(eng) = eng {
+            let (n, c) = eng.item_counts().await;
+            if n + c > 0 {
+                return (n, c);
             }
         }
         // 2. Check existing SQLite index.db via fast read-only COUNT(*) (<0.3ms)
-        if let Some(db_count) = super::db::DbManager::quick_item_count(db_path) {
-            if db_count > 0 {
+        if let Some((n, c)) = super::db::DbManager::quick_item_counts(db_path) {
+            if n + c > 0 {
                 let mut counts = self.cached_counts.write().await;
-                counts.insert(id.to_string(), db_count);
-                return db_count;
+                counts.insert(id.to_string(), n + c);
+                return (n, c);
             }
         }
-        // 3. Check in-memory / persisted cached_counts
+        // 3. Shallow bounded fallback for brand-new unindexed directories
+        let (n, c) = count_items_in_dir_bounded(vault_path);
+        if n + c > 0 {
+            let mut counts = self.cached_counts.write().await;
+            counts.insert(id.to_string(), n + c);
+            return (n, c);
+        }
+        // 4. Last resort: persisted combined total (split unknown)
         {
             let counts = self.cached_counts.read().await;
-            if let Some(&c) = counts.get(id) {
-                return c;
+            if let Some(&total) = counts.get(id) {
+                return (total, 0);
             }
         }
-        // 4. Shallow bounded fallback for brand-new unindexed directories
-        let c = count_notes_in_dir_bounded(vault_path);
-        {
-            let mut counts = self.cached_counts.write().await;
-            counts.insert(id.to_string(), c);
-        }
-        c
+        (0, 0)
     }
 
     pub async fn list_projects(&self) -> Vec<ProjectInfo> {
@@ -296,7 +303,8 @@ impl VaultManager {
 
         // 1. Default / Principal project
         let (def_vault, def_db) = self.resolve_project_paths("default").await;
-        let def_count = self.get_fast_project_count("default", &def_vault, &def_db).await;
+        let (def_notes, def_code) =
+            self.get_fast_project_counts("default", &def_vault, &def_db).await;
         list.push(ProjectInfo {
             id: "default".to_string(),
             name: names
@@ -305,7 +313,8 @@ impl VaultManager {
                 .unwrap_or_else(|| "Principal".to_string()),
             path: def_vault.to_string_lossy().to_string(),
             db_path: def_db.to_string_lossy().to_string(),
-            note_count: def_count,
+            note_count: def_notes,
+            code_count: def_code,
             is_active: active.eq_ignore_ascii_case("default"),
         });
 
@@ -317,14 +326,15 @@ impl VaultManager {
             let p = PathBuf::from(path_str);
             let name = names.get(id).cloned().unwrap_or_else(|| id.clone());
             let db_path_buf = p.join("index.db");
-            let count = self.get_fast_project_count(id, &p, &db_path_buf).await;
+            let (notes, code) = self.get_fast_project_counts(id, &p, &db_path_buf).await;
 
             list.push(ProjectInfo {
                 id: id.clone(),
                 name,
                 path: p.to_string_lossy().to_string(),
                 db_path: db_path_buf.to_string_lossy().to_string(),
-                note_count: count,
+                note_count: notes,
+                code_count: code,
                 is_active: active.eq_ignore_ascii_case(id),
             });
         }
@@ -350,14 +360,16 @@ impl VaultManager {
                         .cloned()
                         .unwrap_or_else(|| folder_name.to_string());
                     let db_path_buf = path.join("index.db");
-                    let count = self.get_fast_project_count(&id, &path, &db_path_buf).await;
+                    let (notes, code) =
+                        self.get_fast_project_counts(&id, &path, &db_path_buf).await;
 
                     list.push(ProjectInfo {
                         id: id.clone(),
                         name,
                         path: path.to_string_lossy().to_string(),
                         db_path: db_path_buf.to_string_lossy().to_string(),
-                        note_count: count,
+                        note_count: notes,
+                        code_count: code,
                         is_active: active.eq_ignore_ascii_case(&id),
                     });
                 }
@@ -468,8 +480,8 @@ impl VaultManager {
         let (vault_path, _) = self.resolve_project_paths(&slug).await;
 
         // If folder doesn't have any markdown or code files at top levels, create an initial starter note
-        let existing_count = count_notes_in_dir_bounded(&vault_path);
-        if existing_count == 0 {
+        let (existing_notes, existing_code) = count_items_in_dir_bounded(&vault_path);
+        if existing_notes + existing_code == 0 {
             let starter_note = vault_path.join(format!("{}.md", clean_name));
             if !starter_note.exists() {
                 let note_body = format!(
@@ -591,8 +603,8 @@ impl VaultManager {
         let canonical_id = self.resolve_canonical_id(project_id).await;
         let active = self.active_project_id().await;
         let (vault_path, db_path) = self.resolve_project_paths(&canonical_id).await;
-        let count = self
-            .get_fast_project_count(&canonical_id, &vault_path, &db_path)
+        let (notes, code) = self
+            .get_fast_project_counts(&canonical_id, &vault_path, &db_path)
             .await;
         let names = self.custom_names.read().await;
         let name = if canonical_id == "default" {
@@ -612,7 +624,8 @@ impl VaultManager {
             name,
             path: vault_path.to_string_lossy().to_string(),
             db_path: db_path.to_string_lossy().to_string(),
-            note_count: count,
+            note_count: notes,
+            code_count: code,
             is_active: active.eq_ignore_ascii_case(&canonical_id),
         })
     }
@@ -638,11 +651,14 @@ impl VaultManager {
     }
 }
 
-fn count_notes_in_dir_bounded(dir: &Path) -> usize {
+/// Returns (markdown_notes, code_files) in the directory, bounded for speed.
+fn count_items_in_dir_bounded(dir: &Path) -> (usize, usize) {
     if !dir.exists() {
-        return 0;
+        return (0, 0);
     }
-    walkdir::WalkDir::new(dir)
+    let mut notes = 0usize;
+    let mut code = 0usize;
+    for e in walkdir::WalkDir::new(dir)
         .max_depth(2)
         .into_iter()
         .filter_entry(|e| {
@@ -662,10 +678,16 @@ fn count_notes_in_dir_bounded(dir: &Path) -> usize {
         })
         .filter_map(|e| e.ok())
         .take(200)
-        .filter(|e| {
-            e.file_type().is_file()
-                && (e.path().extension().and_then(|s| s.to_str()) == Some("md")
-                    || super::code::is_supported_code_file(e.path()))
-        })
-        .count()
+    {
+        if !e.file_type().is_file() {
+            continue;
+        }
+        let ext = e.path().extension().and_then(|s| s.to_str());
+        if ext == Some("md") {
+            notes += 1;
+        } else if e.path().extension().is_some() && super::code::is_supported_code_file(e.path()) {
+            code += 1;
+        }
+    }
+    (notes, code)
 }

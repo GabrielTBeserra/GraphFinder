@@ -789,7 +789,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let active_mark = if p.is_active { " * (active)" } else { "" };
             println!("{}. {} [{}] {}", i + 1, p.name, p.id, active_mark);
             println!("   Path:     {}", p.path);
-            println!("   Notes:    {}", p.note_count);
+            println!("   Notes:    {} (+{} code files)", p.note_count, p.code_count);
             println!("   Database: {}", p.db_path);
             println!();
         }

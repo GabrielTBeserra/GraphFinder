@@ -153,6 +153,8 @@ pub struct CodeFileRecord {
     pub updated_at: i64,
     pub imports_count: usize,
     pub dependents_count: usize,
+    #[serde(default)]
+    pub external_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1812,8 +1814,9 @@ impl DbManager {
         Ok(())
     }
 
-    /// Fast read-only item count directly from an existing SQLite index.db without initializing schema or locking Engine.
-    pub fn quick_item_count(db_path: &std::path::Path) -> Option<usize> {
+    /// Fast read-only item counts (notes, code files) directly from an existing
+    /// SQLite index.db without initializing schema or locking Engine.
+    pub fn quick_item_counts(db_path: &std::path::Path) -> Option<(usize, usize)> {
         if !db_path.exists() {
             return None;
         }
@@ -1827,7 +1830,20 @@ impl DbManager {
         let code: usize = conn
             .query_row("SELECT COUNT(*) FROM code_files", [], |r| r.get(0))
             .unwrap_or(0);
-        Some(notes + code)
+        Some((notes, code))
+    }
+
+    /// Live (notes, code files) counts from the open database connection.
+    pub fn item_counts(&self) -> (usize, usize) {
+        let notes: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))
+            .unwrap_or(0);
+        let code: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM code_files", [], |r| r.get(0))
+            .unwrap_or(0);
+        (notes, code)
     }
 
     pub fn total_indexed_count(&self) -> usize {
@@ -2366,8 +2382,9 @@ impl DbManager {
         let mut sql = String::from(
             r#"
             SELECT f.id, f.path, f.name, f.extension, f.language, f.size_bytes, f.summary, f.updated_at,
-                   (SELECT COUNT(*) FROM code_links l WHERE l.source_id = f.id) as out_degree,
-                   (SELECT COUNT(*) FROM code_links l WHERE l.target_id = f.id) as in_degree
+                   (SELECT COUNT(*) FROM code_links l WHERE l.source_id = f.id AND l.is_external = 0) as out_degree,
+                   (SELECT COUNT(*) FROM code_links l WHERE l.target_id = f.id AND l.is_external = 0) as in_degree,
+                   (SELECT COUNT(*) FROM code_links l WHERE l.source_id = f.id AND l.is_external = 1) as ext_degree
             FROM code_files f
             WHERE 1=1
             "#,
@@ -2405,6 +2422,7 @@ impl DbManager {
                 updated_at: row.get(7)?,
                 imports_count: row.get::<_, i64>(8)? as usize,
                 dependents_count: row.get::<_, i64>(9)? as usize,
+                external_count: row.get::<_, i64>(10)? as usize,
             })
         })?;
 
@@ -2542,7 +2560,7 @@ impl DbManager {
         &self,
         file_path_or_id: &str,
         symbol_or_lines: Option<&str>,
-    ) -> Result<Option<CodeChunkHit>> {
+    ) -> std::result::Result<Option<CodeChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
         let clean = file_path_or_id.trim().replace('\\', "/");
 
         let mut stmt = self.conn.prepare(
@@ -2576,20 +2594,46 @@ impl DbManager {
             return Ok(None);
         }
 
-        // If target symbol or lines specified
         if let Some(target) = symbol_or_lines {
-            let target_trim = target.trim().to_lowercase();
-            for mut c in chunks.clone() {
-                if let Some(ref sym) = c.symbol_name {
-                    if sym.to_lowercase() == target_trim || sym.to_lowercase().contains(&target_trim) {
-                        c.deep_link = format!("[[{}#{}]]", c.file_id, sym);
-                        return Ok(Some(c));
+            let t = target.trim();
+            if !t.is_empty() {
+                if let Some((start, end)) = parse_line_range(t) {
+                    return read_lines_range(&chunks, start, end);
+                }
+
+                let target_lower = t.to_lowercase();
+                for c in &chunks {
+                    if let Some(ref sym) = c.symbol_name {
+                        let sym_lower = sym.to_lowercase();
+                        if sym_lower == target_lower || sym_lower.contains(&target_lower) {
+                            let mut hit = c.clone();
+                            hit.deep_link = format!("[[{}#{}]]", hit.file_id, sym);
+                            return Ok(Some(hit));
+                        }
                     }
                 }
+
+                let mut available: Vec<&str> = chunks
+                    .iter()
+                    .filter_map(|c| c.symbol_name.as_deref())
+                    .collect();
+                available.sort_unstable();
+                available.dedup();
+                let list = if available.is_empty() {
+                    "(none — file has no named symbols)".to_string()
+                } else {
+                    available.join(", ")
+                };
+                return Err(format!(
+                    "Symbol '{}' not found in '{}'. Available top-level symbols: {}. \
+                     Or pass a line range like 'L10-40' or '10-40'.",
+                    t, clean, list
+                )
+                .into());
             }
         }
 
-        // Default: return first chunk
+        // No target specified: return the first chunk as a preview.
         let mut first = chunks.into_iter().next().unwrap();
         first.deep_link = match &first.symbol_name {
             Some(s) => format!("[[{}#{}]]", first.file_id, s),
@@ -2864,6 +2908,107 @@ fn make_snippet(content: &str, max_len: usize) -> String {
     }
 }
 
+/// Parse a line-range target like `L10-40`, `10-40`, `L10`, or `10`.
+/// Returns `None` when the input is not purely a line range (e.g. a symbol name).
+fn parse_line_range(target: &str) -> Option<(usize, usize)> {
+    fn strip_l(s: &str) -> &str {
+        s.trim().trim_start_matches(|c| c == 'L' || c == 'l')
+    }
+    let t = strip_l(target);
+    if t.is_empty()
+        || !t.chars().all(|c| c.is_ascii_digit() || c == '-' || c == 'L' || c == 'l')
+    {
+        return None;
+    }
+    let (a, b) = match t.split_once('-') {
+        Some((a, b)) => (strip_l(a), strip_l(b)),
+        None => (strip_l(t), strip_l(t)),
+    };
+    let start: usize = a.parse().ok()?;
+    let end: usize = b.parse().ok()?;
+    if start == 0 || end < start {
+        return None;
+    }
+    // Cap the span so a single request cannot pull an entire file.
+    Some((start, end.min(start.saturating_add(400))))
+}
+
+/// Resolve a requested line range against indexed chunks.
+/// Returns the covering chunk(s) sliced to the requested lines when possible.
+fn read_lines_range(
+    chunks: &[CodeChunkHit],
+    start: usize,
+    end: usize,
+) -> std::result::Result<Option<CodeChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
+    let covering: Vec<&CodeChunkHit> = chunks
+        .iter()
+        .filter(|c| c.start_line <= end && c.end_line >= start)
+        .collect();
+
+    if covering.is_empty() {
+        let max_line = chunks.iter().map(|c| c.end_line).max().unwrap_or(0);
+        return Err(format!(
+            "No indexed chunk covers lines {}-{} of this file (indexed range ends at line {}).",
+            start, end, max_line
+        )
+        .into());
+    }
+
+    if covering.len() == 1 {
+        let c = covering[0];
+        let mut hit = c.clone();
+        hit.deep_link = format!("[[{}#L{}-L{}]]", hit.file_id, start, end);
+
+        // Slice content to the requested lines when the chunk content aligns
+        // with file line numbers (one content line per file line).
+        let content_lines: Vec<&str> = c.content.lines().collect();
+        let offset = start.saturating_sub(c.start_line);
+        let wanted = end.saturating_sub(start) + 1;
+        if offset < content_lines.len() && offset + wanted <= content_lines.len() {
+            let sliced = content_lines[offset..offset + wanted].join("\n");
+            hit.token_estimate = (sliced.len() / 4).max(1);
+            hit.content = sliced;
+        } else if offset < content_lines.len() {
+            // Range extends past chunk end — return what the chunk has.
+            let sliced = content_lines[offset..].join("\n");
+            hit.token_estimate = (sliced.len() / 4).max(1);
+            hit.content = format!(
+                "{}\n// ... [lines {}-{} requested; chunk ends at line {}]",
+                sliced, start, end, c.end_line
+            );
+        }
+        return Ok(Some(hit));
+    }
+
+    // Range spans multiple chunks: concatenate with separators.
+    let mut combined = String::new();
+    let mut token_estimate = 0usize;
+    for c in &covering {
+        combined.push_str(&format!(
+            "// --- {} (lines {}-{}) ---\n{}\n",
+            c.symbol_name.as_deref().unwrap_or("block"),
+            c.start_line,
+            c.end_line,
+            c.content.trim_end()
+        ));
+        token_estimate += c.token_estimate;
+    }
+    let first = covering[0];
+    Ok(Some(CodeChunkHit {
+        chunk_id: format!("{}#L{}-L{}", first.file_id, start, end),
+        file_id: first.file_id.clone(),
+        file_name: first.file_name.clone(),
+        language: first.language.clone(),
+        symbol_name: None,
+        start_line: start,
+        end_line: end,
+        deep_link: format!("[[{}#L{}-L{}]]", first.file_id, start, end),
+        token_estimate,
+        content: combined,
+        score: 1.0,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2986,6 +3131,8 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].name, "user.ts");
         assert_eq!(files[0].language, "typescript");
+        assert_eq!(files[0].imports_count, 1, "internal import only");
+        assert_eq!(files[0].external_count, 1, "external package counted separately");
 
         // Test Hybrid Code Search
         let hits = db
@@ -3007,6 +3154,119 @@ mod tests {
         let deps = db.get_code_dependencies("src/api/user.ts", "both").expect("deps ok");
         assert_eq!(deps.imports, vec!["src/api/client.ts"]);
         assert_eq!(deps.external, vec!["axios"]);
+    }
+
+    #[test]
+    fn test_read_code_chunk_symbol_lines_and_errors() {
+        use super::super::code::{CodeChunk, ParsedCodeFile};
+
+        let mut db = DbManager::memory().expect("in-memory db");
+
+        let mk_chunk = |idx: usize,
+                        sym: &str,
+                        start: usize,
+                        end: usize,
+                        content: &str| CodeChunk {
+            chunk_index: idx,
+            symbol_name: Some(sym.to_string()),
+            start_line: start,
+            end_line: end,
+            content: content.to_string(),
+            token_estimate: content.len() / 4,
+            calls: Vec::new(),
+        };
+
+        let parsed = ParsedCodeFile {
+            path: "src/math.ts".to_string(),
+            name: "math.ts".to_string(),
+            extension: "ts".to_string(),
+            language: "typescript".to_string(),
+            size_bytes: 120,
+            namespaces: Vec::new(),
+            declared_symbols: vec!["alpha".to_string(), "beta".to_string()],
+            imports: Vec::new(),
+            relations: Vec::new(),
+            chunks: vec![
+                mk_chunk(0, "alpha", 1, 3, "export function alpha() {\n  return 1;\n}"),
+                mk_chunk(2, "beta", 5, 7, "export function beta() {\n  return 2;\n}"),
+            ],
+            summary: "typescript file (math.ts)".to_string(),
+        };
+
+        db.save_code_file_batch(&parsed, "hash_math", 1000, &[], &[])
+            .expect("save ok");
+
+        // Symbol lookup still works
+        let hit = db
+            .read_code_chunk("src/math.ts", Some("beta"))
+            .expect("read ok")
+            .expect("found");
+        assert_eq!(hit.symbol_name.as_deref(), Some("beta"));
+        assert!(hit.deep_link.contains("#beta"));
+
+        // Line range inside a single chunk is sliced
+        let hit = db
+            .read_code_chunk("src/math.ts", Some("L5-6"))
+            .expect("read ok")
+            .expect("found");
+        assert_eq!(hit.content, "export function beta() {\n  return 2;");
+        assert!(hit.deep_link.contains("#L5-L6"));
+
+        // Bare line range without L prefix
+        let hit = db
+            .read_code_chunk("src/math.ts", Some("1-2"))
+            .expect("read ok")
+            .expect("found");
+        assert!(hit.content.contains("alpha"));
+
+        // Range spanning multiple chunks concatenates them
+        let hit = db
+            .read_code_chunk("src/math.ts", Some("L1-L7"))
+            .expect("read ok")
+            .expect("found");
+        assert!(hit.content.contains("alpha"));
+        assert!(hit.content.contains("beta"));
+
+        // Range beyond indexed lines errors instead of falling back
+        let err = db
+            .read_code_chunk("src/math.ts", Some("L50-60"))
+            .expect_err("should error");
+        assert!(err.to_string().contains("No indexed chunk covers"));
+
+        // Unknown symbol errors and lists available symbols
+        let err = db
+            .read_code_chunk("src/math.ts", Some("nonexistent"))
+            .expect_err("should error");
+        let msg = err.to_string();
+        assert!(msg.contains("not found"));
+        assert!(msg.contains("alpha"));
+        assert!(msg.contains("beta"));
+
+        // No target returns first chunk (documented preview behavior)
+        let hit = db
+            .read_code_chunk("src/math.ts", None)
+            .expect("read ok")
+            .expect("found");
+        assert_eq!(hit.symbol_name.as_deref(), Some("alpha"));
+
+        // Missing file returns None
+        assert!(db
+            .read_code_chunk("src/missing.ts", None)
+            .expect("read ok")
+            .is_none());
+    }
+
+    #[test]
+    fn test_parse_line_range() {
+        assert_eq!(parse_line_range("L10-40"), Some((10, 40)));
+        assert_eq!(parse_line_range("10-40"), Some((10, 40)));
+        assert_eq!(parse_line_range("L10"), Some((10, 10)));
+        assert_eq!(parse_line_range("l7"), Some((7, 7)));
+        assert_eq!(parse_line_range("fetchUser"), None);
+        assert_eq!(parse_line_range("myFunc2"), None);
+        assert_eq!(parse_line_range("0-5"), None);
+        assert_eq!(parse_line_range("40-10"), None);
+        assert_eq!(parse_line_range(""), None);
     }
 
     #[test]

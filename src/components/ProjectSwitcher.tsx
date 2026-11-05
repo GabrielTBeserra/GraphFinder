@@ -168,6 +168,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                       }`}
                     >
                       {proj.note_count}
+                      {(proj.code_count ?? 0) > 0 ? ` +${proj.code_count}` : ''}
                     </span>
                     {isActive && (
                       <Check
