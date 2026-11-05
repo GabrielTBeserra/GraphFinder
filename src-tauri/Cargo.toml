@@ -15,6 +15,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "GraphFinder"
 path = "src/main.rs"
 
+[features]
+default = []
+# GPU execution providers. directml/coreml are enabled automatically via
+# target-specific deps below; gpu-cuda/gpu-rocm stay opt-in for packagers
+# because they switch the downloaded ONNX Runtime binary flavor.
+gpu-dml = ["ort/directml"]
+gpu-coreml = ["ort/coreml"]
+gpu-cuda = ["ort/cuda"]
+gpu-rocm = ["ort/rocm"]
+
 [build-dependencies]
 tauri-build = { version = "2.7.3", features = [] }
 
@@ -26,6 +36,7 @@ serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 fastembed = "4"
+ort = { version = "=2.0.0-rc.9", default-features = false }
 clap = { version = "4", features = ["derive"] }
 regex = "1.10"
 chrono = { version = "0.4", features = ["serde"] }
@@ -40,6 +51,12 @@ dirs = "6"
 tokio-stream = { version = "0.1", features = ["sync"] }
 rmcp = { version = "3.5.1", features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"] }
 schemars = "1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "=2.0.0-rc.9", features = ["directml"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { version = "=2.0.0-rc.9", features = ["coreml"] }
 
 [profile.release]
 opt-level = 3

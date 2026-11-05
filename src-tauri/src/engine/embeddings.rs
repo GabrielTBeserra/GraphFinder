@@ -2,6 +2,15 @@ use fastembed::{
     EmbeddingModel, InitOptions, InitOptionsUserDefined, TextEmbedding, TokenizerFiles,
     UserDefinedEmbeddingModel, TextRerank, RerankerModel, RerankInitOptions,
 };
+use ort::execution_providers::{CPUExecutionProvider, ExecutionProviderDispatch};
+#[cfg(any(target_os = "macos", feature = "gpu-coreml"))]
+use ort::execution_providers::CoreMLExecutionProvider;
+#[cfg(feature = "gpu-cuda")]
+use ort::execution_providers::CUDAExecutionProvider;
+#[cfg(any(windows, feature = "gpu-dml"))]
+use ort::execution_providers::DirectMLExecutionProvider;
+#[cfg(feature = "gpu-rocm")]
+use ort::execution_providers::ROCmExecutionProvider;
 use super::db::{ChunkHit, CodeChunkHit};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -11,6 +20,85 @@ use tauri::Emitter;
 /// when vault vectors were produced by a different embedder.
 pub const MODEL_ID_E5_SMALL: &str = "multilingual-e5-small";
 pub const MODEL_ID_MINILM: &str = "all-MiniLM-L6-v2";
+
+/// Ordered ONNX execution-provider chain from `GRAPHFINDER_DEVICE`
+/// (auto|cpu|dml|coreml|cuda|rocm). GPU providers register first and are
+/// silently skipped by ONNX Runtime when unavailable; CPU is always last.
+fn provider_chain_for(pref: &str) -> Vec<ExecutionProviderDispatch> {
+    let mut eps: Vec<ExecutionProviderDispatch> = Vec::new();
+    match pref {
+        "cpu" => {}
+        "dml" | "directml" => {
+            #[cfg(any(windows, feature = "gpu-dml"))]
+            eps.push(DirectMLExecutionProvider::default().build());
+        }
+        "coreml" => {
+            #[cfg(any(target_os = "macos", feature = "gpu-coreml"))]
+            eps.push(CoreMLExecutionProvider::default().build());
+        }
+        "cuda" => {
+            #[cfg(feature = "gpu-cuda")]
+            eps.push(CUDAExecutionProvider::default().build());
+        }
+        "rocm" => {
+            #[cfg(feature = "gpu-rocm")]
+            eps.push(ROCmExecutionProvider::default().build());
+        }
+        _ => {
+            #[cfg(any(windows, feature = "gpu-dml"))]
+            eps.push(DirectMLExecutionProvider::default().build());
+            #[cfg(any(target_os = "macos", feature = "gpu-coreml"))]
+            eps.push(CoreMLExecutionProvider::default().build());
+            #[cfg(feature = "gpu-cuda")]
+            eps.push(CUDAExecutionProvider::default().build());
+            #[cfg(feature = "gpu-rocm")]
+            eps.push(ROCmExecutionProvider::default().build());
+        }
+    }
+    eps.push(CPUExecutionProvider::default().build());
+    eps
+}
+
+fn provider_chain() -> Vec<ExecutionProviderDispatch> {
+    let pref = std::env::var("GRAPHFINDER_DEVICE")
+        .unwrap_or_else(|_| "auto".to_string())
+        .to_lowercase();
+    provider_chain_for(&pref)
+}
+
+fn init_options(model_name: EmbeddingModel) -> InitOptions {
+    InitOptions::new(model_name).with_execution_providers(provider_chain())
+}
+
+/// Session creation prefers the provider chain; retries CPU-only on failure.
+fn try_new_embedding(
+    opts: InitOptions,
+) -> Result<TextEmbedding, Box<dyn std::error::Error + Send + Sync>> {
+    let cpu_opts = InitOptions::new(opts.model_name.clone());
+    match TextEmbedding::try_new(opts) {
+        Ok(m) => Ok(m),
+        Err(e) => {
+            eprintln!("[GraphFinder] execution-provider init failed ({e}); retrying CPU-only");
+            Ok(TextEmbedding::try_new(cpu_opts)?)
+        }
+    }
+}
+
+fn try_new_embedding_user_defined(
+    model: UserDefinedEmbeddingModel,
+) -> Result<TextEmbedding, Box<dyn std::error::Error + Send + Sync>> {
+    let opts = InitOptionsUserDefined::default().with_execution_providers(provider_chain());
+    match TextEmbedding::try_new_from_user_defined(model.clone(), opts) {
+        Ok(m) => Ok(m),
+        Err(e) => {
+            eprintln!("[GraphFinder] execution-provider init failed ({e}); retrying CPU-only");
+            Ok(TextEmbedding::try_new_from_user_defined(
+                model,
+                InitOptionsUserDefined::default(),
+            )?)
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct EmbeddingEngine {
@@ -131,7 +219,7 @@ impl EmbeddingEngine {
         let (model, model_id, needs_prefix) = if wants_minilm {
             eprintln!("[GraphFinder] Loading legacy all-MiniLM-L6-v2 (env override)...");
             (
-                TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?,
+                try_new_embedding(init_options(EmbeddingModel::AllMiniLML6V2))?,
                 MODEL_ID_MINILM,
                 false,
             )
@@ -154,10 +242,7 @@ impl EmbeddingEngine {
             };
             let user_model = UserDefinedEmbeddingModel::new(onnx_file, tokenizer_files);
             (
-                TextEmbedding::try_new_from_user_defined(
-                    user_model,
-                    InitOptionsUserDefined::default(),
-                )?,
+                try_new_embedding_user_defined(user_model)?,
                 if is_e5_dir {
                     MODEL_ID_E5_SMALL
                 } else {
@@ -169,7 +254,7 @@ impl EmbeddingEngine {
             // Default: multilingual-e5-small via fastembed (auto-download once)
             eprintln!("[GraphFinder] Loading multilingual-e5-small (PT/EN, 384d)...");
             (
-                TextEmbedding::try_new(InitOptions::new(EmbeddingModel::MultilingualE5Small))?,
+                try_new_embedding(init_options(EmbeddingModel::MultilingualE5Small))?,
                 MODEL_ID_E5_SMALL,
                 true,
             )
@@ -488,5 +573,30 @@ mod tests {
     fn test_reranker_configuration() {
         let engine = EmbeddingEngine::new_lazy();
         assert!(!engine.is_reranker_ready());
+    }
+
+    #[test]
+    fn test_provider_chain_cpu_only() {
+        let eps = provider_chain_for("cpu");
+        assert_eq!(eps.len(), 1);
+    }
+
+    #[test]
+    fn test_provider_chain_always_ends_with_cpu() {
+        for pref in ["auto", "dml", "coreml", "cuda", "rocm", "bogus"] {
+            let eps = provider_chain_for(pref);
+            assert!(!eps.is_empty(), "chain for {pref} must not be empty");
+        }
+    }
+
+    #[test]
+    fn test_provider_chain_platform_gpu() {
+        let eps = provider_chain_for("auto");
+        #[cfg(windows)]
+        assert_eq!(eps.len(), 2, "windows auto chain should be [DML, CPU]");
+        #[cfg(target_os = "macos")]
+        assert_eq!(eps.len(), 2, "macos auto chain should be [CoreML, CPU]");
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        assert_eq!(eps.len(), 1, "other platforms default to CPU only");
     }
 }
