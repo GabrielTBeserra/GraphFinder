@@ -66,6 +66,27 @@ fn provider_chain() -> Vec<ExecutionProviderDispatch> {
     provider_chain_for(&pref)
 }
 
+/// Short label of the requested provider chain for status reporting,
+/// e.g. "auto", "cpu", "dml+cpu". Reflects request, not actual EP use
+/// (ONNX Runtime falls back silently).
+fn device_label() -> String {
+    let pref = std::env::var("GRAPHFINDER_DEVICE")
+        .unwrap_or_else(|_| "auto".to_string())
+        .to_lowercase();
+    match pref.as_str() {
+        "cpu" | "dml" | "directml" | "coreml" | "cuda" | "rocm" => pref,
+        _ => {
+            if cfg!(windows) {
+                "auto(dml->cpu)".to_string()
+            } else if cfg!(target_os = "macos") {
+                "auto(coreml->cpu)".to_string()
+            } else {
+                "auto(cpu)".to_string()
+            }
+        }
+    }
+}
+
 fn init_options(model_name: EmbeddingModel) -> InitOptions {
     InitOptions::new(model_name).with_execution_providers(provider_chain())
 }
@@ -318,6 +339,7 @@ impl EmbeddingEngine {
                 "engine-status",
                 serde_json::json!({
                     "status": "ready",
+                    "provider": device_label(),
                     "message": "Motor neural pronto!"
                 }),
             );
