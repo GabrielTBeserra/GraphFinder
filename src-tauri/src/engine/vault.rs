@@ -83,6 +83,12 @@ impl Engine {
         self.cached_count.load(Ordering::Relaxed)
     }
 
+    /// Live (notes, code files) counts from the open database.
+    pub async fn item_counts(&self) -> (usize, usize) {
+        let db = self.db.lock().await;
+        db.item_counts()
+    }
+
     /// Scans the vault directory and indexes all markdown files AND source code files into SQLite
     pub async fn sync_vault(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         self.sync_vault_internal(None, Arc::new(|_| {})).await

@@ -85,6 +85,8 @@ async fn security_middleware(req: Request, next: Next) -> Result<Response, Statu
             || origin.starts_with("https://localhost")
             || origin.starts_with("https://127.0.0.1")
             || origin.starts_with("tauri://")
+            || origin.starts_with("http://tauri.localhost")
+            || origin.starts_with("https://tauri.localhost")
             || origin.starts_with("vscode-webview://");
         if !is_allowed {
             eprintln!("[GraphFinder Security] Rejecting unauthorized cross-origin request from Origin: {}", origin);

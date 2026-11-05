@@ -21,6 +21,22 @@ use rmcp::{
 
 use crate::engine::VaultManager;
 
+/// Chunks larger than this many estimated tokens are truncated in `search_code`
+/// output to protect the caller's context window.
+const MAX_SEARCH_CHUNK_TOKENS: usize = 1500;
+
+/// Truncates a string to at most `max_chars` bytes on a char boundary.
+fn truncate_str(s: &str, max_chars: usize) -> &str {
+    if s.len() <= max_chars {
+        return s;
+    }
+    let mut end = max_chars;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 #[derive(Clone)]
 pub struct GraphFinderMcpServer {
     #[allow(dead_code)]
@@ -326,8 +342,8 @@ impl GraphFinderMcpServer {
         for p in projects {
             let status = if p.is_active { " (Active)" } else { "" };
             out.push_str(&format!(
-                "- **{}** (ID: `{}`){} | {} notes\n  Path: {}\n\n",
-                p.name, p.id, status, p.note_count, p.path
+                "- **{}** (ID: `{}`){} | {} notes, {} code files\n  Path: {}\n\n",
+                p.name, p.id, status, p.note_count, p.code_count, p.path
             ));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -366,11 +382,11 @@ impl GraphFinderMcpServer {
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to switch project: {}", e))])),
         };
         if let Some(app) = &self.app_handle {
-            let _ = app.emit("vault-sync-complete", project.note_count);
+            let _ = app.emit("vault-sync-complete", project.note_count + project.code_count);
         }
         let out = format!(
-            "Active project successfully switched to: {} (ID: '{}') with {} notes.",
-            project.name, project.id, project.note_count
+            "Active project successfully switched to: {} (ID: '{}') with {} notes and {} code files.",
+            project.name, project.id, project.note_count, project.code_count
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
@@ -608,7 +624,10 @@ impl GraphFinderMcpServer {
                 Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to access path '{}': {}", p, e))])),
             }
         } else {
-            let pid = args.project.clone().unwrap_or_else(|| "default".to_string());
+            let pid = match &args.project {
+                Some(p) if !p.trim().is_empty() => p.clone(),
+                _ => self.manager.active_project_id().await,
+            };
             let eng = self.manager.get_engine(args.project.as_deref()).await;
             (pid, eng, false)
         };
@@ -636,8 +655,8 @@ impl GraphFinderMcpServer {
         );
         if let Some(s) = stats {
             out.push_str(&format!(
-                "• Total Notes: {} (with {} sections/chunks)\n• Total Code Files: {} (with {} AST symbols)\n• Graph Connections: {} (wikilinks and imports)\n• Detected Languages: {:?}",
-                s.total_notes, s.total_chunks, s.total_code_files, s.total_code_chunks, s.total_links, s.languages
+                "• Total Notes: {} (with {} sections/chunks)\n• Total Code Files: {} (with {} AST symbols)\n• Graph Connections: {} wikilinks | {} code imports\n• Detected Languages: {:?}",
+                s.total_notes, s.total_chunks, s.total_code_files, s.total_code_chunks, s.total_links, s.total_code_links, s.languages
             ));
         }
 
@@ -734,12 +753,13 @@ impl GraphFinderMcpServer {
                     stats.languages.join(", ")
                 };
                 let out = format!(
-                    "Project and Vault Statistics:\n\n- Markdown Notes: {}\n- Code Files: {}\n- Detected Languages: {}\n- Vectorized Chunks & Sections: {}\n- Graph Connections (Wikilinks + Imports): {}\n- Unique Tags: {}\n- Total Estimated Tokens: {}",
+                    "Project and Vault Statistics:\n\n- Markdown Notes: {}\n- Code Files: {}\n- Detected Languages: {}\n- Vectorized Chunks & Sections: {}\n- Graph Connections — Wikilinks: {} | Code Imports: {}\n- Unique Tags: {}\n- Total Estimated Tokens: {}",
                     stats.total_notes,
                     stats.total_code_files,
                     langs_str,
                     stats.total_chunks + stats.total_code_chunks,
-                    stats.total_links + stats.total_code_links,
+                    stats.total_links,
+                    stats.total_code_links,
                     stats.total_tags,
                     stats.total_tokens
                 );
@@ -766,6 +786,20 @@ impl GraphFinderMcpServer {
 
         let mut out = String::from("Relevant Code Chunks (Neural + FTS5 Hybrid Search):\n\n");
         for (i, h) in hits.into_iter().enumerate() {
+            let content = h.content.trim();
+            let body = if h.token_estimate > MAX_SEARCH_CHUNK_TOKENS {
+                let truncated = truncate_str(content, MAX_SEARCH_CHUNK_TOKENS * 4);
+                let target = h
+                    .symbol_name
+                    .clone()
+                    .unwrap_or_else(|| format!("L{}-L{}", h.start_line, h.end_line));
+                format!(
+                    "{}\n... [truncated — full chunk is ~{} tokens; use `read_code_chunk(\"{}\", \"{}\")` for the complete symbol]",
+                    truncated, h.token_estimate, h.file_id, target
+                )
+            } else {
+                content.to_string()
+            };
             out.push_str(&format!(
                 "{}. {} (Lines {}-{}, Relevance: {:.0}%, ~{} tokens)\n   Language: {}\n```{}\n{}\n```\n\n",
                 i + 1,
@@ -776,7 +810,7 @@ impl GraphFinderMcpServer {
                 h.token_estimate,
                 h.language,
                 h.language,
-                h.content.trim()
+                body
             ));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -800,8 +834,8 @@ impl GraphFinderMcpServer {
         let mut out = format!("Files found in project (Total: {}):\n\n", files.len());
         for f in files {
             out.push_str(&format!(
-                "- `{}` ({}, {} bytes) | Imports: {} | Dependents: {}\n  Summary: {}\n\n",
-                f.path, f.language, f.size_bytes, f.imports_count, f.dependents_count, f.summary
+                "- `{}` ({}, {} bytes) | Internal imports: {} | External pkgs: {} | Dependents: {}\n  Summary: {}\n\n",
+                f.path, f.language, f.size_bytes, f.imports_count, f.external_count, f.dependents_count, f.summary
             ));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -994,7 +1028,7 @@ impl GraphFinderMcpServer {
 
                     if !report.surprises.is_empty() {
                         out.push_str("\n### ⚡ Architectural Surprises (Cross-Couplings)\n");
-                        for (i, s) in report.surprises.iter().take(8).enumerate() {
+                        for (i, s) in report.surprises.iter().enumerate() {
                             out.push_str(&format!("{}. `{}` (C{}) -> `{}` (C{}) [{}]\n   *{}*\n", i + 1, s.source_title, s.source_community, s.target_title, s.target_community, s.label, s.reason));
                         }
                     }
@@ -1626,10 +1660,10 @@ GraphFinder is a neural knowledge graph and universal codebase intelligence engi
 - `export_graph`: Exports standalone `graph.json`, `GRAPH_REPORT.md`, and visual `graph.html`.
 
 ## 2. Multi-Language Codebase Intelligence
-- `search_code`: Hybrid semantic (BM25 + neural) search for symbols, functions, and logic across code repositories.
+- `search_code`: Hybrid semantic (BM25 + neural) search for symbols, functions, and logic across code repositories. Chunks over ~1500 tokens are truncated with a pointer to `read_code_chunk`.
 - `find_files`: Fast glob and regex pattern matching across project files.
 - `get_file_context`: High-density structural overview of a file (imports, dependents, exported symbols) without reading the entire file.
-- `read_code_chunk`: Surgical extraction of a specific function, class, or line range.
+- `read_code_chunk`: Surgical extraction of a specific function, class, or line range. Target accepts a symbol name or a line range (`L10-40`, `10-40`, `L10`). Unknown symbols return an error listing available symbols instead of silently returning the wrong chunk.
 - `get_code_dependencies`: Forward and reverse dependency analysis for any file.
 
 ## 3. Semantic Vault & Knowledge Search

@@ -32,6 +32,7 @@ export interface ProjectInfo {
   path: string;
   db_path: string;
   note_count: number;
+  code_count?: number;
   is_active: boolean;
 }
 
