@@ -638,6 +638,29 @@ export const GraphView: React.FC<GraphViewProps> = ({
             node._idStemLc === glowing.stemLc ||
             node._titleLc === glowing.lc);
 
+        // Level-of-detail: far zoom or huge graphs get a single cheap circle.
+        // Selected/hovered/glowing nodes, path steps and God Nodes keep full detail.
+        const hasPath = !!pathResultRef.current && pathResultRef.current.steps.length > 1;
+        const nodeCount = (graphInstanceRef.current?.graphData().nodes || []).length;
+        const isGod = highlightGodNodesRef.current && (node.is_god_node || (node.degree || 0) >= 12);
+        const liteMode =
+          (globalScale < 0.6 || nodeCount > LARGE_GRAPH_NODE_LIMIT) &&
+          !isSelected &&
+          !isHovered &&
+          !isGlowing &&
+          !isGod &&
+          (!hasPath || !pathResultRef.current!.steps.some((s) => s.node_id === node.id));
+
+        if (liteMode) {
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, 4, 0, 2 * Math.PI, false);
+          ctx.fillStyle = isDimmed
+            ? (isLight ? 'rgba(203, 213, 225, 0.35)' : 'rgba(71, 85, 105, 0.25)')
+            : accentColor;
+          ctx.fill();
+          return;
+        }
+
         if (isGlowing && glowing) {
           const elapsed = Date.now() - glowing.startTime;
           const progress = Math.min(1, elapsed / glowing.duration);
@@ -670,7 +693,6 @@ export const GraphView: React.FC<GraphViewProps> = ({
         }
 
         // God Node / Hub halo effect
-        const isGod = highlightGodNodesRef.current && (node.is_god_node || (node.degree || 0) >= 12);
         if (isGod && !isDimmed) {
           ctx.save();
           ctx.beginPath();
@@ -937,6 +959,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
     graph.d3Force('cluster', (alpha: number) => {
       if (colorModeRef.current !== 'communities' || !graphInstanceRef.current) return;
       const nodes: any[] = graphInstanceRef.current.graphData()?.nodes || [];
+      // Skip centroid clustering on huge graphs — the per-tick O(2N) cost is not worth it
+      if (nodes.length > LARGE_GRAPH_NODE_LIMIT) return;
       const centroids = new Map<number, { x: number; y: number; count: number }>();
       for (const n of nodes) {
         if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
@@ -1055,6 +1079,25 @@ export const GraphView: React.FC<GraphViewProps> = ({
       displayData = { nodes: subNodes, links: subLinks };
     }
 
+    // Density cap: beyond the safe limit, render only structural hubs
+    // (degree >= 2, god nodes, current selection) so d3-force stays interactive.
+    if (displayData.nodes.length > LARGE_GRAPH_NODE_LIMIT && !localOnly) {
+      const keep = new Set<string>();
+      for (const n of displayData.nodes) {
+        if ((n.degree || 0) >= 2 || n.is_god_node || n.id === selectedNodeId) {
+          keep.add(n.id);
+        }
+      }
+      displayData = {
+        nodes: displayData.nodes.filter((n) => keep.has(n.id)),
+        links: displayData.links.filter((l) => {
+          const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+          const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+          return keep.has(s) && keep.has(t);
+        }),
+      };
+    }
+
     // Lightweight change signature: FNV-1a over node/link identity in iteration
     // order — single O(N+E) pass, no sorting, no megabyte-sized join strings.
     let h = 0x811c9dc5;
@@ -1119,6 +1162,19 @@ export const GraphView: React.FC<GraphViewProps> = ({
       const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
       return { ...l, source: s, target: t };
     });
+
+    // Physics tuning scaled to graph size: large graphs warm up synchronously,
+    // decay faster and cool down quickly instead of simmering forever.
+    const isLargeGraph = mergedNodes.length > LARGE_GRAPH_NODE_LIMIT;
+    try {
+      graphInstanceRef.current.warmupTicks?.(isLargeGraph ? 50 : 0);
+      graphInstanceRef.current.cooldownTicks?.(isLargeGraph ? 160 : Infinity);
+      graphInstanceRef.current.d3AlphaMin?.(isLargeGraph ? 0.02 : 0.001);
+      graphInstanceRef.current.d3AlphaDecay?.(isLargeGraph ? 0.05 : 0.0228);
+      graphInstanceRef.current.d3VelocityDecay?.(isLargeGraph ? 0.55 : 0.4);
+    } catch {
+      // ignore config errors on older force-graph versions
+    }
 
     graphInstanceRef.current.graphData({
       nodes: mergedNodes,
