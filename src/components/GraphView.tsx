@@ -79,6 +79,8 @@ const TAG_PALETTES: Record<string, { dark: string; light: string }> = {
   docs: { dark: '#38bdf8', light: '#0284c7' },
 };
 
+const LARGE_GRAPH_NODE_LIMIT = 2000;
+
 const VIBRANT_ACCENTS = [
   { dark: '#6366f1', light: '#4f46e5' }, // Indigo
   { dark: '#10b981', light: '#059669' }, // Emerald
@@ -280,7 +282,19 @@ export const GraphView: React.FC<GraphViewProps> = ({
   }, [theme, requestCanvasRepaint]);
 
   // Glowing animation ref
-  const glowingStateRef = useRef<{ id: string; startTime: number; duration: number } | null>(null);
+  const glowingStateRef = useRef<{ id: string; lc: string; stemLc: string; startTime: number; duration: number } | null>(null);
+  // Memoized lowercase/stem of the selected node id for per-frame comparisons
+  const selNormCacheRef = useRef<{ sel: string | null; lc: string | null; stemLc: string | null }>({
+    sel: null,
+    lc: null,
+    stemLc: null,
+  });
+
+  // Cached community hulls — recomputed at most every 400ms, never per frame
+  const cachedHullsRef = useRef<Map<number, { hull: Point2D[]; minY: number; centerX: number; count: number }>>(new Map());
+  const hullsComputedAtRef = useRef<number>(0);
+  // id -> community lookup, rebuilt when graph data changes (single O(N) pass)
+  const nodeCommunityByIdRef = useRef<Map<string, number>>(new Map());
 
   // Graph data ref to avoid re-triggering effects when links change
   const graphDataRef = useRef<GraphData>(graphData);
@@ -376,8 +390,11 @@ export const GraphView: React.FC<GraphViewProps> = ({
     if (!glowingNode || !glowingNode.id) return;
     const targetId = glowingNode.id;
 
+    const glowLc = targetId.toLowerCase();
     glowingStateRef.current = {
       id: targetId,
+      lc: glowLc,
+      stemLc: glowLc.replace(/\.md$/i, ''),
       startTime: Date.now(),
       duration: 3500, // 3.5 seconds neon animation
     };
@@ -498,49 +515,70 @@ export const GraphView: React.FC<GraphViewProps> = ({
         if (colorModeRef.current !== 'communities' || !graphInstanceRef.current) return;
         const currentData = graphInstanceRef.current.graphData();
         const nodes: any[] = currentData?.nodes || [];
-        if (nodes.length === 0) return;
+        // Hull computation is O(N log N) — skip entirely on very large graphs
+        if (nodes.length === 0 || nodes.length > LARGE_GRAPH_NODE_LIMIT) return;
 
         const isLight = themeRef.current === 'light';
         const connected = connectedNodeIdsRef.current;
-        const groups = new Map<number, any[]>();
 
-        for (const n of nodes) {
-          if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
-          if (!groups.has(n.community)) groups.set(n.community, []);
-          groups.get(n.community)!.push(n);
-        }
-
-        const padRadius = 26;
-        const angles = [0, Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4, Math.PI, (5 * Math.PI) / 4, (3 * Math.PI) / 2, (7 * Math.PI) / 4];
-
-        groups.forEach((commNodes, commId) => {
-          if (commNodes.length < 2) return;
-
-          const hasActiveFocus = connected.size > 0;
-          const anyConnected = hasActiveFocus && commNodes.some((n) => connected.has(n.id));
-          if (hasActiveFocus && !anyConnected) return;
-
-          const color = COMMUNITY_PALETTE[commId % COMMUNITY_PALETTE.length];
-          const paddedPoints: Point2D[] = [];
-          let minY = Infinity;
-          let sumX = 0;
-
-          for (const n of commNodes) {
-            sumX += n.x;
-            if (n.y - padRadius < minY) minY = n.y - padRadius;
-            for (const a of angles) {
-              paddedPoints.push({
-                x: n.x + Math.cos(a) * padRadius,
-                y: n.y + Math.sin(a) * padRadius,
-              });
-            }
+        // Recompute hulls at most every 400ms — positions barely change per frame
+        const now = Date.now();
+        if (now - hullsComputedAtRef.current > 400) {
+          hullsComputedAtRef.current = now;
+          const groups = new Map<number, any[]>();
+          for (const n of nodes) {
+            if (typeof n.community !== 'number' || !isFinite(n.x) || !isFinite(n.y)) continue;
+            if (!groups.has(n.community)) groups.set(n.community, []);
+            groups.get(n.community)!.push(n);
           }
 
-          const hull = computeConvexHull(paddedPoints);
-          if (hull.length < 3) return;
+          const padRadius = 26;
+          const angles = [0, Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4, Math.PI, (5 * Math.PI) / 4, (3 * Math.PI) / 2, (7 * Math.PI) / 4];
+          const newHulls = new Map<number, { hull: Point2D[]; minY: number; centerX: number; count: number }>();
 
+          groups.forEach((commNodes, commId) => {
+            if (commNodes.length < 2) return;
+            const paddedPoints: Point2D[] = [];
+            let minY = Infinity;
+            let sumX = 0;
+            for (const n of commNodes) {
+              sumX += n.x;
+              if (n.y - padRadius < minY) minY = n.y - padRadius;
+              for (const a of angles) {
+                paddedPoints.push({
+                  x: n.x + Math.cos(a) * padRadius,
+                  y: n.y + Math.sin(a) * padRadius,
+                });
+              }
+            }
+            const hull = computeConvexHull(paddedPoints);
+            if (hull.length >= 3) {
+              newHulls.set(commId, {
+                hull,
+                minY,
+                centerX: sumX / commNodes.length,
+                count: commNodes.length,
+              });
+            }
+          });
+          cachedHullsRef.current = newHulls;
+        }
+
+        const connectedCommunities = new Set<number>();
+        if (connected.size > 0) {
+          for (const id of connected) {
+            const c = nodeCommunityByIdRef.current.get(id);
+            if (c !== undefined) connectedCommunities.add(c);
+          }
+        }
+
+        cachedHullsRef.current.forEach((entry, commId) => {
+          const hasActiveFocus = connected.size > 0;
+          if (hasActiveFocus && !connectedCommunities.has(commId)) return;
+
+          const color = COMMUNITY_PALETTE[commId % COMMUNITY_PALETTE.length];
           ctx.save();
-          drawSmoothHull(ctx, hull);
+          drawSmoothHull(ctx, entry.hull);
           ctx.fillStyle = isLight ? `${color}14` : `${color}12`;
           ctx.fill();
           ctx.lineWidth = Math.max(1 / globalScale, 0.8);
@@ -549,13 +587,12 @@ export const GraphView: React.FC<GraphViewProps> = ({
           ctx.stroke();
 
           if (globalScale > 0.45) {
-            const centerX = sumX / commNodes.length;
             const fontSize = Math.max(9.5 / globalScale, 8);
             ctx.font = `600 ${fontSize}px 'Plus Jakarta Sans', monospace, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
             ctx.fillStyle = isLight ? `${color}cc` : `${color}aa`;
-            ctx.fillText(`Cluster #${commId} (${commNodes.length})`, centerX, minY - 4 / globalScale);
+            ctx.fillText(`Cluster #${commId} (${entry.count})`, entry.centerX, entry.minY - 4 / globalScale);
           }
           ctx.restore();
         });
@@ -565,14 +602,26 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
         const isLight = themeRef.current === 'light';
         const currentSel = selectedNodeIdRef.current;
+        // Normalize selection once per distinct value (memoized) instead of
+        // running toLowerCase/regex on every node, every frame.
+        const selCache = selNormCacheRef.current;
+        if (selCache.sel !== currentSel) {
+          const lc = currentSel?.toLowerCase() ?? null;
+          selNormCacheRef.current = {
+            sel: currentSel,
+            lc,
+            stemLc: lc ? lc.replace(/\.md$/i, '') : null,
+          };
+        }
+        const { lc: selLc, stemLc: selStemLc } = selNormCacheRef.current;
         const isSelected =
           currentSel !== null &&
           (node.id === currentSel ||
-            node.id.toLowerCase() === currentSel.toLowerCase() ||
-            node.id.replace(/\.md$/i, '').toLowerCase() === currentSel.replace(/\.md$/i, '').toLowerCase() ||
-            (node.title && node.title.toLowerCase() === currentSel.toLowerCase()) ||
-            (node.title && node.title.replace(/\.md$/i, '').toLowerCase() === currentSel.replace(/\.md$/i, '').toLowerCase()) ||
-            (node.path && (node.path === currentSel || node.path.toLowerCase() === currentSel.toLowerCase())));
+            node._idLc === selLc ||
+            node._idStemLc === selStemLc ||
+            (selLc !== null && node._titleLc === selLc) ||
+            (selStemLc !== null && node._titleStemLc === selStemLc) ||
+            (node.path === currentSel || (selLc !== null && node._pathLc === selLc)));
         const isHovered = node.id === hoverNodeIdRef.current;
         const connected = connectedNodeIdsRef.current;
         const isConnected = connected.has(node.id);
@@ -585,9 +634,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const isGlowing =
           glowing &&
           (node.id === glowing.id ||
-            node.id?.toLowerCase() === glowing.id.toLowerCase() ||
-            node.title?.toLowerCase() === glowing.id.toLowerCase() ||
-            node.id?.replace(/\.md$/, '')?.toLowerCase() === glowing.id.replace(/\.md$/, '').toLowerCase());
+            node._idLc === glowing.lc ||
+            node._idStemLc === glowing.stemLc ||
+            node._titleLc === glowing.lc);
 
         if (isGlowing && glowing) {
           const elapsed = Date.now() - glowing.startTime;
@@ -1006,13 +1055,29 @@ export const GraphView: React.FC<GraphViewProps> = ({
       displayData = { nodes: subNodes, links: subLinks };
     }
 
-    const currentKey = `${projectId || 'default'}|${filterMode}|${localOnly ? `${selectedNodeId}:${egoDepth}` : 'all'}|` +
-      displayData.nodes.map((n) => `${n.id}:${n.title}:${n.degree || 0}`).sort().join(';') + '|' +
-      displayData.links.map((l) => {
-        const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
-        const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
-        return `${s}->${t}`;
-      }).sort().join(';');
+    // Lightweight change signature: FNV-1a over node/link identity in iteration
+    // order — single O(N+E) pass, no sorting, no megabyte-sized join strings.
+    let h = 0x811c9dc5;
+    const mix = (v: number | string) => {
+      const s = String(v);
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+      }
+      h ^= 0x2f;
+      h = Math.imul(h, 0x01000193);
+    };
+    for (const n of displayData.nodes) {
+      mix(n.id);
+      mix(n.title);
+      mix(n.degree || 0);
+      mix(n.community ?? -1);
+    }
+    for (const l of displayData.links) {
+      mix(typeof l.source === 'object' ? (l.source as any).id : l.source);
+      mix(typeof l.target === 'object' ? (l.target as any).id : l.target);
+    }
+    const currentKey = `${projectId || 'default'}|${filterMode}|${localOnly ? `${selectedNodeId}:${egoDepth}` : 'all'}|${h >>> 0}`;
 
     if (lastRenderedKeyRef.current === currentKey) {
       return;
@@ -1022,21 +1087,32 @@ export const GraphView: React.FC<GraphViewProps> = ({
     const currentData = graphInstanceRef.current.graphData();
     const existingNodesMap = new Map<string, any>((currentData.nodes || []).map((n: any) => [n.id, n]));
 
+    const communityById = new Map<string, number>();
     const mergedNodes = displayData.nodes.map((n) => {
       const existing = existingNodesMap.get(n.id);
-      if (existing && existing.x !== undefined && existing.y !== undefined) {
-        existing.title = n.title;
-        existing.tags = n.tags;
-        existing.degree = n.degree;
-        existing.node_type = n.node_type;
-        existing.path = n.path;
-        existing.community = n.community;
-        existing.is_god_node = n.is_god_node;
-        existing.centrality = n.centrality;
-        return existing;
-      }
-      return { ...n };
+      const target = existing && existing.x !== undefined && existing.y !== undefined ? existing : { ...n };
+      target.id = n.id;
+      target.title = n.title;
+      target.tags = n.tags;
+      target.degree = n.degree;
+      target.node_type = n.node_type;
+      target.path = n.path;
+      target.community = n.community;
+      target.is_god_node = n.is_god_node;
+      target.centrality = n.centrality;
+      // Pre-normalized lookup keys so the per-frame paint loop never
+      // re-runs toLowerCase/regex on hot paths.
+      target._idLc = String(n.id).toLowerCase();
+      target._idStemLc = target._idLc.replace(/\.md$/i, '');
+      target._titleLc = n.title ? String(n.title).toLowerCase() : '';
+      target._titleStemLc = target._titleLc.replace(/\.md$/i, '');
+      target._pathLc = n.path ? String(n.path).toLowerCase() : '';
+      if (typeof n.community === 'number') communityById.set(n.id, n.community);
+      return target;
     });
+    nodeCommunityByIdRef.current = communityById;
+    cachedHullsRef.current = new Map();
+    hullsComputedAtRef.current = 0;
 
     const mergedLinks = displayData.links.map((l) => {
       const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
