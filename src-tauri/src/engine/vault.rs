@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use rayon::prelude::*;
 use tokio::sync::Mutex;
 use walkdir::WalkDir;
 
@@ -336,79 +337,81 @@ impl Engine {
                 None,
             ));
 
-            // Parse only changed Markdown notes
-            let mut parsed_notes: Vec<(String, String, i64, String, String, ParsedNote)> =
-                Vec::new();
-            for (path, rel_path, updated_at) in md_entries {
-                if let Some((existing_mtime, existing_hash)) = existing_note_meta.get(&rel_path) {
-                    if *existing_mtime == updated_at && !existing_hash.is_empty() {
-                        continue;
+            // Parse only changed Markdown notes (rayon-parallel)
+            let parsed_notes: Vec<(String, String, i64, String, String, ParsedNote)> = md_entries
+                .into_par_iter()
+                .filter_map(|(path, rel_path, updated_at)| {
+                    if let Some((existing_mtime, existing_hash)) = existing_note_meta.get(&rel_path)
+                    {
+                        if *existing_mtime == updated_at && !existing_hash.is_empty() {
+                            return None;
+                        }
                     }
-                }
-                let content = match fs::read_to_string(&path) {
-                    Ok(c) => c,
-                    Err(_) => continue,
-                };
-                let hash = crate::engine::parser::content_hash(&content);
-                if let Some((_, existing_hash)) = existing_note_meta.get(&rel_path) {
-                    if existing_hash == &hash && !existing_hash.is_empty() {
-                        continue;
+                    let content = fs::read_to_string(&path).ok()?;
+                    let hash = crate::engine::parser::content_hash(&content);
+                    if let Some((_, existing_hash)) = existing_note_meta.get(&rel_path) {
+                        if existing_hash == &hash && !existing_hash.is_empty() {
+                            return None;
+                        }
                     }
-                }
-                let stem = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("untitled");
-                let parsed = parse_markdown(stem, &content);
-                parsed_notes.push((rel_path.clone(), rel_path, updated_at, content, hash, parsed));
-            }
+                    let stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("untitled");
+                    let parsed = parse_markdown(stem, &content);
+                    Some((rel_path.clone(), rel_path, updated_at, content, hash, parsed))
+                })
+                .collect();
 
-            // Parse only changed Code files
-            let mut parsed_codes: Vec<(
+            // Parse only changed Code files (rayon-parallel)
+            let parsed_codes: Vec<(
                 ParsedCodeFile,
                 String,
                 i64,
                 Vec<(String, String, bool)>,
-            )> = Vec::new();
-            for (path, rel_path, updated_at) in code_entries {
-                if let Some((existing_mtime, existing_hash)) = existing_code_meta.get(&rel_path) {
-                    if *existing_mtime == updated_at
-                        && !existing_hash.is_empty()
-                        && !crate::engine::code::needs_code_metadata_refresh(
-                            &rel_path,
-                            existing_hash,
-                        )
+            )> = code_entries
+                .into_par_iter()
+                .filter_map(|(path, rel_path, updated_at)| {
+                    if let Some((existing_mtime, existing_hash)) = existing_code_meta.get(&rel_path)
                     {
-                        continue;
+                        if *existing_mtime == updated_at
+                            && !existing_hash.is_empty()
+                            && !crate::engine::code::needs_code_metadata_refresh(
+                                &rel_path,
+                                existing_hash,
+                            )
+                        {
+                            return None;
+                        }
                     }
-                }
-                let content = match fs::read_to_string(&path) {
-                    Ok(c) => c,
-                    Err(_) => continue,
-                };
-                let hash = crate::engine::code::indexed_code_content_hash(&rel_path, &content);
-                if let Some((_, existing_hash)) = existing_code_meta.get(&rel_path) {
-                    if existing_hash == &hash && !existing_hash.is_empty() {
-                        continue;
+                    let content = fs::read_to_string(&path).ok()?;
+                    let hash = crate::engine::code::indexed_code_content_hash(&rel_path, &content);
+                    if let Some((_, existing_hash)) = existing_code_meta.get(&rel_path) {
+                        if existing_hash == &hash && !existing_hash.is_empty() {
+                            return None;
+                        }
                     }
-                }
 
-                let parsed = parse_code_file(&rel_path, &content);
-                let mut resolved_links = Vec::with_capacity(parsed.imports.len());
-                for imp in &parsed.imports {
-                    if let Some(target_file) = resolve_import_path(
-                        &rel_path,
-                        &imp.target,
-                        &project_files_set,
-                        &project_files_by_name,
-                    ) {
-                        resolved_links.push((rel_path.clone(), target_file, false));
-                    } else {
-                        resolved_links.push((rel_path.clone(), imp.target.clone(), true));
-                    }
-                }
-                parsed_codes.push((parsed, hash, updated_at, resolved_links));
-            }
+                    let parsed = parse_code_file(&rel_path, &content);
+                    let resolved_links: Vec<(String, String, bool)> = parsed
+                        .imports
+                        .iter()
+                        .map(|imp| {
+                            if let Some(target_file) = resolve_import_path(
+                                &rel_path,
+                                &imp.target,
+                                &project_files_set,
+                                &project_files_by_name,
+                            ) {
+                                (rel_path.clone(), target_file, false)
+                            } else {
+                                (rel_path.clone(), imp.target.clone(), true)
+                            }
+                        })
+                        .collect();
+                    Some((parsed, hash, updated_at, resolved_links))
+                })
+                .collect();
 
             (
                 found_note_ids,

@@ -2109,6 +2109,7 @@ dependencies = [
  "notify-debouncer-mini",
  "ort",
  "pulldown-cmark",
+ "rayon",
  "regex",
  "rfd",
  "rmcp",
