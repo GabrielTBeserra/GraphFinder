@@ -523,8 +523,21 @@ impl Engine {
         }
 
         // 3. Index Changed Code Files in Multi-File Batches
-        let is_large_sync = parsed_codes.len() > 80;
-        let max_embedded_chunks_per_file = if is_large_sync { 4 } else { 16 };
+        // Embedding depth scales down with project size: huge syncs embed only
+        // the file-summary chunk by default (GRAPHFINDER_EMBED_CHUNKS overrides).
+        let env_chunk_cap = std::env::var("GRAPHFINDER_EMBED_CHUNKS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n > 0);
+        let max_embedded_chunks_per_file = env_chunk_cap.unwrap_or_else(|| {
+            if parsed_codes.len() > 5000 {
+                1
+            } else if parsed_codes.len() > 80 {
+                4
+            } else {
+                16
+            }
+        });
 
         // If this is a large initial sync, immediately persist the structural AST & FTS5 records first
         // so the graph canvas and file lists are populated in <200ms while embeddings compute in batches!
@@ -550,6 +563,9 @@ impl Engine {
                 .store(found_note_ids.len() + found_code_ids.len(), Ordering::Relaxed);
             if let Some(handle) = app_handle {
                 use tauri::Emitter;
+                // Structural stage done: graph, file list and FTS5 are queryable
+                // while embeddings keep running in the background below.
+                let _ = handle.emit("vault-structure-ready", 0usize);
                 let _ = handle.emit("vault-sync-complete", 0usize);
             }
             tokio::task::yield_now().await;
