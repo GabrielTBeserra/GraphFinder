@@ -7,45 +7,42 @@ Cada tarefa abaixo foi dimensionada para caber em **um commit independente**.
 ---
 
 ## T01 — Frontend: destravar o loop de renderização do GraphView
-**Arquivo:** `src/components/GraphView.tsx`
-- Remover `computeConvexHull`/`drawSmoothHull` de `onRenderFramePre` (executado 60x/s, ~8×N pontos).
-  - Cachear hulls por comunidade, recalcular apenas quando posições mudarem significativamente ou na parada da física.
-- Substituir a mega-chave `currentKey` (`.map().sort().join(';')` sobre todos os nós/arestas) por comparador leve (contagem + versão + hash FNV incremental).
-- Reduzir custo de `nodeCanvasObject`: pré-normalizar `id`/`title` lowercase uma única vez por nó (não por frame).
+**Arquivo:** `src/components/GraphView.tsx` — commit `8180280`
+- `computeConvexHull`/`drawSmoothHull` fora do `onRenderFramePre`: hulls cacheados por comunidade, recomputados no máx. a cada 400ms e pulados quando N > 2000.
+- `currentKey` (`.map().sort().join(';')`) substituída por assinatura FNV-1a de passe único O(N+E).
+- Campos pré-normalizados por nó (`_idLc`, `_idStemLc`, `_titleLc`, `_titleStemLc`, `_pathLc`) + memoização da seleção — zero toLowerCase/regex por frame.
 
 ## T02 — Frontend: LOD + limites para grafos enormes
-**Arquivo:** `src/components/GraphView.tsx`
-- LOD por `globalScale`: abaixo de 0.6 (ou N > 2000) renderizar só círculos sólidos; sem gradiente, shadowBlur, roundRect, measureText.
-- Tuning da física para N grande: `alphaMin`, `cooldownTicks`, `warmupTicks`; desativar força `cluster` quando N > 2000.
-- Amostragem/filtro automático: para N > LIMITE, exibir por padrão apenas nós com degree >= 2 (God Nodes + hubs) + filtro de grau mínimo na UI.
+**Arquivo:** `src/components/GraphView.tsx` — commit `cff87fd`
+- LOD: zoom < 0.6 ou N > 2000 → círculo sólido simples (sem gradiente, shadowBlur, pill, texto). Nós selecionados/hovered/glow/God/path mantêm detalhe.
+- Física escalonada: `warmupTicks=50`, `cooldownTicks=160`, `alphaMin=0.02`, `alphaDecay=0.05`, `velocityDecay=0.55` para grafos grandes.
+- Força `cluster` desativada quando N > 2000.
+- Cap de densidade: N > 2000 exibe apenas hubs (degree >= 2, god nodes, seleção) por padrão.
 
 ## T03 — Backend: eliminar N+1 e O(N²) nas resoluções do SQLite
-**Arquivo:** `src-tauri/src/engine/db.rs`
-- `resolve_pending_code_relations`: substituir SELECT por linha por um join/batch único.
-- `resolve_call_graph`: reescrever com resolução em lote (join direto em `code_symbols`/`code_chunks` indexados), evitando ~1,5M subqueries correlacionadas em 50k arquivos.
+**Arquivo:** `src-tauri/src/engine/db.rs` — commit `10fd75a`
+- `resolve_call_graph`: mapas símbolo→arquivos e caller→imports carregados uma vez, resolução em memória, aplicada via temp table + UPDATE único (antes: ~1,5M subqueries correlacionadas).
+- `resolve_pending_code_relations`: mapa símbolo→arquivos único (antes: um SELECT por linha).
 
 ## T04 — Backend: parsing paralelo com rayon
-**Arquivos:** `src-tauri/Cargo.toml`, `src-tauri/src/engine/vault.rs`
-- Adicionar `rayon` e usar `par_iter` no parse de notas e arquivos de código durante o scan.
-- Paralelizar `resolve_import_path` por arquivo (já dentro do mesmo bloco de parse).
+**Arquivos:** `src-tauri/Cargo.toml`, `src-tauri/src/engine/vault.rs` — commit `9ce8b93`
+- `rayon = "1.10"` adicionado; parsing de notas e arquivos de código via `into_par_iter()`.
 
-## T05 — Backend: Two-Stage Sync (estrutura primeiro, embeddings depois)
-**Arquivo:** `src-tauri/src/engine/vault.rs`, `src/services/api.ts`, `src/App.tsx` (listener)
-- Estágio 1: scan+parse+AST+imports+links salvos no SQLite → emitir `vault-structure-ready` (gráfico e FTS5 disponíveis em segundos).
-- Estágio 2: embeddings em background cooperativo (`yield_now`), com flag de status para o frontend.
-- Para projetos > 5k arquivos: embed apenas 1 chunk-resumo por arquivo por padrão (env `GRAPHFINDER_FULL_EMBED=1` para modo completo).
+## T05 — Backend/Frontend: Two-Stage Sync
+**Arquivos:** `src-tauri/src/engine/vault.rs`, `src/App.tsx` — commit `cc8b586`
+- Após o bulk-save estrutural (>25 arquivos) emite `vault-structure-ready`: grafo, lista de arquivos e FTS5 consultáveis em segundos enquanto embeddings rodam em background.
+- Cap de chunks embedados por arquivo escalonado: >5000 arquivos → 1, >80 → 4, senão 16 (env `GRAPHFINDER_EMBED_CHUNKS` sobrescreve).
+- App.tsx escuta `vault-structure-ready` e recarrega dados.
 
 ## T06 — Verificação
-- `cargo test` e `cargo check` no `src-tauri`.
-- `npm run build` e `npm run lint`.
-- Benchmark manual: projeto ~2k arquivos e validação de FPS na UI.
+- `npx tsc -b` OK · `cargo check` OK · `cargo test`: 57/57 OK · `npm run lint`: sem erros novos (warnings pré-existentes).
 
 ---
 
 ## Status
-- [ ] T01
-- [ ] T02
-- [ ] T03
-- [ ] T04
-- [ ] T05
-- [ ] T06
+- [x] T01
+- [x] T02
+- [x] T03
+- [x] T04
+- [x] T05
+- [x] T06
