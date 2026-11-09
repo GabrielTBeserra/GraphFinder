@@ -1860,31 +1860,110 @@ impl DbManager {
 
     /// Resolves `callee_file_id` across the indexed codebase by matching `callee_name`
     /// against declared `symbol_name`s in `code_chunks`, prioritizing imported files first.
+    ///
+    /// Large-project path: loads the symbol and import maps once, resolves in
+    /// memory, and applies everything via a single UPDATE joined to a temp
+    /// table — no correlated subqueries per row (was O(N) scans of code_chunks).
     pub fn resolve_call_graph(&mut self) -> Result<usize> {
+        // symbol_name -> files declaring it
+        let mut symbol_files: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let mut stmt = self.conn.prepare(
+                "SELECT symbol_name, file_id FROM code_chunks WHERE symbol_name IS NOT NULL",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for r in rows {
+                let (sym, file_id) = r?;
+                let files = symbol_files.entry(sym).or_default();
+                if !files.contains(&file_id) {
+                    files.push(file_id);
+                }
+            }
+        }
+
+        // caller -> imported files adjacency
+        let mut import_map: HashMap<String, HashSet<String>> = HashMap::new();
+        {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT source_id, target_id FROM code_links WHERE is_external = 0")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for r in rows {
+                let (s, t) = r?;
+                import_map.entry(s).or_default().insert(t);
+            }
+        }
+
+        let pending: Vec<(String, String, String)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT caller_file_id, caller_symbol, callee_name FROM code_calls WHERE callee_file_id IS NULL",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+            rows.collect::<Result<Vec<_>>>()?
+        };
+
+        if pending.is_empty() {
+            return Ok(0);
+        }
+
         let tx = self.conn.transaction()?;
-        let updated = tx.execute(
-            r#"
-            UPDATE code_calls
-            SET callee_file_id = COALESCE(
-                (
-                    SELECT cc.file_id
-                    FROM code_chunks cc
-                    JOIN code_links cl ON cl.source_id = code_calls.caller_file_id AND cl.target_id = cc.file_id
-                    WHERE cc.symbol_name = code_calls.callee_name
-                    LIMIT 1
-                ),
-                (
-                    SELECT cc.file_id
-                    FROM code_chunks cc
-                    WHERE cc.symbol_name = code_calls.callee_name
-                    LIMIT 1
-                )
-            )
-            WHERE callee_file_id IS NULL
-              AND callee_name IN (SELECT symbol_name FROM code_chunks WHERE symbol_name IS NOT NULL)
-            "#,
-            [],
+        tx.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS tmp_call_resolution (
+                caller_file_id TEXT NOT NULL,
+                caller_symbol TEXT NOT NULL,
+                callee_name TEXT NOT NULL,
+                callee_file_id TEXT NOT NULL,
+                PRIMARY KEY (caller_file_id, caller_symbol, callee_name)
+            ) WITHOUT ROWID;
+            DELETE FROM tmp_call_resolution;",
         )?;
+        let updated;
+        {
+            let mut ins = tx.prepare_cached(
+                "INSERT OR IGNORE INTO tmp_call_resolution
+                    (caller_file_id, caller_symbol, callee_name, callee_file_id)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            for (caller_file, caller_sym, callee_name) in &pending {
+                if let Some(files) = symbol_files.get(callee_name) {
+                    let target = files
+                        .iter()
+                        .find(|f| {
+                            import_map
+                                .get(caller_file)
+                                .map_or(false, |imps| imps.contains(*f))
+                        })
+                        .unwrap_or(&files[0]);
+                    ins.execute(params![caller_file, caller_sym, callee_name, target])?;
+                }
+            }
+            updated = tx.execute(
+                r#"
+                UPDATE code_calls
+                SET callee_file_id = (
+                    SELECT tr.callee_file_id FROM tmp_call_resolution tr
+                    WHERE tr.caller_file_id = code_calls.caller_file_id
+                      AND tr.caller_symbol = code_calls.caller_symbol
+                      AND tr.callee_name = code_calls.callee_name
+                )
+                WHERE callee_file_id IS NULL
+                  AND EXISTS (
+                    SELECT 1 FROM tmp_call_resolution tr
+                    WHERE tr.caller_file_id = code_calls.caller_file_id
+                      AND tr.caller_symbol = code_calls.caller_symbol
+                      AND tr.callee_name = code_calls.callee_name
+                  )
+                "#,
+                [],
+            )?;
+        }
+        tx.execute_batch("DELETE FROM tmp_call_resolution;")?;
         tx.commit()?;
         Ok(updated)
     }
@@ -2056,18 +2135,44 @@ impl DbManager {
             rows.collect::<Result<Vec<_>>>()?
         };
 
+        // Load the symbol -> declaring files map once; per-row queries here
+        // were an N+1 that dominated sync time on large codebases.
+        let mut symbol_files: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT symbol_name, file_id FROM code_symbols")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for r in rows {
+                let (sym, file_id) = r?;
+                symbol_files.entry(sym).or_default().push(file_id);
+            }
+        }
+
         let mut resolved = Vec::new();
         for (source_id, current_target, target_name, relation_kind, raw, was_external) in pending {
-            let candidates: Vec<String> = {
-                let mut stmt = self.conn.prepare(
-                    "SELECT file_id FROM code_symbols WHERE symbol_name = ?1 AND file_id != ?2",
-                )?;
-                let rows = stmt.query_map(params![target_name, source_id], |row| row.get(0))?;
-                rows.collect::<Result<Vec<_>>>()?
-            };
+            let mut unique: Option<&String> = None;
+            let mut multi = false;
+            if let Some(files) = symbol_files.get(&target_name) {
+                for f in files {
+                    if f != &source_id {
+                        if unique.is_some() {
+                            multi = true;
+                            break;
+                        }
+                        unique = Some(f);
+                    }
+                }
+            }
 
-            let (target_id, is_external) = if let [target_id] = candidates.as_slice() {
-                (target_id.clone(), false)
+            let (target_id, is_external) = if !multi {
+                if let Some(f) = unique {
+                    (f.clone(), false)
+                } else {
+                    (target_name, true)
+                }
             } else {
                 (target_name, true)
             };
