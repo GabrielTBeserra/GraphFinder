@@ -428,6 +428,7 @@ export const App: React.FC = () => {
 
     let unlistenSync: (() => void) | undefined;
     let unlistenSyncProgress: (() => void) | undefined;
+    let unlistenStructure: (() => void) | undefined;
     let unlistenMcp: (() => void) | undefined;
     let unlistenEngine: (() => void) | undefined;
     let syncCompleteTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -444,6 +445,14 @@ export const App: React.FC = () => {
         }
       }).then((unlisten) => {
         unlistenSyncProgress = unlisten;
+      });
+
+      // Structural stage finished (AST/imports/links saved): graph and file
+      // lists are queryable now even though embeddings are still computing.
+      listen<number>('vault-structure-ready', () => {
+        loadData();
+      }).then((unlisten) => {
+        unlistenStructure = unlisten;
       });
 
       listen<number>('vault-sync-complete', (event) => {
@@ -489,6 +498,7 @@ export const App: React.FC = () => {
       if (syncCompleteTimeout) clearTimeout(syncCompleteTimeout);
       if (unlistenSync) unlistenSync();
       if (unlistenSyncProgress) unlistenSyncProgress();
+      if (unlistenStructure) unlistenStructure();
       if (unlistenMcp) unlistenMcp();
       if (unlistenEngine) unlistenEngine();
     };
