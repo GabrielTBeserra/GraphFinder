@@ -29,7 +29,6 @@ const GraphView = React.lazy(() =>
   import('./components/GraphView').then((m) => ({ default: m.GraphView }))
 );
 import { Sidebar } from './components/Sidebar';
-import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { OmnisearchModal } from './components/OmnisearchModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ActivityBar } from './components/ActivityBar';
@@ -54,12 +53,7 @@ const ReleaseModal = React.lazy(() =>
 import { checkForUpdates, type ReleaseInfo } from './services/updater';
 import {
   CheckCircle,
-  Plus,
-  MagnifyingGlass,
-  Sun,
-  Moon,
   WarningCircle,
-  Sparkle,
 } from '@phosphor-icons/react';
 
 interface Toast {
@@ -699,85 +693,8 @@ export const App: React.FC = () => {
   };
 
   // Non-blocking boot: UI renders immediately from local SQLite database
-  const isLight = theme === 'light';
-
   return (
     <div className="flex flex-col w-screen h-dvh overflow-hidden select-none transition-colors bg-canvas text-ink">
-      {/* Titlebar / Minimalist Header */}
-      <header className="h-12 px-3.5 flex items-center justify-between border-b border-line bg-surface shrink-0 z-40 transition-colors">
-        {/* Left Section: Brand & Integrated Project Switcher */}
-        <div className="flex items-center gap-2.5">
-          <div className="flex items-center gap-2 mr-1">
-            <span className="font-serif text-[18px] leading-none tracking-[0.01em] text-ink">
-              GraphFinder
-            </span>
-          </div>
-
-          <div className="w-px h-4 mx-0.5 bg-line" />
-
-          {/* Project Switcher */}
-          <ProjectSwitcher
-            projects={projects}
-            activeProject={activeProject}
-            onSwitchProject={handleSwitchProject}
-            onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
-            theme={theme}
-          />
-        </div>
-
-        {/* Center Section: Global Omnisearch Bar */}
-        <div className="flex items-center">
-          <button
-            type="button"
-            onClick={() => setIsOmnisearchOpen(true)}
-            className="gf-btn w-64 md:w-80 justify-between !text-muted"
-            title="Search entire project (Ctrl+K)"
-          >
-            <span className="flex items-center gap-2 truncate">
-              <MagnifyingGlass size={13} className="shrink-0" />
-              <span className="truncate">Search notes or code…</span>
-            </span>
-            <kbd className="hidden sm:inline-flex shrink-0">Ctrl K</kbd>
-          </button>
-        </div>
-
-        {/* Right Section: status & theme */}
-        <div className="flex items-center gap-2">
-          {/* Release Update Pill if available */}
-          {releaseInfo?.hasUpdate && (
-            <button
-              type="button"
-              onClick={() => setIsReleaseModalOpen(true)}
-              className="gf-btn !border-good/40 !text-good"
-              title={`New version ${releaseInfo.tagName} available`}
-            >
-              <Sparkle size={12} weight="fill" className="!text-good" />
-              <span className="font-mono text-[11px]">{releaseInfo.tagName}</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="gf-icon-btn"
-            aria-label={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
-            title={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
-          >
-            {isLight ? <Moon size={13} weight="fill" /> : <Sun size={13} weight="fill" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={handleNewNote}
-            className="gf-btn-primary"
-            title="Create new Markdown note" aria-label="Create new Markdown note"
-          >
-            <Plus size={12} weight="bold" />
-            <span>New Note</span>
-          </button>
-        </div>
-      </header>
-
       {syncProgress && (
         <div
           className="shrink-0 border-b border-line bg-surface px-4 py-2"
@@ -831,6 +748,8 @@ export const App: React.FC = () => {
           sidebarOpen={isSidebarOpen}
           isSyncing={isSyncing}
           hasUpdate={releaseInfo?.hasUpdate}
+          theme={theme}
+          onToggleTheme={toggleTheme}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           onSearch={() => setIsOmnisearchOpen(true)}
           onNewNote={handleNewNote}
@@ -840,6 +759,10 @@ export const App: React.FC = () => {
         />
         <Sidebar
           projectId={activeProject?.id || 'default'}
+          projects={projects}
+          activeProject={activeProject}
+          onSwitchProject={handleSwitchProject}
+          onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
           notes={notes}
           codeFiles={codeFiles}
           selectedNoteId={selectedNoteId}

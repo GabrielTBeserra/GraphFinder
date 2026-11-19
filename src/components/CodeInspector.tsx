@@ -45,7 +45,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
   const [loadingChunk, setLoadingChunk] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'symbols' | 'deps' | 'code'>('symbols');
 
   useEffect(() => {

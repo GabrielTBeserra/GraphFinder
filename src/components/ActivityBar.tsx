@@ -1,4 +1,5 @@
 import React from 'react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   SidebarSimple,
   MagnifyingGlass,
@@ -6,12 +7,16 @@ import {
   ArrowClockwise,
   Cpu,
   Gear,
+  Sun,
+  Moon,
 } from '@phosphor-icons/react';
 
 interface ActivityBarProps {
   sidebarOpen: boolean;
   isSyncing: boolean;
   hasUpdate?: boolean;
+  theme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
   onToggleSidebar: () => void;
   onSearch: () => void;
   onNewNote: () => void;
@@ -24,6 +29,8 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
   sidebarOpen,
   isSyncing,
   hasUpdate = false,
+  theme = 'dark',
+  onToggleTheme,
   onToggleSidebar,
   onSearch,
   onNewNote,
@@ -63,18 +70,46 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
       {item(<ArrowClockwise size={18} className={isSyncing ? 'animate-spin' : undefined} />, 'Synchronize vault', onSync)}
       <div className="mt-auto" />
       {item(<Cpu size={18} />, 'MCP connection', onOpenMcp)}
-      <button
-        type="button"
-        onClick={onOpenReleases}
-        aria-label="Releases"
-        title={hasUpdate ? 'Releases — update available' : 'Releases'}
-        className="relative w-full h-11 flex items-center justify-center text-faint hover:text-ink transition-colors cursor-pointer"
-      >
-        <Gear size={18} />
-        {hasUpdate && (
-          <span className="absolute top-2.5 right-2.5 size-2 rounded-full bg-good border border-surface" />
-        )}
-      </button>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            aria-label="Manage"
+            title={hasUpdate ? 'Manage — update available' : 'Manage'}
+            className="relative w-full h-11 flex items-center justify-center text-faint hover:text-ink transition-colors cursor-pointer focus:outline-none"
+          >
+            <Gear size={18} />
+            {hasUpdate && (
+              <span className="absolute top-2.5 right-2.5 size-2 rounded-full bg-good border border-surface" />
+            )}
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            side="right"
+            align="end"
+            sideOffset={8}
+            className="z-[70] min-w-44 rounded-lg gf-dialog shadow-2xl p-1 animate-in fade-in-0 zoom-in-95"
+          >
+            <DropdownMenu.Item
+              onSelect={onOpenReleases}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-ink cursor-pointer outline-none data-[highlighted]:bg-raise"
+            >
+              <span className="relative">
+                Releases
+                {hasUpdate && <span className="absolute -right-3 top-1 size-1.5 rounded-full bg-good" />}
+              </span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={onToggleTheme}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-ink cursor-pointer outline-none data-[highlighted]:bg-raise"
+            >
+              {theme === 'light' ? <Moon size={13} /> : <Sun size={13} />}
+              {theme === 'light' ? 'Dark theme' : 'Light theme'}
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </nav>
   );
 };

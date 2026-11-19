@@ -67,7 +67,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       '# New Note\n\nStart writing your thoughts here.\nConnect to other notes with [[Note Title]] and add #tags.'
   );
   const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'split'>('split');
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(!note);
   const [suggestions, setSuggestions] = useState<LinkSuggestion[]>([]);

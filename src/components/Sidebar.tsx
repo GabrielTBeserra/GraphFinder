@@ -16,11 +16,16 @@ import {
   SortDescending,
   CaretDown,
 } from '@phosphor-icons/react';
-import type { ChunkHit, CodeChunkHit, CodeFileRecord, NoteSummary } from '../types';
+import type { ChunkHit, CodeChunkHit, CodeFileRecord, NoteSummary, ProjectInfo } from '../types';
 import { getLanguageStyle } from './languageStyle';
+import { ProjectSwitcher } from './ProjectSwitcher';
 
 interface SidebarProps {
   projectId?: string;
+  projects?: ProjectInfo[];
+  activeProject?: ProjectInfo | null;
+  onSwitchProject?: (projectId: string) => Promise<void>;
+  onOpenNewProjectModal?: () => void;
   notes: NoteSummary[];
   codeFiles?: CodeFileRecord[];
   selectedNoteId: string | null;
@@ -68,6 +73,10 @@ function formatRelativeTime(timestamp?: number): string {
 
 export const Sidebar: React.FC<SidebarProps> = ({
   projectId,
+  projects,
+  activeProject,
+  onSwitchProject,
+  onOpenNewProjectModal,
   notes,
   codeFiles = [],
   selectedNoteId,
@@ -81,6 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   codeChunkResults = [],
   isSearching,
   isCollapsed = false,
+  theme = 'dark',
   appVersion,
   hasUpdate = false,
   onOpenReleases,
@@ -278,6 +288,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       className="w-72 h-full flex flex-col border-r shrink-0 select-none z-10 bg-surface border-line transition-colors duration-200"
       aria-label="Sidebar"
     >
+      {/* Explorer header — workspace switcher */}
+      {projects && onSwitchProject && (
+        <div className="px-2 pt-2 pb-1 flex items-center justify-between border-b border-line">
+          <span className="gf-eyebrow px-1">Explorer</span>
+          <ProjectSwitcher
+            projects={projects}
+            activeProject={activeProject ?? null}
+            onSwitchProject={onSwitchProject}
+            onOpenNewProjectModal={onOpenNewProjectModal ?? (() => {})}
+            theme={theme}
+          />
+        </div>
+      )}
       {/* Mode tabs */}
       <div className="p-2 pb-1.5 flex items-center gap-1.5">
         <div className="flex-1 flex p-0.5 rounded-lg border bg-canvas border-line">
