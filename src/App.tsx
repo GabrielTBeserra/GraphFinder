@@ -33,6 +33,9 @@ import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { OmnisearchModal } from './components/OmnisearchModal';
 import { UpdateBanner } from './components/UpdateBanner';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { ActivityBar } from './components/ActivityBar';
+import { DocTabs, type DocTab } from './components/DocTabs';
+import { BottomPanel, StatusBar } from './components/StudioPanels';
 
 const NoteEditorLazy = React.lazy(() =>
   import('./components/NoteEditor').then((m) => ({ default: m.NoteEditor }))
@@ -51,8 +54,6 @@ const ReleaseModal = React.lazy(() =>
 );
 import { checkForUpdates, type ReleaseInfo } from './services/updater';
 import {
-  ArrowClockwise,
-  SidebarSimple,
   CheckCircle,
   Plus,
   MagnifyingGlass,
@@ -105,6 +106,8 @@ export const App: React.FC = () => {
   const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
+  const [openTabs, setOpenTabs] = useState<DocTab[]>([]);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     try {
       return localStorage.getItem('gf_sidebar') !== '0';
@@ -212,6 +215,11 @@ export const App: React.FC = () => {
     const clean = idOrTitle.replace(/^unresolved:/, '').split('#')[0].trim();
     setSelectedNoteId(clean);
     setIsEditorOpen(true);
+    setOpenTabs((prev) => {
+      const key = `note:${clean}`;
+      if (prev.some((t) => t.key === key)) return prev;
+      return [...prev, { key, type: 'note' as const, label: clean.replace(/\.md$/, '') }].slice(-8);
+    });
     try {
       const note = await fetchNote(clean);
       if (note) {
@@ -260,6 +268,12 @@ export const App: React.FC = () => {
   const handleSelectCodeFile = useCallback((path: string, symbol?: string) => {
     setSelectedCodePath(path);
     setSelectedNoteId(path);
+    setOpenTabs((prev) => {
+      const key = `code:${path}`;
+      if (prev.some((t) => t.key === key)) return prev;
+      const label = path.split('/').pop() || path;
+      return [...prev, { key, type: 'code' as const, label }].slice(-8);
+    });
     setSelectedCodeSymbol(symbol || null);
     setIsCodeInspectorOpen(true);
   }, []);
@@ -273,6 +287,43 @@ export const App: React.FC = () => {
     setSelectedCodePath(null);
     setSelectedCodeSymbol(null);
   }, []);
+
+  const activeTabKey = selectedCodePath
+    ? `code:${selectedCodePath}`
+    : selectedNoteId && isEditorOpen
+      ? `note:${selectedNoteId}`
+      : null;
+
+  const handleSelectTab = useCallback(
+    (tab: DocTab) => {
+      const id = tab.key.slice(5);
+      if (tab.type === 'note') handleSelectNote(id);
+      else handleSelectCodeFile(id);
+    },
+    [handleSelectNote, handleSelectCodeFile]
+  );
+
+  const handleCloseTab = useCallback(
+    (tab: DocTab) => {
+      setOpenTabs((prev) => prev.filter((t) => t.key !== tab.key));
+      if (tab.key === activeTabKey) {
+        setIsEditorOpen(false);
+        setIsCodeInspectorOpen(false);
+        handleClearSelection();
+      }
+    },
+    [activeTabKey, handleClearSelection]
+  );
+
+  const handleShowGraphTab = useCallback(() => {
+    setIsEditorOpen(false);
+    setIsCodeInspectorOpen(false);
+    handleClearSelection();
+  }, [handleClearSelection]);
+
+  useEffect(() => {
+    if (chunkResults.length > 0 || codeChunkResults.length > 0) setPanelOpen(true);
+  }, [chunkResults.length, codeChunkResults.length]);
 
   const handleNavigateNote = useCallback((titleOrId: string) => {
     handleSelectNote(titleOrId);
@@ -681,16 +732,6 @@ export const App: React.FC = () => {
       <header className="h-12 px-3.5 flex items-center justify-between border-b border-line bg-surface shrink-0 z-40 transition-colors">
         {/* Left Section: Brand & Integrated Project Switcher */}
         <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="gf-icon-btn"
-            aria-label={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-            title={isSidebarOpen ? 'Collapse Sidebar (Ctrl+B)' : 'Expand Sidebar (Ctrl+B)'}
-          >
-            <SidebarSimple size={16} weight="regular" />
-          </button>
-
           <div className="flex items-center gap-2 mr-1">
             <span className="font-serif text-[18px] leading-none tracking-[0.01em] text-ink">
               GraphFinder
@@ -725,29 +766,8 @@ export const App: React.FC = () => {
           </button>
         </div>
 
-        {/* Right Section: Primary Action & Tools */}
+        {/* Right Section: status & theme */}
         <div className="flex items-center gap-2">
-          {/* Non-blocking Neural Engine Status Indicator */}
-          {!engineReady && (
-            <div
-              className={`gf-chip hidden sm:inline-flex ${
-                engineError
-                  ? '!border-bad/40 !text-bad'
-                  : '!border-accent-line !text-accent-strong'
-              }`}
-              title={engineStatusMessage}
-            >
-              <span
-                className={`size-1.5 rounded-full ${
-                  engineError ? 'bg-bad' : 'bg-accent animate-pulse'
-                }`}
-              />
-              <span className="truncate max-w-32">
-                {engineError ? 'Engine error' : 'Engine warming up'}
-              </span>
-            </div>
-          )}
-
           {/* Release Update Pill if available */}
           {releaseInfo?.hasUpdate && (
             <button
@@ -761,45 +781,16 @@ export const App: React.FC = () => {
             </button>
           )}
 
-          {/* Utility cluster: Sync, MCP, theme */}
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={handleSync}
-              disabled={isSyncing}
-              className="gf-btn"
-              title="Synchronize notes and code vault" aria-label="Synchronize notes and code vault"
-            >
-              <ArrowClockwise
-                size={12}
-                weight="bold"
-                className={isSyncing ? 'animate-spin !text-accent' : undefined}
-              />
-              <span>{isSyncing ? 'Syncing…' : 'Sync'}</span>
-            </button>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="gf-icon-btn"
+            aria-label={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
+            title={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
+          >
+            {isLight ? <Moon size={13} weight="fill" /> : <Sun size={13} weight="fill" />}
+          </button>
 
-            <button
-              type="button"
-              onClick={() => setIsMcpModalOpen(true)}
-              className="gf-btn"
-              title="MCP Connection & Agent Rules"
-            >
-              <span className="size-1.5 rounded-full bg-good" />
-              <span className="font-mono text-[11px]">MCP</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="gf-icon-btn"
-              aria-label={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
-              title={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
-            >
-              {isLight ? <Moon size={13} weight="fill" /> : <Sun size={13} weight="fill" />}
-            </button>
-          </div>
-
-          {/* New Note — sole primary action */}
           <button
             type="button"
             onClick={handleNewNote}
@@ -869,6 +860,16 @@ export const App: React.FC = () => {
 
       {/* Main Studio Body */}
       <div className="flex-1 flex overflow-hidden relative bg-surface">
+        <ActivityBar
+          sidebarOpen={isSidebarOpen}
+          isSyncing={isSyncing}
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          onSearch={() => setIsOmnisearchOpen(true)}
+          onNewNote={handleNewNote}
+          onSync={handleSync}
+          onOpenMcp={() => setIsMcpModalOpen(true)}
+          onOpenReleases={() => setIsReleaseModalOpen(true)}
+        />
         <Sidebar
           projectId={activeProject?.id || 'default'}
           notes={notes}
@@ -882,8 +883,8 @@ export const App: React.FC = () => {
           onSearchSemantic={handleSearchSemantic}
           onSearchCode={handleSearchCode}
           onRevealInGraph={(id) => setGlowingNode({ id, timestamp: Date.now() })}
-          chunkResults={chunkResults}
-          codeChunkResults={codeChunkResults}
+          chunkResults={[]}
+          codeChunkResults={[]}
           isSearching={isSearching}
           isCollapsed={!isSidebarOpen}
           theme={theme}
@@ -892,7 +893,15 @@ export const App: React.FC = () => {
           onOpenReleases={() => setIsReleaseModalOpen(true)}
         />
 
-        <main className="flex-1 relative h-full overflow-hidden bg-canvas">
+        <div className="flex-1 flex flex-col min-w-0">
+          <DocTabs
+            tabs={openTabs}
+            activeKey={activeTabKey}
+            onSelect={handleSelectTab}
+            onClose={handleCloseTab}
+            onShowGraph={handleShowGraphTab}
+          />
+        <main className="flex-1 relative overflow-hidden bg-canvas">
           <Suspense
             fallback={
               <div className="absolute inset-0 flex items-center justify-center">
@@ -942,7 +951,29 @@ export const App: React.FC = () => {
             </Suspense>
           )}
         </main>
+        <BottomPanel
+          open={panelOpen}
+          chunkResults={chunkResults}
+          codeChunkResults={codeChunkResults}
+          isSearching={isSearching}
+          onSelectNote={handleSelectNote}
+          onSelectCode={handleSelectCodeFile}
+          onClose={() => setPanelOpen(false)}
+        />
+        </div>
       </div>
+
+      <StatusBar
+        project={activeProject}
+        noteCount={notes.length}
+        fileCount={codeFiles.length}
+        linkCount={graphData.links.length}
+        engineReady={engineReady}
+        engineError={engineError}
+        engineStatusMessage={engineStatusMessage}
+        syncProgress={syncProgress}
+        onOpenMcp={() => setIsMcpModalOpen(true)}
+      />
 
       {/* Dynamic Modals */}
       <OmnisearchModal
