@@ -21,7 +21,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
         className="absolute inset-0 pointer-events-none opacity-[0.05] will-change-transform"
         style={{
           background:
-            'radial-gradient(circle at 30% 35%, #6d7ae0 0%, transparent 45%), radial-gradient(circle at 70% 65%, #4fb8c8 0%, transparent 40%)',
+            'radial-gradient(circle at 30% 35%, var(--gf-accent) 0%, transparent 45%), radial-gradient(circle at 70% 65%, var(--gf-good) 0%, transparent 40%)',
           animation: 'gfDrift 24s cubic-bezier(0.16,1,0.3,1) infinite alternate',
         }}
       />
@@ -40,7 +40,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
         <h1 className="text-lg font-semibold tracking-tight text-ink mb-0.5 flex items-center gap-2">
           GraphFinder
           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-raise border border-line text-muted">
-            v0.14
+            v0.15
           </span>
         </h1>
         <p className="text-xs text-muted mb-6">Neural Knowledge Graph &amp; Semantic Vault</p>
