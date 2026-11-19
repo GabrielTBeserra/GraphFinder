@@ -10,7 +10,7 @@ import {
   CheckCircle,
   HardDrive,
 } from '@phosphor-icons/react';
-import { pickDirectory } from '../services/api';
+import { pickDirectory, installAgentKit } from '../services/api';
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -25,6 +25,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [customPath, setCustomPath] = useState('');
+  const [installKit, setInstallKit] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +63,13 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     setError(null);
     try {
       await onCreate(name.trim(), customPath.trim() || undefined);
+      if (installKit) {
+        try {
+          await installAgentKit(name.trim());
+        } catch (kitErr) {
+          console.warn('Agent kit install failed:', kitErr);
+        }
+      }
       setName('');
       setCustomPath('');
       onClose();
@@ -206,6 +214,31 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 <span>Existing Markdown notes in the folder will be indexed automatically.</span>
               </div>
             </div>
+
+            {/* Agent Kit opt-in */}
+            <label
+              htmlFor="install-agent-kit"
+              className="flex items-start gap-2.5 rounded-lg bg-raise border border-line p-3 cursor-pointer select-none hover:border-line-strong transition-colors"
+            >
+              <input
+                id="install-agent-kit"
+                type="checkbox"
+                checked={installKit}
+                onChange={(e) => setInstallKit(e.target.checked)}
+                disabled={isSubmitting}
+                className="mt-0.5 accent-[#34d399] cursor-pointer"
+              />
+              <span className="text-[11px] leading-snug">
+                <span className="block font-medium text-ink">
+                  Install agent kit into this folder
+                </span>
+                <span className="block text-muted mt-0.5">
+                  Copies <code className="font-mono">.agents/skills/</code> +{' '}
+                  <code className="font-mono">AGENTS.md</code> rules so AI agents
+                  opening this folder pick them up automatically.
+                </span>
+              </span>
+            </label>
 
             {error && (
               <div className="text-xs font-medium text-bad bg-rose-950/20 border border-bad/40/30 px-3 py-1.5 rounded-md">

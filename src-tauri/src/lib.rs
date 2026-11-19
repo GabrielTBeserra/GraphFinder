@@ -5,10 +5,10 @@ pub mod engine;
 pub mod mcp;
 
 use engine::{
-    ChunkHit, CodeChunkHit, CodeDependencies, CodeFileRecord, CompressedContext, EmbeddingEngine,
-    ExportSummary, FileContext, GraphAnalysisReport, GraphData, LinkSuggestion, Neighborhood,
-    NodeExplanation, NoteRecord, NoteSummary, PathResult, ProjectInfo, SearchHit, VaultManager,
-    VaultStats,
+    agent_kit, AgentKitResult, ChunkHit, CodeChunkHit, CodeDependencies, CodeFileRecord,
+    CompressedContext, EmbeddingEngine, ExportSummary, FileContext, GraphAnalysisReport, GraphData,
+    LinkSuggestion, Neighborhood, NodeExplanation, NoteRecord, NoteSummary, PathResult,
+    ProjectInfo, SearchHit, VaultManager, VaultStats,
 };
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
 use std::time::Duration;
@@ -43,9 +43,28 @@ async fn create_project(
 }
 
 #[tauri::command]
-async fn pick_directory() -> Result<Option<String>, String> {
+#[allow(non_snake_case)]
+async fn install_agent_kit(
+    project_id: Option<String>,
+    projectId: Option<String>,
+    path: Option<String>,
+    manager: State<'_, Arc<VaultManager>>,
+) -> Result<AgentKitResult, String> {
+    let target = match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) => std::path::PathBuf::from(p),
+        None => {
+            let id = project_id.or(projectId).unwrap_or_else(|| "default".to_string());
+            manager.project_vault_path(&id).await
+        }
+    };
+    agent_kit::install(&target)
+}
+
+#[tauri::command]
+async fn pick_directory(window: tauri::Window) -> Result<Option<String>, String> {
     let folder = rfd::AsyncFileDialog::new()
         .set_title("Select Folder for Knowledge Vault")
+        .set_parent(&window)
         .pick_folder()
         .await;
     Ok(folder.map(|f| f.path().to_string_lossy().to_string()))
@@ -623,6 +642,7 @@ pub fn run() {
             list_projects,
             switch_project,
             create_project,
+            install_agent_kit,
             pick_directory,
             get_engine_status,
             search_code,

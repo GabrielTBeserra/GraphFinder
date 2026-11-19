@@ -71,7 +71,14 @@ const MOCK_NOTES: NoteRecord[] = [
 
 export async function fetchGraph(): Promise<GraphData> {
   if (isTauri) {
-    return await invoke<GraphData>('get_graph');
+    const t0 = performance.now();
+    const graph = await invoke<GraphData>('get_graph');
+    const positioned = graph.nodes.reduce((acc, n) => acc + (typeof n.x === 'number' ? 1 : 0), 0);
+    console.info(
+      `[GraphFinder] fetchGraph: ${(performance.now() - t0).toFixed(0)}ms ` +
+        `nodes=${graph.nodes.length} links=${graph.links.length} positioned=${positioned}`
+    );
+    return graph;
   }
   return {
     nodes: [
@@ -332,6 +339,35 @@ export async function switchProject(projectId: string): Promise<ProjectInfo> {
     MOCK_PROJECTS.push(found);
   }
   return found;
+}
+
+export interface AgentKitResult {
+  target: string;
+  written: string[];
+  unchanged: string[];
+}
+
+export async function installAgentKit(
+  projectId?: string,
+  path?: string
+): Promise<AgentKitResult> {
+  if (isTauri) {
+    return await invoke<AgentKitResult>('install_agent_kit', {
+      projectId: projectId || null,
+      project_id: projectId || null,
+      path: path || null,
+    });
+  }
+  return {
+    target: path || './vault',
+    written: [
+      '.agents/skills/graphfinder/SKILL.md',
+      '.agents/skills/graphfinder-curator/SKILL.md',
+      'AGENTS.md',
+      'CLAUDE.md',
+    ],
+    unchanged: [],
+  };
 }
 
 export async function pickDirectory(): Promise<string | null> {

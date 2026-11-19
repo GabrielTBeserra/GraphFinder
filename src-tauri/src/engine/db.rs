@@ -50,6 +50,12 @@ pub struct GraphNode {
     pub is_god_node: bool,
     #[serde(default)]
     pub centrality: f32,
+    /// Precomputed layout position (populated for large graphs so the
+    /// frontend can render with the force simulation frozen).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -514,6 +520,12 @@ impl DbManager {
             CREATE INDEX IF NOT EXISTS idx_code_symbols_name ON code_symbols(symbol_name);
             CREATE INDEX IF NOT EXISTS idx_code_relations_source ON code_relations(source_id);
             CREATE INDEX IF NOT EXISTS idx_code_relations_target ON code_relations(target_id);
+
+            CREATE TABLE IF NOT EXISTS node_positions (
+                node_id TEXT PRIMARY KEY,
+                x REAL NOT NULL,
+                y REAL NOT NULL
+            );
             "#,
         )?;
 
@@ -1055,6 +1067,8 @@ impl DbManager {
                 community: None,
                 is_god_node: false,
                 centrality: 0.0,
+                x: None,
+                y: None,
             });
         }
 
@@ -1075,6 +1089,8 @@ impl DbManager {
                     community: None,
                     is_god_node: false,
                     centrality: 0.0,
+                    x: None,
+                    y: None,
                 });
             }
         }
@@ -1098,6 +1114,41 @@ impl DbManager {
             map.insert(id, s);
         }
         Ok(map)
+    }
+
+    /// Persisted layout positions keyed by node id (see `engine::layout`).
+    pub fn get_node_positions(&self) -> Result<HashMap<String, (f64, f64)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT node_id, x, y FROM node_positions")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, f64>(1)?,
+                r.get::<_, f64>(2)?,
+            ))
+        })?;
+        let mut map = HashMap::new();
+        for r in rows {
+            let (id, x, y) = r?;
+            map.insert(id, (x, y));
+        }
+        Ok(map)
+    }
+
+    /// Replaces all persisted layout positions atomically.
+    pub fn save_node_positions(&mut self, positions: &[(String, f64, f64)]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM node_positions", [])?;
+        {
+            let mut stmt =
+                tx.prepare("INSERT INTO node_positions (node_id, x, y) VALUES (?1, ?2, ?3)")?;
+            for (id, x, y) in positions {
+                stmt.execute(params![id, x, y])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn get_neighborhood(&self, note_id_or_title: &str, depth: usize) -> Result<Neighborhood> {

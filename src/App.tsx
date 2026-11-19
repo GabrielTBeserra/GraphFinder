@@ -184,16 +184,36 @@ export const App: React.FC = () => {
     const clean = idOrTitle.replace(/^unresolved:/, '').split('#')[0].trim();
     setSelectedNoteId(clean);
     setIsEditorOpen(true);
+    // Mutually exclusive doc panels: a note tab replaces the code inspector
+    // (otherwise activeTabKey stays pinned on `code:` and tabs look dead).
+    setSelectedCodePath(null);
+    setSelectedCodeSymbol(null);
+    setIsCodeInspectorOpen(false);
+    const provisionalKey = `note:${clean}`;
     setOpenTabs((prev) => {
-      const key = `note:${clean}`;
-      if (prev.some((t) => t.key === key)) return prev;
-      return [...prev, { key, type: 'note' as const, label: clean.replace(/\.md$/, '') }].slice(-8);
+      if (prev.some((t) => t.key === provisionalKey)) return prev;
+      return [...prev, { key: provisionalKey, type: 'note' as const, label: clean.replace(/\.md$/, '') }].slice(-8);
     });
+    // Once the backend resolves the real note id, canonicalize the tab key so
+    // the same document can't exist under two different keys (title vs id).
+    const canonicalize = (noteId: string, label: string) => {
+      const canonKey = `note:${noteId}`;
+      setOpenTabs((prev) => {
+        if (canonKey === provisionalKey) return prev;
+        if (prev.some((t) => t.key === canonKey)) {
+          return prev.filter((t) => t.key !== provisionalKey);
+        }
+        return prev.map((t) =>
+          t.key === provisionalKey ? { key: canonKey, type: 'note' as const, label } : t
+        );
+      });
+    };
     try {
       const note = await fetchNote(clean);
       if (note) {
         setActiveNote(note);
         setSelectedNoteId(note.id);
+        canonicalize(note.id, (note.title || note.id).replace(/\.md$/, ''));
         try {
           localStorage.setItem('gf_last_note', note.id);
         } catch {
@@ -213,11 +233,13 @@ export const App: React.FC = () => {
         if (foundNote) {
           setActiveNote(foundNote);
           setSelectedNoteId(foundNote.id);
+          canonicalize(foundNote.id, (foundNote.title || foundNote.id).replace(/\.md$/, ''));
           return;
         }
       }
-      // Unresolved note from graph: create draft
-      setSelectedNoteId(null);
+      // Unresolved note from graph: create draft. Keep selectedNoteId on the
+      // provisional key so the tab stays highlighted while editing.
+      setSelectedNoteId(clean);
       setActiveNote({
         id: '',
         path: clean.endsWith('.md') ? clean : `${clean}.md`,
@@ -237,6 +259,8 @@ export const App: React.FC = () => {
   const handleSelectCodeFile = useCallback((path: string, symbol?: string) => {
     setSelectedCodePath(path);
     setSelectedNoteId(path);
+    // Mutually exclusive doc panels: a code tab replaces the note editor.
+    setIsEditorOpen(false);
     setOpenTabs((prev) => {
       const key = `code:${path}`;
       if (prev.some((t) => t.key === key)) return prev;

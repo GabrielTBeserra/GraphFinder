@@ -1,12 +1,15 @@
+pub mod agent_kit;
 pub mod code;
 pub mod db;
 pub mod embeddings;
 pub mod graph_analytics;
+pub mod layout;
 pub mod parser;
 pub mod project;
 pub mod progress;
 pub mod vault;
 
+pub use agent_kit::AgentKitResult;
 pub use code::{
     CodeChunk, CodeRelationKind, ExtractedCodeRelation, ExtractedImport, ParsedCodeFile,
 };

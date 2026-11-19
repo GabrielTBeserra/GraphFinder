@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use rayon::prelude::*;
 use tokio::sync::Mutex;
 use walkdir::WalkDir;
@@ -25,7 +26,15 @@ pub struct Engine {
     embeddings: Arc<EmbeddingEngine>,
     sync_mutex: Arc<Mutex<()>>,
     cached_count: Arc<AtomicUsize>,
+    /// Memoized analytics engine keyed by graph fingerprint — avoids
+    /// rebuilding adjacency + LPA communities on every `get_graph` call.
+    analytics_cache:
+        Arc<std::sync::Mutex<Option<(u64, Arc<super::graph_analytics::GraphAnalyticsEngine>)>>>,
 }
+
+/// Below this node count the browser runs live d3 physics; at/above it we
+/// ship precomputed positions so the simulation stays frozen.
+const LAYOUT_MIN_NODES: usize = 1500;
 
 pub fn resolve_vault_path() -> PathBuf {
     if let Ok(v) = std::env::var("GRAPHFINDER_VAULT") {
@@ -69,6 +78,7 @@ impl Engine {
             embeddings,
             sync_mutex: Arc::new(Mutex::new(())),
             cached_count: Arc::new(AtomicUsize::new(initial_count)),
+            analytics_cache: Arc::new(std::sync::Mutex::new(None)),
         })
     }
 
@@ -1002,12 +1012,125 @@ impl Engine {
         Ok(db.get_vault_stats()?)
     }
 
+    /// Memoized analytics engine for a given graph snapshot. The fingerprint
+    /// covers node ids + link endpoints, so any structural change rebuilds it.
+    async fn analytics_for_graph(
+        &self,
+        graph: &GraphData,
+        fingerprint: u64,
+    ) -> Result<Arc<super::graph_analytics::GraphAnalyticsEngine>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        if let Some((fp, cached)) = self.analytics_cache.lock().unwrap().as_ref() {
+            if *fp == fingerprint {
+                return Ok(cached.clone());
+            }
+        }
+        let summaries = {
+            let db = self.db.lock().await;
+            db.get_all_summaries()?
+        };
+        let engine = Arc::new(super::graph_analytics::GraphAnalyticsEngine::new(
+            graph, summaries,
+        ));
+        *self.analytics_cache.lock().unwrap() = Some((fingerprint, engine.clone()));
+        Ok(engine)
+    }
+
+    /// Attaches persisted (or freshly computed) layout positions to `graph`.
+    async fn apply_layout(
+        &self,
+        graph: &mut GraphData,
+        analytics: &super::graph_analytics::GraphAnalyticsEngine,
+        fingerprint: u64,
+    ) {
+        // 1. Try persisted positions (valid only for the same graph fingerprint)
+        let positions = {
+            let db = self.db.lock().await;
+            let stored_fp = db
+                .get_meta("layout_fingerprint")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<u64>().ok());
+            if stored_fp == Some(fingerprint) {
+                db.get_node_positions().unwrap_or_default()
+            } else {
+                HashMap::new()
+            }
+        };
+        if positions.len() >= graph.nodes.len() {
+            for node in &mut graph.nodes {
+                if let Some(&(x, y)) = positions.get(&node.id) {
+                    node.x = Some(x);
+                    node.y = Some(y);
+                }
+            }
+            return;
+        }
+
+        // 2. Compute Barnes–Hut layout off the async worker, then persist
+        let t = Instant::now();
+        let communities: Vec<usize> = graph
+            .nodes
+            .iter()
+            .map(|n| {
+                analytics
+                    .find_node_index(&n.id)
+                    .map(|i| analytics.node_community(i))
+                    .unwrap_or(usize::MAX)
+            })
+            .collect();
+        let graph_owned = graph.clone();
+        let pos = match tokio::task::spawn_blocking(move || {
+            super::layout::compute_layout(&graph_owned, &communities)
+        })
+        .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[GraphFinder] layout task failed: {}", e);
+                return;
+            }
+        };
+        eprintln!(
+            "[GraphFinder] layout computed in {:?} ({} nodes, {} links)",
+            t.elapsed(),
+            graph.nodes.len(),
+            graph.links.len()
+        );
+
+        {
+            let mut db = self.db.lock().await;
+            let tuples: Vec<(String, f64, f64)> = graph
+                .nodes
+                .iter()
+                .zip(pos.iter())
+                .map(|(n, &(x, y))| (n.id.clone(), x as f64, y as f64))
+                .collect();
+            match db.save_node_positions(&tuples) {
+                Ok(()) => {
+                    let _ = db.set_meta("layout_fingerprint", &fingerprint.to_string());
+                }
+                Err(e) => eprintln!("[GraphFinder] failed to persist layout: {}", e),
+            }
+        }
+        for (node, &(x, y)) in graph.nodes.iter_mut().zip(pos.iter()) {
+            node.x = Some(x as f64);
+            node.y = Some(y as f64);
+        }
+    }
+
     pub async fn get_graph(&self) -> Result<GraphData, Box<dyn std::error::Error + Send + Sync>> {
+        let t_start = Instant::now();
         let mut graph = {
             let db = self.db.lock().await;
             db.get_graph_data()?
         };
-        let analytics = super::graph_analytics::GraphAnalyticsEngine::new(&graph, HashMap::new());
+        let t_db = t_start.elapsed();
+
+        let fingerprint = super::layout::graph_fingerprint(&graph);
+        let analytics = self.analytics_for_graph(&graph, fingerprint).await?;
+        let t_analytics = t_start.elapsed();
+
         let report = analytics.analyze();
         let god_ids: HashSet<String> = report.god_nodes.into_iter().map(|g| g.id).collect();
 
@@ -1017,17 +1140,34 @@ impl Engine {
                 node.is_god_node = god_ids.contains(&node.id);
             }
         }
+
+        if graph.nodes.len() >= LAYOUT_MIN_NODES {
+            self.apply_layout(&mut graph, &analytics, fingerprint).await;
+        }
+
+        let t_total = t_start.elapsed();
+        eprintln!(
+            "[GraphFinder] get_graph: db={:?} analytics={:?} post={:?} total={:?} nodes={} links={}",
+            t_db,
+            t_analytics - t_db,
+            t_total - t_analytics,
+            t_total,
+            graph.nodes.len(),
+            graph.links.len()
+        );
         Ok(graph)
     }
 
     pub async fn get_analytics_engine(
         &self,
-    ) -> Result<super::graph_analytics::GraphAnalyticsEngine, Box<dyn std::error::Error + Send + Sync>> {
-        let (graph, summaries) = {
+    ) -> Result<Arc<super::graph_analytics::GraphAnalyticsEngine>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let graph = {
             let db = self.db.lock().await;
-            (db.get_graph_data()?, db.get_all_summaries()?)
+            db.get_graph_data()?
         };
-        Ok(super::graph_analytics::GraphAnalyticsEngine::new(&graph, summaries))
+        let fingerprint = super::layout::graph_fingerprint(&graph);
+        self.analytics_for_graph(&graph, fingerprint).await
     }
 
     pub async fn analyze_graph(
