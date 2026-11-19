@@ -94,11 +94,11 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
                 className={`flex items-center justify-center w-10 h-10 rounded-xl border ${
                   hasUpdate
                     ? isLight
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
-                      : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+                      ? 'bg-good/10 border-good/30 text-good'
+                      : 'bg-good/100/10 border-good/40/25 text-good'
                     : isLight
-                    ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
-                    : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'
+                    ? 'bg-accent-soft border-accent-line text-accent-strong'
+                    : 'bg-accent/10 border-accent-line text-accent'
                 }`}
               >
                 {hasUpdate ? (
@@ -114,8 +114,8 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono font-medium ${
                       hasUpdate
                         ? isLight
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                          ? 'bg-good/15 text-good border border-good/30'
+                          : 'bg-good/100/15 text-good border border-good/40/30'
                         : isLight
                         ? 'bg-slate-100 text-slate-700 border border-slate-200'
                         : 'bg-raise text-slate-300 border border-line-strong'
@@ -188,7 +188,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
                 <span
                   className={`font-mono font-bold text-sm ${
                     hasUpdate
-                      ? 'text-emerald-500'
+                      ? 'text-good'
                       : isLight
                       ? 'text-slate-700'
                       : 'text-slate-300'
@@ -212,7 +212,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
               >
                 <ArrowClockwise
                   size={13}
-                  className={isChecking ? 'animate-spin text-indigo-500' : ''}
+                  className={isChecking ? 'animate-spin text-accent' : ''}
                 />
                 <span>{isChecking ? 'Checking...' : 'Check for Updates'}</span>
               </button>
@@ -225,8 +225,8 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
               className={`mb-3 px-3 py-1.5 rounded-lg text-xs font-medium border ${
                 hasUpdate
                   ? isLight
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                    : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
+                    ? 'bg-good/10 border-good/30 text-emerald-700'
+                    : 'bg-good/100/10 border-good/40/25 text-good'
                   : isLight
                   ? 'bg-slate-100 border-slate-200 text-slate-700'
                   : 'bg-raise border-line text-slate-300'
@@ -241,7 +241,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
             {releaseInfo?.name && (
               <div className="flex items-center gap-3 text-xs">
                 <span className="flex items-center gap-1 font-semibold">
-                  <Tag size={13} className="text-indigo-400" />
+                  <Tag size={13} className="text-accent" />
                   {releaseInfo.name}
                 </span>
                 {releaseInfo.publishedAt && (
@@ -294,13 +294,13 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
                       onClick={() => openExternalUrl(asset.browser_download_url)}
                       className={`flex items-center justify-between p-2 rounded-lg border text-[11px] font-mono transition-colors text-left truncate cursor-pointer ${
                         isLight
-                          ? 'bg-slate-50 hover:bg-indigo-50/60 border-slate-200 text-slate-700'
+                          ? 'bg-raise hover:bg-accent-soft border-line text-ink'
                           : 'bg-raise hover:bg-raise border-line text-slate-300 hover:text-white'
                       }`}
                       title={asset.name}
                     >
                       <span className="truncate mr-2">{asset.name}</span>
-                      <DownloadSimple size={13} className="shrink-0 text-indigo-400" />
+                      <DownloadSimple size={13} className="shrink-0 text-accent" />
                     </button>
                   ))}
                 </div>
@@ -340,7 +340,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
               <button
                 type="button"
                 onClick={handleOpenReleases}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-semibold bg-accent hover:bg-accent text-white shadow-xs transition-all cursor-pointer"
               >
                 <span>Go to Releases Page</span>
                 <ArrowSquareOut size={13} weight="bold" />

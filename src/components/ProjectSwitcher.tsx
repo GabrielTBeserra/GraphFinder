@@ -26,7 +26,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          className={`flex items-center gap-2 h-7 px-3 rounded-md border transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-indigo-500/40 ${
+          className={`flex items-center gap-2 h-7 px-3 rounded-md border transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-accent/40 ${
             isLight
               ? 'bg-slate-100/90 hover:bg-slate-200/80 border-slate-300 text-slate-800'
               : 'bg-raise hover:bg-raise border-line hover:border-line-strong text-ink'
@@ -104,7 +104,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                   className={`flex items-center justify-between w-full px-2.5 py-2 rounded-md text-left transition-colors cursor-pointer select-none outline-none ${
                     isActive
                       ? isLight
-                        ? 'bg-indigo-50 text-indigo-950 border border-indigo-200'
+                        ? 'bg-accent-soft text-accent-strong border border-accent-line'
                         : 'bg-raise text-ink border border-line-strong'
                       : isLight
                       ? 'hover:bg-slate-50 text-slate-700'
@@ -116,8 +116,8 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                       className={`flex items-center justify-center w-6 h-6 rounded shrink-0 ${
                         isActive
                           ? isLight
-                            ? 'bg-indigo-100 text-indigo-600 border border-indigo-200'
-                            : 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
+                            ? 'bg-accent-soft text-accent-strong border border-accent-line'
+                            : 'bg-accent/20 text-accent border border-accent-line'
                           : isLight
                           ? 'bg-slate-100 text-slate-500 border border-slate-200'
                           : 'bg-raise text-muted border border-line'
@@ -132,7 +132,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                           className={`text-xs font-medium truncate ${
                             isLight
                               ? isActive
-                                ? 'text-indigo-950 font-semibold'
+                                ? 'text-accent-strong font-semibold'
                                 : 'text-slate-800'
                               : 'text-ink'
                           }`}
@@ -193,8 +193,8 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
               onSelect={onOpenNewProjectModal}
               className={`flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer select-none outline-none ${
                 isLight
-                  ? 'text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50'
-                  : 'text-good hover:text-emerald-300 hover:bg-emerald-950/20'
+                  ? 'text-emerald-700 hover:text-good hover:bg-good/10'
+                  : 'text-good hover:text-good hover:bg-good/15/20'
               }`}
             >
               <FolderPlus size={14} weight="bold" />

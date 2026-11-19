@@ -538,7 +538,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           <div className={`flex items-center gap-2 mt-0.5 text-[11px] ${'text-muted'}`}>
             <span className="font-mono">{displayFilename}</span>
             <span>•</span>
-            <span className="font-mono text-emerald-500">~{estimatedTokens} tokens</span>
+            <span className="font-mono text-good">~{estimatedTokens} tokens</span>
             <span>•</span>
             <span>{wordCount} words</span>
           </div>
@@ -551,7 +551,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             disabled={isSaving}
             className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               isDirty
-                ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs'
+                ? 'bg-accent hover:bg-accent text-white shadow-xs'
                 : isLight
                 ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
                 : 'bg-raise hover:bg-raise text-ink border border-line'
@@ -565,7 +565,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               </>
             ) : (
               <>
-                <Check size={12} weight="bold" className="text-emerald-500" />
+                <Check size={12} weight="bold" className="text-good" />
                 <span className={'text-ink'}>Saved</span>
               </>
             )}
@@ -582,8 +582,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               }}
               className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
                 isLight
-                  ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent'
-                  : 'text-muted hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/40'
+                  ? 'text-slate-400 hover:text-bad hover:bg-bad/10 border border-transparent'
+                  : 'text-muted hover:text-bad hover:bg-bad/15/40 border border-transparent hover:border-bad/40/40'
               }`}
               title="Delete note permanently"
             >
@@ -633,7 +633,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onClick={() => setViewMode('edit')}
             className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
               viewMode === 'edit'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-accent text-white shadow-xs'
                 : isLight
                 ? 'text-slate-600 hover:text-slate-900'
                 : 'text-muted hover:text-ink'
@@ -650,7 +650,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onClick={() => setViewMode('split')}
             className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
               viewMode === 'split'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-accent text-white shadow-xs'
                 : isLight
                 ? 'text-slate-600 hover:text-slate-900'
                 : 'text-muted hover:text-ink'
@@ -667,7 +667,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onClick={() => setViewMode('preview')}
             className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
               viewMode === 'preview'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-accent text-white shadow-xs'
                 : isLight
                 ? 'text-slate-600 hover:text-slate-900'
                 : 'text-muted hover:text-ink'
@@ -737,7 +737,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 }`}
               >
                 <div className="min-w-0">
-                  <div className="font-mono text-[10px] font-semibold text-emerald-500">
+                  <div className="font-mono text-[10px] font-semibold text-good">
                     Match {Math.round(s.similarity_score * 100)}% affinity
                   </div>
                   <strong className={`font-sans text-xs truncate block ${'text-ink'}`}>
@@ -747,7 +747,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 <button
                   type="button"
                   onClick={() => handleApplySuggestion(s)}
-                  className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-medium transition-colors cursor-pointer shrink-0"
+                  className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-accent hover:bg-accent text-white text-[11px] font-medium transition-colors cursor-pointer shrink-0"
                 >
                   <Plus size={10} weight="bold" />
                   <span>Connect</span>
@@ -766,8 +766,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               ref={textareaRef}
               className={`w-full h-full p-4 font-mono text-xs bg-transparent resize-none focus:outline-none border-r leading-relaxed ${
                 isLight
-                  ? 'text-slate-800 border-slate-200 placeholder-slate-400 selection:bg-indigo-100'
-                  : 'text-ink border-line placeholder:text-faint selection:bg-indigo-950'
+                  ? 'text-ink border-line placeholder:text-faint selection:bg-accent-soft'
+                  : 'text-ink border-line placeholder:text-faint selection:bg-accent/30'
               }`}
               value={content}
               onChange={handleContentChange}
@@ -786,7 +786,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 <div className={`flex items-center justify-between px-3 py-1.5 border-b text-[11px] font-semibold ${
                   'bg-raise border-line text-muted'
                 }`}>
-                  <span className="flex items-center gap-1.5 text-indigo-500">
+                  <span className="flex items-center gap-1.5 text-accent">
                     <LinkSimple size={12} weight="bold" />
                     <span>Autocomplete [[Wikilink]]</span>
                   </span>
@@ -809,8 +809,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                         className={`px-3 py-2 text-xs flex items-center justify-between gap-2 cursor-pointer transition-colors ${
                           isSelected
                             ? isLight
-                              ? 'bg-indigo-50 text-indigo-950 font-semibold'
-                              : 'bg-indigo-600/20 text-ink'
+                              ? 'bg-accent-soft text-accent-strong font-semibold'
+                              : 'bg-accent/20 text-ink'
                             : isLight
                             ? 'text-slate-700 hover:bg-slate-50'
                             : 'text-ink hover:bg-raise'
@@ -818,9 +818,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           {item.type === 'section' ? (
-                            <Hash size={13} className="text-amber-500 shrink-0" />
+                            <Hash size={13} className="text-warn shrink-0" />
                           ) : (
-                            <FileText size={13} className="text-indigo-500 shrink-0" />
+                            <FileText size={13} className="text-accent shrink-0" />
                           )}
                           <div className="min-w-0">
                             <div className="font-medium truncate flex items-center gap-1.5">

@@ -120,7 +120,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               <input
                 id="project-name-input"
                 type="text"
-                className="w-full px-3 py-2 text-xs rounded-md bg-surface border border-line text-ink placeholder:text-faint focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/40 transition-all"
+                className="w-full px-3 py-2 text-xs rounded-md bg-surface border border-line text-ink placeholder:text-faint focus:outline-none focus:border-accent/80 focus:ring-1 focus:ring-accent/40 transition-all"
                 placeholder="e.g., Research Notes, AI Engineering, Second Brain..."
                 value={name}
                 onChange={(e) => {
@@ -157,7 +157,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   <input
                     id="project-path-input"
                     type="text"
-                    className="w-full px-3 py-2 text-xs rounded-md bg-surface border border-line text-ink placeholder:text-faint focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/40 transition-all font-mono"
+                    className="w-full px-3 py-2 text-xs rounded-md bg-surface border border-line text-ink placeholder:text-faint focus:outline-none focus:border-accent/80 focus:ring-1 focus:ring-accent/40 transition-all font-mono"
                     placeholder="Select a folder or leave blank for default..."
                     value={customPath}
                     onChange={(e) => setCustomPath(e.target.value)}
@@ -208,7 +208,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             </div>
 
             {error && (
-              <div className="text-xs font-medium text-rose-400 bg-rose-950/20 border border-rose-900/30 px-3 py-1.5 rounded-md">
+              <div className="text-xs font-medium text-bad bg-rose-950/20 border border-bad/40/30 px-3 py-1.5 rounded-md">
                 {error}
               </div>
             )}
@@ -226,7 +226,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               <button
                 type="submit"
                 disabled={isSubmitting || !name.trim()}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md bg-accent hover:bg-accent text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
               >
                 <Check size={13} weight="bold" />
                 <span>{isSubmitting ? 'Saving...' : 'Save Vault'}</span>

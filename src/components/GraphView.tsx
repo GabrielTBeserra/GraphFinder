@@ -1236,7 +1236,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
               onClick={() => setFilterMode('all')}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
                 filterMode === 'all'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-accent text-white shadow-xs'
                   : isLight
                   ? 'text-slate-600 hover:text-slate-900'
                   : 'text-muted hover:text-ink'
@@ -1253,7 +1253,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
               onClick={() => setFilterMode('notes')}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
                 filterMode === 'notes'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-accent text-white shadow-xs'
                   : isLight
                   ? 'text-slate-600 hover:text-slate-900'
                   : 'text-muted hover:text-ink'
@@ -1270,7 +1270,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
               onClick={() => setFilterMode('code')}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
                 filterMode === 'code'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-accent text-white shadow-xs'
                   : isLight
                   ? 'text-slate-600 hover:text-slate-900'
                   : 'text-muted hover:text-ink'
@@ -1292,7 +1292,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
               colorMode === 'communities'
                 ? isLight
                   ? 'bg-purple-100 text-purple-700 border border-purple-200'
-                  : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
+                  : 'bg-accent-soft text-accent-strong border border-accent-line'
                 : isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                 : 'text-muted hover:text-ink hover:bg-raise'
@@ -1311,8 +1311,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
             className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
               highlightGodNodes
                 ? isLight
-                  ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                  : 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                  ? 'bg-warn/15 text-warn border border-warn/30'
+                  : 'bg-warn/25 text-warn border border-warn/40/40'
                 : isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                 : 'text-muted hover:text-ink hover:bg-raise'
@@ -1366,8 +1366,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
                 localOnly
                   ? isLight
-                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
-                    : 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
+                    ? 'bg-accent-soft text-accent-strong border border-accent-line'
+                    : 'bg-accent/30 text-accent-strong border border-accent/40'
                   : isLight
                   ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-muted hover:text-ink hover:bg-raise'
@@ -1396,7 +1396,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                 step={1}
                 value={egoDepth}
                 onChange={(e) => setEgoDepth(Number(e.target.value))}
-                className="w-14 h-1 accent-indigo-500 cursor-pointer"
+                className="w-14 h-1 accent-[var(--gf-accent)] cursor-pointer"
                 aria-label="Profundidade N-Hop da Ego Network"
               />
               <span className={`font-bold ${'text-accent-strong'}`}>
@@ -1467,7 +1467,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
             <span>Clique no <strong className="text-sky-400">nó de origem</strong> no grafo...</span>
           ) : !pathResult ? (
             <span>
-              Origem: <strong className="text-sky-400">{pathStartNode.title || pathStartNode.id}</strong> → Clique no <strong className="text-emerald-400">nó de destino</strong>...
+              Origem: <strong className="text-sky-400">{pathStartNode.title || pathStartNode.id}</strong> → Clique no <strong className="text-good">nó de destino</strong>...
             </span>
           ) : (
             <div className="flex items-center gap-2">
@@ -1504,7 +1504,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           ? 'bg-white/90 border border-slate-200/90 text-slate-600 shadow-slate-200/40'
           : 'bg-surface/85 border border-line text-muted'
       }`}>
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-good/100 shrink-0 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
         <span>
           Notes: <strong className={`font-semibold ${'text-ink'}`}>{stats.notes}</strong>
         </span>
