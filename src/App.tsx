@@ -31,7 +31,6 @@ const GraphView = React.lazy(() =>
 import { Sidebar } from './components/Sidebar';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { OmnisearchModal } from './components/OmnisearchModal';
-import { UpdateBanner } from './components/UpdateBanner';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ActivityBar } from './components/ActivityBar';
 import { DocTabs, type DocTab } from './components/DocTabs';
@@ -127,7 +126,6 @@ export const App: React.FC = () => {
   const [engineError, setEngineError] = useState<boolean>(false);
   const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo | null>(null);
   const [isReleaseModalOpen, setIsReleaseModalOpen] = useState(false);
-  const [isBannerDismissed, setIsBannerDismissed] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       const saved = localStorage.getItem('gf_theme');
@@ -180,32 +178,9 @@ export const App: React.FC = () => {
     []
   );
 
-  const handleDismissBanner = useCallback(() => {
-    setIsBannerDismissed(true);
-    if (releaseInfo?.tagName) {
-      try {
-        sessionStorage.setItem('gf_dismissed_update_tag', releaseInfo.tagName);
-      } catch {
-        // ignore
-      }
-    }
-  }, [releaseInfo?.tagName]);
-
   useEffect(() => {
     checkForUpdates()
-      .then((info) => {
-        setReleaseInfo(info);
-        if (info.hasUpdate) {
-          try {
-            const dismissed = sessionStorage.getItem('gf_dismissed_update_tag');
-            if (dismissed === info.tagName) {
-              setIsBannerDismissed(true);
-            }
-          } catch {
-            // ignore
-          }
-        }
-      })
+      .then((info) => setReleaseInfo(info))
       .catch((err) => {
         console.warn('[Updater] Initial check error:', err);
       });
@@ -803,14 +778,6 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {releaseInfo?.hasUpdate && !isBannerDismissed && (
-        <UpdateBanner
-          release={releaseInfo}
-          onDismiss={handleDismissBanner}
-          onOpenDetails={() => setIsReleaseModalOpen(true)}
-        />
-      )}
-
       {syncProgress && (
         <div
           className="shrink-0 border-b border-line bg-surface px-4 py-2"
@@ -863,6 +830,7 @@ export const App: React.FC = () => {
         <ActivityBar
           sidebarOpen={isSidebarOpen}
           isSyncing={isSyncing}
+          hasUpdate={releaseInfo?.hasUpdate}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           onSearch={() => setIsOmnisearchOpen(true)}
           onNewNote={handleNewNote}

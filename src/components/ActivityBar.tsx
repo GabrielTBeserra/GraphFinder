@@ -11,6 +11,7 @@ import {
 interface ActivityBarProps {
   sidebarOpen: boolean;
   isSyncing: boolean;
+  hasUpdate?: boolean;
   onToggleSidebar: () => void;
   onSearch: () => void;
   onNewNote: () => void;
@@ -22,6 +23,7 @@ interface ActivityBarProps {
 export const ActivityBar: React.FC<ActivityBarProps> = ({
   sidebarOpen,
   isSyncing,
+  hasUpdate = false,
   onToggleSidebar,
   onSearch,
   onNewNote,
@@ -61,7 +63,18 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
       {item(<ArrowClockwise size={18} className={isSyncing ? 'animate-spin' : undefined} />, 'Synchronize vault', onSync)}
       <div className="mt-auto" />
       {item(<Cpu size={18} />, 'MCP connection', onOpenMcp)}
-      {item(<Gear size={18} />, 'Releases', onOpenReleases)}
+      <button
+        type="button"
+        onClick={onOpenReleases}
+        aria-label="Releases"
+        title={hasUpdate ? 'Releases — update available' : 'Releases'}
+        className="relative w-full h-11 flex items-center justify-center text-faint hover:text-ink transition-colors cursor-pointer"
+      >
+        <Gear size={18} />
+        {hasUpdate && (
+          <span className="absolute top-2.5 right-2.5 size-2 rounded-full bg-good border border-surface" />
+        )}
+      </button>
     </nav>
   );
 };
