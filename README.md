@@ -193,6 +193,8 @@ In your extension's MCP configuration settings:
 
 ### 2. Understanding and Triggering Agent Skills (`graphfinder-curator`)
 
+> **New here?** Follow the beginner-friendly, copy-paste install recipes in **[AGENT_SETUP.md](AGENT_SETUP.md)** — it covers skills + rules for Cursor, Claude, Codex, Devin, Windsurf, and more.
+
 Located in `.agents/skills/graphfinder-curator/SKILL.md` is the official **GraphFinder Curator Skill**.
 
 *Skills* serve as dynamic, on-demand operational manuals. Whenever you instruct your agent to:
@@ -331,8 +333,10 @@ GraphFinder includes [AGENTS.md](AGENTS.md) at the repository root.
 It defines strict behavioral constraints for AI agents interacting with the knowledge vault and codebase:
 
 - **In Cursor**: Add `@AGENTS.md` to your Project Rules or `.cursorrules`.
-- **In Antigravity / Gemini**: The workspace automatically loads `AGENTS.md` as an active behavioral rule.
+- **In Antigravity / Gemini / Codex / Devin**: The workspace automatically loads `AGENTS.md` as an active behavioral rule.
 - **In Claude Desktop**: Paste the contents of `AGENTS.md` into your Project System Prompt.
+
+See [AGENT_SETUP.md](AGENT_SETUP.md) for exact, per-tool install commands and a verification checklist.
 
 ---
 

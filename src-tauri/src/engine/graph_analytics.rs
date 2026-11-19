@@ -1480,6 +1480,8 @@ mod tests {
             community: None,
             is_god_node: false,
             centrality: 0.0,
+            x: None,
+            y: None,
         }
     }
 

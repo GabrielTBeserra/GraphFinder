@@ -80,24 +80,24 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
         className={`relative w-full max-w-4xl max-h-[88vh] flex flex-col rounded-xl shadow-2xl border transition-all overflow-hidden ${
           isLight
             ? 'bg-white border-slate-200 text-slate-800'
-            : 'bg-[#0c0f17] border-[#1e222c] text-slate-200'
+            : 'bg-canvas border-line text-slate-200'
         }`}
       >
         {/* Header */}
         <div
           className={`flex items-center justify-between px-6 py-4 border-b ${
-            isLight ? 'border-slate-200 bg-slate-50' : 'border-[#1e222c] bg-[#0f1422]'
+            'border-line bg-canvas'
           }`}
         >
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent-soft text-accent border border-accent-line">
               <ChartBar size={18} weight="bold" />
             </div>
             <div>
               <h2 className="text-base font-bold tracking-tight">
                 Architectural Topology & Community Audit
               </h2>
-              <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className={`text-xs ${'text-muted'}`}>
                 Topological modularity (Louvain/LPA), God Nodes, and cross-subsystem dependencies
               </p>
             </div>
@@ -110,9 +110,9 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 exporting
                   ? 'opacity-60 cursor-not-allowed'
-                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm'
+                  : 'bg-accent hover:bg-accent-strong text-on-accent shadow-sm'
               }`}
-              title="Generate graph.json, GRAPH_REPORT.md, and standalone graph.html"
+              title="Generate graph.json, GRAPH_REPORT.md, and standalone graph.html" aria-label="Generate graph.json, GRAPH_REPORT.md, and standalone graph.html"
             >
               {exporting ? (
                 <SpinnerGap size={14} className="animate-spin" />
@@ -125,7 +125,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
             <button
               onClick={onClose}
               className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                isLight ? 'hover:bg-slate-200 text-slate-600' : 'hover:bg-[#1e222c] text-slate-400'
+                'hover:bg-raise text-muted'
               }`}
             >
               <X size={18} />
@@ -138,12 +138,12 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
           <div
             className={`mx-6 mt-4 p-3 rounded-lg border text-xs flex items-center justify-between animate-fade-in ${
               isLight
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                : 'bg-emerald-950/40 border-emerald-800/40 text-emerald-300'
+                ? 'bg-good/10 border-good/30 text-good'
+                : 'bg-good/15/40 border-good/40/40 text-good'
             }`}
           >
             <div className="flex items-center gap-2">
-              <CheckCircle size={16} weight="fill" className="text-emerald-500 shrink-0" />
+              <CheckCircle size={16} weight="fill" className="text-good shrink-0" />
               <span>
                 Artifacts generated in <strong>{exportResult.output_dir}</strong> (
                 <code>graph.json</code>, <code>GRAPH_REPORT.md</code>, <code>graph.html</code>)
@@ -162,7 +162,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <SpinnerGap size={32} className="animate-spin text-indigo-500" />
+              <SpinnerGap size={32} className="animate-spin text-accent" />
               <p className="text-xs text-slate-400">Computing Louvain communities & graph topology...</p>
             </div>
           ) : !report ? (
@@ -175,7 +175,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div
                   className={`p-3.5 rounded-xl border ${
-                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161922] border-[#1e222c]'
+                    'bg-raise border-line'
                   }`}
                 >
                   <div className="text-[11px] text-slate-400">Nodes / Entities</div>
@@ -185,11 +185,11 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
 
                 <div
                   className={`p-3.5 rounded-xl border ${
-                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161922] border-[#1e222c]'
+                    'bg-raise border-line'
                   }`}
                 >
                   <div className="text-[11px] text-slate-400">Modular Communities</div>
-                  <div className="text-xl font-bold mt-0.5 text-indigo-400">
+                  <div className="text-xl font-bold mt-0.5 text-accent">
                     {report.communities.length}
                   </div>
                   <div className="text-[10px] text-slate-500 mt-1">LPA Modularity Clusters</div>
@@ -197,11 +197,11 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
 
                 <div
                   className={`p-3.5 rounded-xl border ${
-                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161922] border-[#1e222c]'
+                    'bg-raise border-line'
                   }`}
                 >
                   <div className="text-[11px] text-slate-400">God Nodes (Hubs)</div>
-                  <div className="text-xl font-bold mt-0.5 text-amber-400">
+                  <div className="text-xl font-bold mt-0.5 text-warn">
                     {report.god_nodes.length}
                   </div>
                   <div className="text-[10px] text-slate-500 mt-1">High-degree central hubs</div>
@@ -209,7 +209,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
 
                 <div
                   className={`p-3.5 rounded-xl border ${
-                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161922] border-[#1e222c]'
+                    'bg-raise border-line'
                   }`}
                 >
                   <div className="text-[11px] text-slate-400">Cross Surprises</div>
@@ -226,7 +226,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                   onClick={() => setActiveTab('communities')}
                   className={`flex items-center gap-1.5 pb-2.5 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
                     activeTab === 'communities'
-                      ? 'border-indigo-500 text-indigo-400'
+                      ? 'border-accent text-accent'
                       : 'border-transparent text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -238,7 +238,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                   onClick={() => setActiveTab('gods')}
                   className={`flex items-center gap-1.5 pb-2.5 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
                     activeTab === 'gods'
-                      ? 'border-amber-500 text-amber-400'
+                      ? 'border-warn/40 text-warn'
                       : 'border-transparent text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -275,7 +275,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                           className={`p-4 rounded-xl border transition-all ${
                             isLight
                               ? 'bg-slate-50/60 border-slate-200'
-                              : 'bg-[#101422] border-[#1c2236]'
+                              : 'bg-raise border-line'
                           }`}
                         >
                           <div className="flex items-center justify-between mb-2">
@@ -295,7 +295,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
 
                           <div className="text-[11px] text-slate-400 mb-2">
                             Dominant Stack:{' '}
-                            <code className="text-indigo-300">{c.dominant_type}</code>
+                            <code className="text-accent-strong">{c.dominant_type}</code>
                           </div>
 
                           <div className="text-[11px] text-slate-400">Key Nodes:</div>
@@ -307,7 +307,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                                   onSelectNode?.(kn);
                                   onClose();
                                 }}
-                                className="text-[11px] px-2 py-0.5 rounded bg-slate-800/80 hover:bg-indigo-600 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                                className="text-[11px] px-2 py-0.5 rounded bg-slate-800/80 hover:bg-accent text-muted hover:text-on-accent transition-colors cursor-pointer"
                               >
                                 {kn}
                               </button>
@@ -333,7 +333,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                         className={`border-b font-semibold uppercase text-[10px] tracking-wider ${
                           isLight
                             ? 'bg-slate-100 border-slate-200 text-slate-600'
-                            : 'bg-[#14192a] border-[#1e222c] text-slate-400'
+                            : 'bg-raise border-line text-slate-400'
                         }`}
                       >
                         <tr>
@@ -351,23 +351,23 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                           <tr
                             key={g.id}
                             className={`hover:bg-slate-800/30 transition-colors ${
-                              isLight ? 'text-slate-800' : 'text-slate-200'
+                              'text-ink'
                             }`}
                           >
-                            <td className="p-3 text-amber-400 font-bold">#{idx + 1}</td>
+                            <td className="p-3 text-warn font-bold">#{idx + 1}</td>
                             <td className="p-3">
                               <button
                                 onClick={() => {
                                   onSelectNode?.(g.id);
                                   onClose();
                                 }}
-                                className="font-semibold text-indigo-400 hover:underline cursor-pointer"
+                                className="font-semibold text-accent hover:underline cursor-pointer"
                               >
                                 {g.title}
                               </button>
                             </td>
                             <td className="p-3 text-slate-400">{g.node_type}</td>
-                            <td className="p-3 font-bold text-amber-400">{g.degree}</td>
+                            <td className="p-3 font-bold text-warn">{g.degree}</td>
                             <td className="p-3 text-slate-400">
                               {g.in_degree} / {g.out_degree}
                             </td>
@@ -390,14 +390,14 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                 <div className="space-y-4">
                   {report.cycles.length > 0 && (
                     <div>
-                      <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider mb-2">
+                      <h4 className="text-xs font-bold text-bad uppercase tracking-wider mb-2">
                         ⚠️ Mutual Dependency Cycles ({report.cycles.length})
                       </h4>
                       <div className="space-y-1.5">
                         {report.cycles.map((cyc, idx) => (
                           <div
                             key={idx}
-                            className="p-2.5 rounded-lg border border-rose-900/40 bg-rose-950/20 text-xs font-mono text-rose-300"
+                            className="p-2.5 rounded-lg border border-bad/40/40 bg-rose-950/20 text-xs font-mono text-rose-300"
                           >
                             {cyc.nodes.join(' <======> ')}
                           </div>
@@ -421,15 +421,15 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                           className={`p-3 rounded-lg border text-xs flex flex-col gap-1 ${
                             isLight
                               ? 'bg-slate-50 border-slate-200 text-slate-700'
-                              : 'bg-[#101422] border-[#1c2236] text-slate-300'
+                              : 'bg-raise border-line text-slate-300'
                           }`}
                         >
                           <div className="flex items-center gap-2 font-mono">
-                            <span className="font-semibold text-indigo-400">
+                            <span className="font-semibold text-accent">
                               {s.source_title} (C{s.source_community})
                             </span>
                             <span className="text-slate-500">──[{s.label}]──►</span>
-                            <span className="font-semibold text-emerald-400">
+                            <span className="font-semibold text-good">
                               {s.target_title} (C{s.target_community})
                             </span>
                           </div>
@@ -449,7 +449,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
           className={`flex items-center justify-between px-6 py-3 border-t text-xs ${
             isLight
               ? 'border-slate-200 bg-slate-50 text-slate-500'
-              : 'border-[#1e222c] bg-[#0c101b] text-slate-400'
+              : 'border-line bg-canvas text-slate-400'
           }`}
         >
           <span>
@@ -457,7 +457,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
           </span>
           <button
             onClick={loadReport}
-            className="flex items-center gap-1 hover:text-indigo-400 transition-colors cursor-pointer"
+            className="flex items-center gap-1 hover:text-accent transition-colors cursor-pointer"
           >
             <ArrowsClockwise size={13} />
             <span>Recalculate</span>

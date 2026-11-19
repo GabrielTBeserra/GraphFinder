@@ -11,6 +11,7 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "GraphFinder - Neural Knowledge Graph & Semantic Vault",
@@ -21,7 +22,8 @@
         "resizable": true,
         "fullscreen": false,
         "theme": "Dark",
-        "backgroundColor": "#090a0f"
+        "visible": false,
+        "backgroundColor": "#120f0d"
       }
     ],
     "security": {

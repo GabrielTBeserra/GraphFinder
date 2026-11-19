@@ -80,6 +80,16 @@ const TAG_PALETTES: Record<string, { dark: string; light: string }> = {
 };
 
 const LARGE_GRAPH_NODE_LIMIT = 2000;
+// Above this node count, viewport culling drops offscreen nodes entirely
+// (they are neither painted nor hit-tested).
+const CULL_NODE_THRESHOLD = 20000;
+// Below this zoom factor the viewport covers most of the graph anyway —
+// render only the top-K degree hubs (deterministic sampling).
+const FAR_ZOOM_K = 0.35;
+const FAR_ZOOM_BUDGET = 15000;
+// If this fraction of nodes arrives with precomputed positions, the force
+// simulation stays frozen (Rust-side layout did the work already).
+const PRECOMPUTED_LAYOUT_RATIO = 0.8;
 
 const VIBRANT_ACCENTS = [
   { dark: '#6366f1', light: '#4f46e5' }, // Indigo
@@ -304,6 +314,17 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
   const lastRenderedKeyRef = useRef<string>('');
 
+  // Viewport culling / zoom transform state (mutable, never in React state)
+  const transformRef = useRef({ k: 1, x: 0, y: 0 });
+  const cullingEnabledRef = useRef(false);
+  const visibilityRafRef = useRef(0);
+  const degreeRankRef = useRef<Set<string>>(new Set());
+  // Lazily-built adjacency map so hover/selection BFS never rescans all links
+  const adjacencyCacheRef = useRef<{ source: GraphData | null; map: Map<string, string[]> }>({
+    source: null,
+    map: new Map(),
+  });
+
   useEffect(() => {
     onSelectNodeRef.current = onSelectNode;
   }, [onSelectNode]);
@@ -347,15 +368,19 @@ export const GraphView: React.FC<GraphViewProps> = ({
     const startId = resolvedTarget ? resolvedTarget.id : targetId;
 
     const hops = maxHops ?? egoDepthRef.current;
-    const adj = new Map<string, string[]>();
-    for (const link of graphDataRef.current.links) {
-      const s = typeof link.source === 'object' ? (link.source as any).id : link.source;
-      const t = typeof link.target === 'object' ? (link.target as any).id : link.target;
-      if (!adj.has(s)) adj.set(s, []);
-      if (!adj.has(t)) adj.set(t, []);
-      adj.get(s)!.push(t);
-      adj.get(t)!.push(s);
+    if (adjacencyCacheRef.current.source !== graphDataRef.current) {
+      const map = new Map<string, string[]>();
+      for (const link of graphDataRef.current.links) {
+        const s = typeof link.source === 'object' ? (link.source as any).id : link.source;
+        const t = typeof link.target === 'object' ? (link.target as any).id : link.target;
+        if (!map.has(s)) map.set(s, []);
+        if (!map.has(t)) map.set(t, []);
+        map.get(s)!.push(t);
+        map.get(t)!.push(s);
+      }
+      adjacencyCacheRef.current = { source: graphDataRef.current, map };
     }
+    const adj = adjacencyCacheRef.current.map;
 
     const visited = new Set<string>([startId]);
     let frontier = [startId];
@@ -374,6 +399,62 @@ export const GraphView: React.FC<GraphViewProps> = ({
     }
     connectedNodeIdsRef.current = visited;
   }, []);
+
+  // Viewport culling: flags node.__vis so offscreen/sampled-out nodes are
+  // neither rendered nor hit-tested. Runs on zoom/pan, rAF-throttled.
+  const recomputeVisibility = useCallback(() => {
+    const g = graphInstanceRef.current;
+    if (!g || !cullingEnabledRef.current) return;
+    const nodes: any[] = g.graphData()?.nodes || [];
+    const w = g.width?.() || 0;
+    const h = g.height?.() || 0;
+    if (!w || !h) return;
+
+    const keep = new Set<string>();
+    if (selectedNodeIdRef.current) keep.add(selectedNodeIdRef.current);
+    if (hoverNodeIdRef.current) keep.add(hoverNodeIdRef.current);
+    if (glowingStateRef.current) keep.add(glowingStateRef.current.id);
+    for (const id of connectedNodeIdsRef.current) keep.add(id);
+    const steps = pathResultRef.current?.steps;
+    if (steps) {
+      for (const s of steps) keep.add(s.node_id);
+    }
+
+    const glowing = glowingStateRef.current;
+    const isGlowMatch = (n: any) =>
+      !!glowing &&
+      (n.id === glowing.id || n._idLc === glowing.lc || n._idStemLc === glowing.stemLc);
+
+    const { k, x, y } = transformRef.current;
+    if (k < FAR_ZOOM_K) {
+      const rank = degreeRankRef.current;
+      for (const n of nodes) {
+        n.__vis = keep.has(n.id) || n.is_god_node || rank.has(n.id) || isGlowMatch(n);
+      }
+    } else {
+      const padX = (w / k) * 0.12;
+      const padY = (h / k) * 0.12;
+      const left = -x / k - padX;
+      const right = (w - x) / k + padX;
+      const top = -y / k - padY;
+      const bottom = (h - y) / k + padY;
+      for (const n of nodes) {
+        n.__vis =
+          keep.has(n.id) ||
+          isGlowMatch(n) ||
+          (n.x >= left && n.x <= right && n.y >= top && n.y <= bottom);
+      }
+    }
+    requestCanvasRepaint();
+  }, [requestCanvasRepaint]);
+
+  const scheduleVisibilityRecompute = useCallback(() => {
+    if (!cullingEnabledRef.current || visibilityRafRef.current) return;
+    visibilityRafRef.current = requestAnimationFrame(() => {
+      visibilityRafRef.current = 0;
+      recomputeVisibility();
+    });
+  }, [recomputeVisibility]);
 
   useEffect(() => {
     egoDepthRef.current = egoDepth;
@@ -598,7 +679,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
         });
       })
       .nodeCanvasObject((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-        if (!node || !isFinite(node.x) || !isFinite(node.y)) return;
+        if (!node || node.__vis === false || !isFinite(node.x) || !isFinite(node.y)) return;
 
         const isLight = themeRef.current === 'light';
         const currentSel = selectedNodeIdRef.current;
@@ -878,7 +959,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
         }
       })
       .nodePointerAreaPaint((node: any, color: string, ctx: CanvasRenderingContext2D) => {
-        if (!node || !isFinite(node.x) || !isFinite(node.y)) return;
+        if (!node || node.__vis === false || !isFinite(node.x) || !isFinite(node.y)) return;
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(node.x, node.y, 14, 0, 2 * Math.PI, false);
@@ -949,9 +1030,20 @@ export const GraphView: React.FC<GraphViewProps> = ({
         if (hoverNodeIdRef.current === nextId) return;
         hoverNodeIdRef.current = nextId;
         recomputeConnected(nextId || selectedNodeIdRef.current, egoDepthRef.current);
+        scheduleVisibilityRecompute();
         requestCanvasRepaint();
       })
-      .showPointerCursor((node: any) => !!node);
+      .showPointerCursor((node: any) => !!node)
+      .onZoom((transform: any) => {
+        transformRef.current = { k: transform.k, x: transform.x, y: transform.y };
+        scheduleVisibilityRecompute();
+      })
+      .nodeVisibility((node: any) => node.__vis !== false)
+      .linkVisibility((link: any) => {
+        const s = link.source;
+        const t = link.target;
+        return s.__vis !== false && t.__vis !== false;
+      });
 
     // Forces configuration
     graph.d3Force('charge')?.strength(-160);
@@ -1004,6 +1096,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
+      if (visibilityRafRef.current) {
+        cancelAnimationFrame(visibilityRafRef.current);
+        visibilityRafRef.current = 0;
+      }
       lastRenderedKeyRef.current = '';
       if (graphInstanceRef.current) {
         try {
@@ -1021,8 +1117,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
   useEffect(() => {
     selectedNodeIdRef.current = selectedNodeId;
     recomputeConnected(hoverNodeIdRef.current || selectedNodeId);
+    scheduleVisibilityRecompute();
     requestCanvasRepaint();
-  }, [selectedNodeId, recomputeConnected, requestCanvasRepaint]);
+  }, [selectedNodeId, recomputeConnected, requestCanvasRepaint, scheduleVisibilityRecompute]);
 
   // Reset filters and camera state when switching projects
   useEffect(() => {
@@ -1034,6 +1131,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
       hoverNodeIdRef.current = null;
       connectedNodeIdsRef.current = new Set();
       lastRenderedKeyRef.current = '';
+      cullingEnabledRef.current = false;
+      degreeRankRef.current = new Set();
+      adjacencyCacheRef.current = { source: null, map: new Map() };
       if (graphInstanceRef.current) {
         graphInstanceRef.current.graphData({ nodes: [], links: [] });
       }
@@ -1079,9 +1179,21 @@ export const GraphView: React.FC<GraphViewProps> = ({
       displayData = { nodes: subNodes, links: subLinks };
     }
 
+    // Precomputed-layout detection: when the backend ships positions for the
+    // vast majority of nodes, we pin them (fx/fy) and freeze the simulation.
+    let positionedCount = 0;
+    for (const n of displayData.nodes) {
+      if (typeof n.x === 'number') positionedCount++;
+    }
+    const mostlyPrecomputed =
+      displayData.nodes.length > 0 &&
+      positionedCount / displayData.nodes.length >= PRECOMPUTED_LAYOUT_RATIO;
+
     // Density cap: beyond the safe limit, render only structural hubs
     // (degree >= 2, god nodes, current selection) so d3-force stays interactive.
-    if (displayData.nodes.length > LARGE_GRAPH_NODE_LIMIT && !localOnly) {
+    // Skipped when positions are precomputed — the sim is frozen and viewport
+    // culling does the reduction more faithfully (degree-1 nodes stay visible).
+    if (displayData.nodes.length > LARGE_GRAPH_NODE_LIMIT && !localOnly && !mostlyPrecomputed) {
       const keep = new Set<string>();
       for (const n of displayData.nodes) {
         if ((n.degree || 0) >= 2 || n.is_god_node || n.id === selectedNodeId) {
@@ -1143,6 +1255,19 @@ export const GraphView: React.FC<GraphViewProps> = ({
       target.community = n.community;
       target.is_god_node = n.is_god_node;
       target.centrality = n.centrality;
+      // Precomputed layout positions pin the node (d3 fx/fy) so the
+      // simulation never moves it — the whole freeze stays cheap.
+      if (typeof n.x === 'number' && typeof n.y === 'number' && isFinite(n.x) && isFinite(n.y)) {
+        target.x = n.x;
+        target.y = n.y;
+        target.fx = n.x;
+        target.fy = n.y;
+        target.__pinned = true;
+      } else {
+        target.fx = undefined;
+        target.fy = undefined;
+        target.__pinned = false;
+      }
       // Pre-normalized lookup keys so the per-frame paint loop never
       // re-runs toLowerCase/regex on hot paths.
       target._idLc = String(n.id).toLowerCase();
@@ -1165,12 +1290,14 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
     // Physics tuning scaled to graph size: large graphs warm up synchronously,
     // decay faster and cool down quickly instead of simmering forever.
+    // With precomputed positions the sim is frozen outright (0 ticks).
     const isLargeGraph = mergedNodes.length > LARGE_GRAPH_NODE_LIMIT;
+    const t0 = performance.now();
     try {
-      graphInstanceRef.current.warmupTicks?.(isLargeGraph ? 50 : 0);
-      graphInstanceRef.current.cooldownTicks?.(isLargeGraph ? 160 : Infinity);
-      graphInstanceRef.current.d3AlphaMin?.(isLargeGraph ? 0.02 : 0.001);
-      graphInstanceRef.current.d3AlphaDecay?.(isLargeGraph ? 0.05 : 0.0228);
+      graphInstanceRef.current.warmupTicks?.(mostlyPrecomputed ? 0 : isLargeGraph ? 50 : 0);
+      graphInstanceRef.current.cooldownTicks?.(mostlyPrecomputed ? 0 : isLargeGraph ? 160 : Infinity);
+      graphInstanceRef.current.d3AlphaMin?.(mostlyPrecomputed ? 0.9 : isLargeGraph ? 0.02 : 0.001);
+      graphInstanceRef.current.d3AlphaDecay?.(mostlyPrecomputed ? 0.95 : isLargeGraph ? 0.05 : 0.0228);
       graphInstanceRef.current.d3VelocityDecay?.(isLargeGraph ? 0.55 : 0.4);
     } catch {
       // ignore config errors on older force-graph versions
@@ -1180,7 +1307,28 @@ export const GraphView: React.FC<GraphViewProps> = ({
       nodes: mergedNodes,
       links: mergedLinks,
     });
-    graphInstanceRef.current.d3ReheatSimulation?.();
+    if (!mostlyPrecomputed) {
+      graphInstanceRef.current.d3ReheatSimulation?.();
+    }
+
+    // Enable viewport culling above the threshold and precompute the
+    // degree-ranked hub set used for far-zoom deterministic sampling.
+    cullingEnabledRef.current = mergedNodes.length > CULL_NODE_THRESHOLD;
+    if (cullingEnabledRef.current) {
+      const byDegree = mergedNodes
+        .slice()
+        .sort((a, b) => (b.degree || 0) - (a.degree || 0))
+        .slice(0, FAR_ZOOM_BUDGET);
+      degreeRankRef.current = new Set(byDegree.map((n) => n.id));
+      recomputeVisibility();
+    } else {
+      degreeRankRef.current = new Set();
+      for (const n of mergedNodes) n.__vis = true;
+    }
+    console.info(
+      `[GraphView] graphData applied: ${(performance.now() - t0).toFixed(0)}ms ` +
+        `nodes=${mergedNodes.length} links=${mergedLinks.length} precomputed=${mostlyPrecomputed} culling=${cullingEnabledRef.current}`
+    );
 
     if (existingNodesMap.size === 0 && mergedNodes.length > 0) {
       setTimeout(() => {
@@ -1189,7 +1337,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
         }
       }, 250);
     }
-  }, [projectId, graphData, filterMode, localOnly, egoDepth, localOnly ? selectedNodeId : null, recomputeConnected]);
+  }, [projectId, graphData, filterMode, localOnly, egoDepth, localOnly ? selectedNodeId : null, recomputeConnected, recomputeVisibility]);
 
   const handleZoomIn = () => {
     if (graphInstanceRef.current) {
@@ -1212,7 +1360,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const isLight = theme === 'light';
 
   return (
-    <div className={`relative w-full h-full overflow-hidden transition-colors duration-200 ${isLight ? 'bg-[#f8fafc]' : 'bg-[#090a0f]'}`}>
+    <div className={`relative w-full h-full overflow-hidden transition-colors duration-200 ${'bg-canvas'}`}>
       {/* Canvas container specifically for ForceGraph */}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
 
@@ -1221,14 +1369,14 @@ export const GraphView: React.FC<GraphViewProps> = ({
         className={`absolute top-3 left-3 z-30 flex items-center gap-1.5 p-1 rounded-xl shadow-xl backdrop-blur-md transition-colors ${
           isLight
             ? 'bg-white/90 border border-slate-200/90 shadow-slate-200/50'
-            : 'bg-[#0e1119]/85 border border-[#1f2536]'
+            : 'bg-surface/85 border border-line'
         }`}
         role="toolbar"
         aria-label="Controles do Grafo"
       >
         {/* Node Type Filter Pill Selector */}
         <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
-          isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#090b10] border-[#171b26]'
+          'bg-canvas border-line'
         }`}>
           <Tip label="Exibe todos os nós — notas e arquivos de código juntos no grafo.">
             <button
@@ -1236,10 +1384,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
               onClick={() => setFilterMode('all')}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
                 filterMode === 'all'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-accent text-white shadow-xs'
                   : isLight
                   ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-[#64748b] hover:text-[#f1f5f9]'
+                  : 'text-muted hover:text-ink'
               }`}
             >
               <CirclesThree size={12} weight="bold" />
@@ -1253,10 +1401,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
               onClick={() => setFilterMode('notes')}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
                 filterMode === 'notes'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-accent text-white shadow-xs'
                   : isLight
                   ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-[#64748b] hover:text-[#f1f5f9]'
+                  : 'text-muted hover:text-ink'
               }`}
             >
               <FileText size={12} />
@@ -1270,10 +1418,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
               onClick={() => setFilterMode('code')}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
                 filterMode === 'code'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-accent text-white shadow-xs'
                   : isLight
                   ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-[#64748b] hover:text-[#f1f5f9]'
+                  : 'text-muted hover:text-ink'
               }`}
             >
               <Code size={12} weight="bold" />
@@ -1282,7 +1430,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           </Tip>
         </div>
 
-        <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
+        <div className={`w-[1px] h-3.5 my-auto ${'bg-line-strong'}`} />
 
         {/* Communities / Clusters toggle */}
         <Tip label="Clusters: colore os nós por comunidade detectada (LPA) — revela fronteiras arquiteturais e agrupamentos naturais.">
@@ -1292,10 +1440,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
               colorMode === 'communities'
                 ? isLight
                   ? 'bg-purple-100 text-purple-700 border border-purple-200'
-                  : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
+                  : 'bg-accent-soft text-accent-strong border border-accent-line'
                 : isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+                : 'text-muted hover:text-ink hover:bg-raise'
             }`}
             onClick={() => setColorMode(colorMode === 'communities' ? 'default' : 'communities')}
           >
@@ -1311,11 +1459,11 @@ export const GraphView: React.FC<GraphViewProps> = ({
             className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
               highlightGodNodes
                 ? isLight
-                  ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                  : 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                  ? 'bg-warn/15 text-warn border border-warn/30'
+                  : 'bg-warn/25 text-warn border border-warn/40/40'
                 : isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+                : 'text-muted hover:text-ink hover:bg-raise'
             }`}
             onClick={() => setHighlightGodNodes(!highlightGodNodes)}
           >
@@ -1334,7 +1482,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                 : 'bg-sky-500/25 text-sky-300 border border-sky-500/40'
               : isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              : 'text-muted hover:text-ink hover:bg-raise'
           }`}
           onClick={() => setPathMode(!pathMode)}
         >
@@ -1348,7 +1496,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
             isLight
               ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#94a3b8] hover:text-white hover:bg-[#1a2030]'
+              : 'text-muted hover:text-white hover:bg-raise'
           }`}
           onClick={() => setShowAuditModal(true)}
         >
@@ -1356,7 +1504,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           <span>Audit</span>
         </button></Tip>
 
-        <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
+        <div className={`w-[1px] h-3.5 my-auto ${'bg-line-strong'}`} />
 
         {/* Ego Network (N-Hop Focus) toggle + Dynamic Depth Slider */}
         <div className="flex items-center gap-1.5">
@@ -1366,11 +1514,11 @@ export const GraphView: React.FC<GraphViewProps> = ({
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
                 localOnly
                   ? isLight
-                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
-                    : 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
+                    ? 'bg-accent-soft text-accent-strong border border-accent-line'
+                    : 'bg-accent/30 text-accent-strong border border-accent/40'
                   : isLight
                   ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+                  : 'text-muted hover:text-ink hover:bg-raise'
               }`}
               onClick={() => setLocalOnly(!localOnly)}
             >
@@ -1384,11 +1532,11 @@ export const GraphView: React.FC<GraphViewProps> = ({
               className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[10px] font-mono ${
                 isLight
                   ? 'bg-slate-100/90 border-slate-200 text-slate-600'
-                  : 'bg-[#090b10]/90 border-[#171b26] text-slate-300'
+                  : 'bg-canvas/90 border-line text-slate-300'
               }`}
               title={`Profundidade da Ego Network: quantos saltos de vizinhança entram no foco (1–5)`}
             >
-              <span className="text-[9.5px] uppercase tracking-wider opacity-75">Hops</span>
+              <span className="text-[10px] uppercase tracking-wider opacity-75">Hops</span>
               <input
                 type="range"
                 min={1}
@@ -1396,10 +1544,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
                 step={1}
                 value={egoDepth}
                 onChange={(e) => setEgoDepth(Number(e.target.value))}
-                className="w-14 h-1 accent-indigo-500 cursor-pointer"
+                className="w-14 h-1 accent-[var(--gf-accent)] cursor-pointer"
                 aria-label="Profundidade N-Hop da Ego Network"
               />
-              <span className={`font-bold ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
+              <span className={`font-bold ${'text-accent-strong'}`}>
                 {egoDepth}
               </span>
             </div>
@@ -1411,7 +1559,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              : 'text-muted hover:text-ink hover:bg-raise'
           }`}
           onClick={handleZoomIn}
         >
@@ -1423,7 +1571,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              : 'text-muted hover:text-ink hover:bg-raise'
           }`}
           onClick={handleZoomOut}
         >
@@ -1435,7 +1583,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              : 'text-muted hover:text-ink hover:bg-raise'
           }`}
           onClick={handleFit}
         >
@@ -1447,7 +1595,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              : 'text-muted hover:text-ink hover:bg-raise'
           }`}
           onClick={onRefresh}
         >
@@ -1459,15 +1607,15 @@ export const GraphView: React.FC<GraphViewProps> = ({
       {pathMode && (
         <div className={`absolute top-16 left-3 z-30 flex items-center gap-2.5 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md text-[11px] font-mono border transition-all ${
           isLight
-            ? 'bg-white/95 border-sky-300 text-slate-700 shadow-sky-100'
-            : 'bg-[#0b1220]/90 border-sky-500/40 text-slate-200 shadow-[0_4px_20px_rgba(56,189,248,0.15)]'
+            ? 'bg-surface/95 border-sky-300 text-ink shadow-sky-100'
+            : 'bg-canvas/90 border-sky-500/40 text-ink shadow-lg'
         }`}>
-          <GitBranch size={14} className="text-sky-400 shrink-0 animate-pulse" />
+          <GitBranch size={14} className="text-sky-400 shrink-0" />
           {!pathStartNode ? (
             <span>Clique no <strong className="text-sky-400">nó de origem</strong> no grafo...</span>
           ) : !pathResult ? (
             <span>
-              Origem: <strong className="text-sky-400">{pathStartNode.title || pathStartNode.id}</strong> → Clique no <strong className="text-emerald-400">nó de destino</strong>...
+              Origem: <strong className="text-sky-400">{pathStartNode.title || pathStartNode.id}</strong> → Clique no <strong className="text-good">nó de destino</strong>...
             </span>
           ) : (
             <div className="flex items-center gap-2">
@@ -1499,27 +1647,27 @@ export const GraphView: React.FC<GraphViewProps> = ({
       )}
 
       {/* Floating HUD Telemetry Capsule */}
-      <div className={`absolute bottom-3 left-3 z-30 flex items-center gap-2 px-2.5 py-1 rounded-lg shadow-lg backdrop-blur-md text-[10.5px] font-mono transition-colors ${
+      <div className={`absolute bottom-3 left-3 z-30 flex items-center gap-2 px-2.5 py-1 rounded-lg shadow-lg backdrop-blur-md text-[11px] font-mono transition-colors ${
         isLight
           ? 'bg-white/90 border border-slate-200/90 text-slate-600 shadow-slate-200/40'
-          : 'bg-[#0e1119]/85 border border-[#1f2536] text-[#64748b]'
+          : 'bg-surface/85 border border-line text-muted'
       }`}>
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-good/100 shrink-0 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
         <span>
-          Notes: <strong className={`font-semibold ${isLight ? 'text-slate-900' : 'text-[#f8fafc]'}`}>{stats.notes}</strong>
+          Notes: <strong className={`font-semibold ${'text-ink'}`}>{stats.notes}</strong>
         </span>
-        <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
+        <span className={'text-line-strong'}>•</span>
         <span>
-          Code: <strong className={`font-semibold ${isLight ? 'text-sky-600' : 'text-[#38bdf8]'}`}>{stats.code}</strong>
+          Code: <strong className={`font-semibold ${'text-sky-500'}`}>{stats.code}</strong>
         </span>
-        <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
+        <span className={'text-line-strong'}>•</span>
         <span>
-          Links: <strong className={`font-semibold ${isLight ? 'text-slate-900' : 'text-[#f8fafc]'}`}>{stats.links}</strong>
+          Links: <strong className={`font-semibold ${'text-ink'}`}>{stats.links}</strong>
         </span>
         {localOnly && (
           <>
-            <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
-            <span className={`font-medium ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
+            <span className={'text-line-strong'}>•</span>
+            <span className={`font-medium ${'text-accent-strong'}`}>
               Ego Network ({egoDepth}-Hop)
             </span>
           </>

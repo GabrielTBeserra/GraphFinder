@@ -387,7 +387,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
           ) : (
             groups.map((group) => (
               <div key={group.label}>
-                <div className="px-3 pt-2.5 pb-1 text-[9.5px] font-mono uppercase tracking-[0.12em] text-faint">
+                <div className="px-3 pt-2.5 pb-1 text-[10px] font-mono uppercase tracking-[0.12em] text-faint">
                   {group.label}
                 </div>
                 {group.items.map((item) => {
@@ -419,25 +419,25 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
                               item.tags.slice(0, 2).map((t) => (
                                 <span
                                   key={t}
-                                  className="inline-flex items-center gap-0.5 text-[9px] font-mono px-1 py-0.5 rounded bg-raise border border-line text-faint"
+                                  className="inline-flex items-center gap-0.5 text-[10px] font-mono px-1 py-0.5 rounded bg-raise border border-line text-faint"
                                 >
                                   <Hash size={7} />
                                   {t}
                                 </span>
                               ))}
                             {item.kind === 'code' && (
-                              <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-raise border border-line text-faint">
+                              <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-raise border border-line text-faint">
                                 {item.lang}
                               </span>
                             )}
                             {(item.kind === 'semantic-note' || item.kind === 'semantic-code') && (
-                              <span className="text-[9px] font-mono text-good">
+                              <span className="text-[10px] font-mono text-good">
                                 {Math.round(item.score * 100)}%
                               </span>
                             )}
                           </div>
                           {subOf(item) && (
-                            <p className="text-[10.5px] truncate mt-0.5 text-faint font-mono">
+                            <p className="text-[11px] truncate mt-0.5 text-faint font-mono">
                               {subOf(item)}
                             </p>
                           )}
@@ -454,7 +454,7 @@ export const OmnisearchModal: React.FC<OmnisearchModalProps> = ({
                                   e.stopPropagation();
                                   commitSelect(item, true);
                                 }}
-                                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-mono text-accent hover:bg-accent/15 cursor-pointer"
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono text-accent hover:bg-accent/15 cursor-pointer"
                                 title="Reveal in graph (Alt+Enter)"
                               >
                                 <Crosshair size={10} />

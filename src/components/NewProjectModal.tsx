@@ -10,7 +10,7 @@ import {
   CheckCircle,
   HardDrive,
 } from '@phosphor-icons/react';
-import { pickDirectory } from '../services/api';
+import { pickDirectory, installAgentKit } from '../services/api';
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -25,6 +25,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [customPath, setCustomPath] = useState('');
+  const [installKit, setInstallKit] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +63,13 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     setError(null);
     try {
       await onCreate(name.trim(), customPath.trim() || undefined);
+      if (installKit) {
+        try {
+          await installAgentKit(name.trim());
+        } catch (kitErr) {
+          console.warn('Agent kit install failed:', kitErr);
+        }
+      }
       setName('');
       setCustomPath('');
       onClose();
@@ -80,18 +88,18 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#0d0f14] border border-[#1e222c] p-6 shadow-2xl focus:outline-none text-[#edeef0]">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl bg-surface border border-line p-6 shadow-2xl focus:outline-none text-ink">
           {/* Header */}
-          <div className="flex items-start justify-between gap-4 mb-5 pb-3 border-b border-[#1e222c]">
+          <div className="flex items-start justify-between gap-4 mb-5 pb-3 border-b border-line">
             <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#161922] border border-[#1e222c] text-[#d8dae0]">
+              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-raise border border-line text-ink">
                 <FolderPlus size={16} weight="regular" />
               </div>
               <div>
-                <Dialog.Title className="text-sm font-semibold text-[#edeef0]">
+                <Dialog.Title className="text-sm font-semibold text-ink">
                   Create or Open Knowledge Vault
                 </Dialog.Title>
-                <Dialog.Description className="text-xs text-[#8a919e] mt-0.5">
+                <Dialog.Description className="text-xs text-muted mt-0.5">
                   Local-first storage in any directory on your computer.
                 </Dialog.Description>
               </div>
@@ -100,8 +108,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             <Dialog.Close asChild>
               <button
                 type="button"
-                className="rounded-md p-1.5 text-[#8a919e] hover:text-[#edeef0] hover:bg-[#1a1f2c] transition-colors cursor-pointer"
-                title="Close"
+                className="rounded-md p-1.5 text-muted hover:text-ink hover:bg-raise transition-colors cursor-pointer"
+                title="Close" aria-label="Close"
               >
                 <X size={15} />
               </button>
@@ -113,14 +121,14 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             <div>
               <label
                 htmlFor="project-name-input"
-                className="block text-xs font-medium text-[#d8dae0] mb-1.5"
+                className="block text-xs font-medium text-ink mb-1.5"
               >
                 Project / Vault Name
               </label>
               <input
                 id="project-name-input"
                 type="text"
-                className="w-full px-3 py-2 text-xs rounded-md bg-[#0d0f14] border border-[#1e222c] text-[#edeef0] placeholder-[#8a919e] focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/40 transition-all"
+                className="w-full px-3 py-2 text-xs rounded-md bg-surface border border-line text-ink placeholder:text-faint focus:outline-none focus:border-accent/80 focus:ring-1 focus:ring-accent/40 transition-all"
                 placeholder="e.g., Research Notes, AI Engineering, Second Brain..."
                 value={name}
                 onChange={(e) => {
@@ -137,7 +145,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               <div className="flex items-center justify-between mb-1.5">
                 <label
                   htmlFor="project-path-input"
-                  className="text-xs font-medium text-[#d8dae0]"
+                  className="text-xs font-medium text-ink"
                 >
                   Storage Location on Disk
                 </label>
@@ -145,7 +153,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setCustomPath('')}
-                    className="text-[10px] text-[#8a919e] hover:text-[#d8dae0] transition-colors cursor-pointer"
+                    className="text-[10px] text-muted hover:text-ink transition-colors cursor-pointer"
                   >
                     Restore default location
                   </button>
@@ -157,7 +165,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   <input
                     id="project-path-input"
                     type="text"
-                    className="w-full px-3 py-2 text-xs rounded-md bg-[#0d0f14] border border-[#1e222c] text-[#edeef0] placeholder-[#8a919e] focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/40 transition-all font-mono"
+                    className="w-full px-3 py-2 text-xs rounded-md bg-surface border border-line text-ink placeholder:text-faint focus:outline-none focus:border-accent/80 focus:ring-1 focus:ring-accent/40 transition-all font-mono"
                     placeholder="Select a folder or leave blank for default..."
                     value={customPath}
                     onChange={(e) => setCustomPath(e.target.value)}
@@ -168,65 +176,90 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 <button
                   type="button"
                   onClick={handleBrowseFolder}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md bg-[#161922] hover:bg-[#1a1f2c] text-[#d8dae0] border border-[#1e222c] hover:border-[#2d3342] transition-colors cursor-pointer shrink-0"
-                  title="Open folder picker dialog"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md bg-raise hover:bg-raise text-ink border border-line hover:border-line-strong transition-colors cursor-pointer shrink-0"
+                  title="Open folder picker dialog" aria-label="Open folder picker dialog"
                 >
-                  <FolderOpen size={14} className="text-[#5fa8d9]" />
+                  <FolderOpen size={14} className="text-sky-400" />
                   <span>Choose Folder</span>
                 </button>
               </div>
             </div>
 
             {/* Architecture Preview matching banner.svg lines 53-56 */}
-            <div className="rounded-lg bg-[#12151c] border border-[#1e222c] p-3 space-y-2">
-              <div className="flex items-center gap-2 text-[#d8dae0] text-xs font-medium">
-                <Database size={13} className="text-[#8a919e]" />
+            <div className="rounded-lg bg-raise border border-line p-3 space-y-2">
+              <div className="flex items-center gap-2 text-ink text-xs font-medium">
+                <Database size={13} className="text-muted" />
                 <span>Selected Directory:</span>
               </div>
 
-              <div className="font-mono text-[11px] space-y-1 text-[#8a919e]">
+              <div className="font-mono text-[11px] space-y-1 text-muted">
                 <div className="flex items-center gap-1.5 truncate">
                   {customPath ? (
-                    <HardDrive size={12} className="text-[#5fa8d9] shrink-0" />
+                    <HardDrive size={12} className="text-sky-400 shrink-0" />
                   ) : (
-                    <Folder size={12} className="text-[#8a919e] shrink-0" />
+                    <Folder size={12} className="text-muted shrink-0" />
                   )}
                   <span>Vault Folder:</span>
-                  <span className="text-[#edeef0] truncate">{effectiveVaultPath}</span>
+                  <span className="text-ink truncate">{effectiveVaultPath}</span>
                 </div>
                 <div className="flex items-center gap-1.5 truncate">
-                  <Database size={12} className="text-[#8a919e] shrink-0" />
+                  <Database size={12} className="text-muted shrink-0" />
                   <span>SQLite Index:</span>
-                  <span className="text-[#edeef0] truncate">{effectiveVaultPath.replace(/[\\/]$/, '')}/index.db</span>
+                  <span className="text-ink truncate">{effectiveVaultPath.replace(/[\\/]$/, '')}/index.db</span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 text-[11px] text-[#8a919e] pt-1">
-                <CheckCircle size={12} className="text-[#4fb08c] shrink-0" />
+              <div className="flex items-center gap-1.5 text-[11px] text-muted pt-1">
+                <CheckCircle size={12} className="text-good shrink-0" />
                 <span>Existing Markdown notes in the folder will be indexed automatically.</span>
               </div>
             </div>
 
+            {/* Agent Kit opt-in */}
+            <label
+              htmlFor="install-agent-kit"
+              className="flex items-start gap-2.5 rounded-lg bg-raise border border-line p-3 cursor-pointer select-none hover:border-line-strong transition-colors"
+            >
+              <input
+                id="install-agent-kit"
+                type="checkbox"
+                checked={installKit}
+                onChange={(e) => setInstallKit(e.target.checked)}
+                disabled={isSubmitting}
+                className="mt-0.5 accent-[#34d399] cursor-pointer"
+              />
+              <span className="text-[11px] leading-snug">
+                <span className="block font-medium text-ink">
+                  Install agent kit into this folder
+                </span>
+                <span className="block text-muted mt-0.5">
+                  Copies <code className="font-mono">.agents/skills/</code> +{' '}
+                  <code className="font-mono">AGENTS.md</code> rules so AI agents
+                  opening this folder pick them up automatically.
+                </span>
+              </span>
+            </label>
+
             {error && (
-              <div className="text-xs font-medium text-rose-400 bg-rose-950/20 border border-rose-900/30 px-3 py-1.5 rounded-md">
+              <div className="text-xs font-medium text-bad bg-rose-950/20 border border-bad/40/30 px-3 py-1.5 rounded-md">
                 {error}
               </div>
             )}
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1e222c]">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-line">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="px-3 py-1.5 text-xs font-medium text-[#8a919e] hover:text-[#edeef0] hover:bg-[#1a1f2c] rounded-md transition-colors cursor-pointer"
+                className="px-3 py-1.5 text-xs font-medium text-muted hover:text-ink hover:bg-raise rounded-md transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting || !name.trim()}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md bg-accent hover:bg-accent text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
               >
                 <Check size={13} weight="bold" />
                 <span>{isSubmitting ? 'Saving...' : 'Save Vault'}</span>

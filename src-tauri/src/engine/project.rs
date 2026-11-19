@@ -255,6 +255,11 @@ impl VaultManager {
         }
     }
 
+    /// Resolves the on-disk vault directory for a project without switching to it.
+    pub async fn project_vault_path(&self, project_id: &str) -> PathBuf {
+        self.resolve_project_paths(project_id).await.0
+    }
+
     /// Returns (notes, code_files) counts.
     async fn get_fast_project_counts(
         &self,

@@ -25,11 +25,15 @@ import type {
   ProjectInfo,
   SyncProgress,
 } from './types';
-import { GraphView } from './components/GraphView';
+const GraphView = React.lazy(() =>
+  import('./components/GraphView').then((m) => ({ default: m.GraphView }))
+);
 import { Sidebar } from './components/Sidebar';
-import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { OmnisearchModal } from './components/OmnisearchModal';
-import { UpdateBanner } from './components/UpdateBanner';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { ActivityBar } from './components/ActivityBar';
+import { DocTabs, type DocTab } from './components/DocTabs';
+import { BottomPanel, StatusBar } from './components/StudioPanels';
 
 const NoteEditorLazy = React.lazy(() =>
   import('./components/NoteEditor').then((m) => ({ default: m.NoteEditor }))
@@ -48,15 +52,8 @@ const ReleaseModal = React.lazy(() =>
 );
 import { checkForUpdates, type ReleaseInfo } from './services/updater';
 import {
-  ArrowClockwise,
-  SidebarSimple,
   CheckCircle,
-  Plus,
-  MagnifyingGlass,
-  Sun,
-  Moon,
   WarningCircle,
-  Sparkle,
 } from '@phosphor-icons/react';
 
 interface Toast {
@@ -101,6 +98,9 @@ export const App: React.FC = () => {
   const [isOmnisearchOpen, setIsOmnisearchOpen] = useState(false);
   const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
+  const [openTabs, setOpenTabs] = useState<DocTab[]>([]);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     try {
       return localStorage.getItem('gf_sidebar') !== '0';
@@ -120,7 +120,6 @@ export const App: React.FC = () => {
   const [engineError, setEngineError] = useState<boolean>(false);
   const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo | null>(null);
   const [isReleaseModalOpen, setIsReleaseModalOpen] = useState(false);
-  const [isBannerDismissed, setIsBannerDismissed] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       const saved = localStorage.getItem('gf_theme');
@@ -173,32 +172,9 @@ export const App: React.FC = () => {
     []
   );
 
-  const handleDismissBanner = useCallback(() => {
-    setIsBannerDismissed(true);
-    if (releaseInfo?.tagName) {
-      try {
-        sessionStorage.setItem('gf_dismissed_update_tag', releaseInfo.tagName);
-      } catch {
-        // ignore
-      }
-    }
-  }, [releaseInfo?.tagName]);
-
   useEffect(() => {
     checkForUpdates()
-      .then((info) => {
-        setReleaseInfo(info);
-        if (info.hasUpdate) {
-          try {
-            const dismissed = sessionStorage.getItem('gf_dismissed_update_tag');
-            if (dismissed === info.tagName) {
-              setIsBannerDismissed(true);
-            }
-          } catch {
-            // ignore
-          }
-        }
-      })
+      .then((info) => setReleaseInfo(info))
       .catch((err) => {
         console.warn('[Updater] Initial check error:', err);
       });
@@ -208,11 +184,36 @@ export const App: React.FC = () => {
     const clean = idOrTitle.replace(/^unresolved:/, '').split('#')[0].trim();
     setSelectedNoteId(clean);
     setIsEditorOpen(true);
+    // Mutually exclusive doc panels: a note tab replaces the code inspector
+    // (otherwise activeTabKey stays pinned on `code:` and tabs look dead).
+    setSelectedCodePath(null);
+    setSelectedCodeSymbol(null);
+    setIsCodeInspectorOpen(false);
+    const provisionalKey = `note:${clean}`;
+    setOpenTabs((prev) => {
+      if (prev.some((t) => t.key === provisionalKey)) return prev;
+      return [...prev, { key: provisionalKey, type: 'note' as const, label: clean.replace(/\.md$/, '') }].slice(-8);
+    });
+    // Once the backend resolves the real note id, canonicalize the tab key so
+    // the same document can't exist under two different keys (title vs id).
+    const canonicalize = (noteId: string, label: string) => {
+      const canonKey = `note:${noteId}`;
+      setOpenTabs((prev) => {
+        if (canonKey === provisionalKey) return prev;
+        if (prev.some((t) => t.key === canonKey)) {
+          return prev.filter((t) => t.key !== provisionalKey);
+        }
+        return prev.map((t) =>
+          t.key === provisionalKey ? { key: canonKey, type: 'note' as const, label } : t
+        );
+      });
+    };
     try {
       const note = await fetchNote(clean);
       if (note) {
         setActiveNote(note);
         setSelectedNoteId(note.id);
+        canonicalize(note.id, (note.title || note.id).replace(/\.md$/, ''));
         try {
           localStorage.setItem('gf_last_note', note.id);
         } catch {
@@ -232,11 +233,13 @@ export const App: React.FC = () => {
         if (foundNote) {
           setActiveNote(foundNote);
           setSelectedNoteId(foundNote.id);
+          canonicalize(foundNote.id, (foundNote.title || foundNote.id).replace(/\.md$/, ''));
           return;
         }
       }
-      // Unresolved note from graph: create draft
-      setSelectedNoteId(null);
+      // Unresolved note from graph: create draft. Keep selectedNoteId on the
+      // provisional key so the tab stays highlighted while editing.
+      setSelectedNoteId(clean);
       setActiveNote({
         id: '',
         path: clean.endsWith('.md') ? clean : `${clean}.md`,
@@ -256,6 +259,14 @@ export const App: React.FC = () => {
   const handleSelectCodeFile = useCallback((path: string, symbol?: string) => {
     setSelectedCodePath(path);
     setSelectedNoteId(path);
+    // Mutually exclusive doc panels: a code tab replaces the note editor.
+    setIsEditorOpen(false);
+    setOpenTabs((prev) => {
+      const key = `code:${path}`;
+      if (prev.some((t) => t.key === key)) return prev;
+      const label = path.split('/').pop() || path;
+      return [...prev, { key, type: 'code' as const, label }].slice(-8);
+    });
     setSelectedCodeSymbol(symbol || null);
     setIsCodeInspectorOpen(true);
   }, []);
@@ -269,6 +280,43 @@ export const App: React.FC = () => {
     setSelectedCodePath(null);
     setSelectedCodeSymbol(null);
   }, []);
+
+  const activeTabKey = selectedCodePath
+    ? `code:${selectedCodePath}`
+    : selectedNoteId && isEditorOpen
+      ? `note:${selectedNoteId}`
+      : null;
+
+  const handleSelectTab = useCallback(
+    (tab: DocTab) => {
+      const id = tab.key.slice(5);
+      if (tab.type === 'note') handleSelectNote(id);
+      else handleSelectCodeFile(id);
+    },
+    [handleSelectNote, handleSelectCodeFile]
+  );
+
+  const handleCloseTab = useCallback(
+    (tab: DocTab) => {
+      setOpenTabs((prev) => prev.filter((t) => t.key !== tab.key));
+      if (tab.key === activeTabKey) {
+        setIsEditorOpen(false);
+        setIsCodeInspectorOpen(false);
+        handleClearSelection();
+      }
+    },
+    [activeTabKey, handleClearSelection]
+  );
+
+  const handleShowGraphTab = useCallback(() => {
+    setIsEditorOpen(false);
+    setIsCodeInspectorOpen(false);
+    handleClearSelection();
+  }, [handleClearSelection]);
+
+  useEffect(() => {
+    if (chunkResults.length > 0 || codeChunkResults.length > 0) setPanelOpen(true);
+  }, [chunkResults.length, codeChunkResults.length]);
 
   const handleNavigateNote = useCallback((titleOrId: string) => {
     handleSelectNote(titleOrId);
@@ -542,7 +590,14 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleDeleteNote = async (idOrTitle: string, title?: string) => {
+  const handleDeleteNote = (idOrTitle: string, title?: string) => {
+    setPendingDelete({ id: idOrTitle, title: title || idOrTitle });
+  };
+
+  const confirmDeleteNote = async () => {
+    if (!pendingDelete) return;
+    const { id: idOrTitle, title } = pendingDelete;
+    setPendingDelete(null);
     try {
       await deleteNote(idOrTitle);
       showToast(`Note "${title || idOrTitle}" deleted successfully`);
@@ -662,233 +717,18 @@ export const App: React.FC = () => {
   };
 
   // Non-blocking boot: UI renders immediately from local SQLite database
-  const isLight = theme === 'light';
-
   return (
-    <div
-      className={`flex flex-col w-screen h-screen overflow-hidden select-none transition-colors ${
-        isLight ? 'bg-slate-50 text-slate-800' : 'bg-[#0a0b0e] text-[#edeef0]'
-      }`}
-    >
-      {/* Titlebar / Minimalist Header */}
-      <header
-        className={`h-12 px-3.5 flex items-center justify-between border-b shrink-0 z-40 transition-colors ${
-          isLight ? 'border-slate-200 bg-white shadow-2xs' : 'border-[#1e222c] bg-[#0d0f14]'
-        }`}
-      >
-        {/* Left Section: Brand & Integrated Project Switcher */}
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-              isLight
-                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#8a919e] hover:text-[#edeef0] hover:bg-[#161922]'
-            }`}
-            title={isSidebarOpen ? 'Collapse Sidebar (Ctrl+B)' : 'Expand Sidebar (Ctrl+B)'}
-          >
-            <SidebarSimple size={16} weight="regular" />
-          </button>
-
-          <div className="flex items-center gap-2 mr-1">
-            <span
-              className={`text-[13px] font-bold tracking-[0.2px] ${
-                isLight ? 'text-slate-900' : 'text-[#edeef0]'
-              }`}
-            >
-              GraphFinder
-            </span>
-          </div>
-
-          <div className={`w-[1px] h-4 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-[#1e222c]'}`} />
-
-          {/* Project Switcher */}
-          <ProjectSwitcher
-            projects={projects}
-            activeProject={activeProject}
-            onSwitchProject={handleSwitchProject}
-            onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
-            theme={theme}
-          />
-        </div>
-
-        {/* Center Section: Global Omnisearch Bar */}
-        <div className="flex items-center">
-          <button
-            type="button"
-            onClick={() => setIsOmnisearchOpen(true)}
-            className={`flex items-center justify-between w-64 md:w-80 h-7 px-2.5 rounded-lg border text-xs transition-all cursor-pointer shadow-xs ${
-              isLight
-                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 hover:border-slate-300 text-slate-500'
-                : 'bg-[#161922] hover:bg-[#161922] border-[#1e222c] hover:border-[#2b303e] text-[#8a919e] hover:text-[#8a919e]'
-            }`}
-            title="Search entire project (Ctrl+K)"
-          >
-            <div className="flex items-center gap-2 truncate">
-              <MagnifyingGlass
-                size={13}
-                className={`${isLight ? 'text-slate-400' : 'text-[#8a919e]'} shrink-0`}
-              />
-              <span className="truncate">Search notes or code...</span>
-            </div>
-            <kbd
-              className={`hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded border text-[9px] font-mono shrink-0 ${
-                isLight
-                  ? 'bg-white border-slate-200 text-slate-500 shadow-2xs'
-                  : 'bg-[#1a1f2c] border-[#2b303e] text-[#8a919e]'
-              }`}
-            >
-              Ctrl K
-            </kbd>
-          </button>
-        </div>
-
-        {/* Right Section: Primary Action & Tools */}
-        <div className="flex items-center gap-2">
-          {/* Non-blocking Neural Engine Status Indicator */}
-          {!engineReady && (
-            <div
-              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10.5px] font-medium transition-all ${
-                engineError
-                  ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-                  : isLight
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-600 animate-pulse'
-                  : 'bg-indigo-950/40 border-indigo-800/40 text-indigo-400 animate-pulse'
-              }`}
-              title={engineStatusMessage}
-            >
-              <div
-                className={`w-1.5 h-1.5 rounded-full ${
-                  engineError ? 'bg-rose-500' : 'bg-indigo-500'
-                }`}
-              />
-              <span className="truncate max-w-[130px]">
-                {engineError ? 'Engine Error' : 'Neural Warming Up...'}
-              </span>
-            </div>
-          )}
-
-          {/* Theme Toggle Button */}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className={`inline-flex items-center justify-center w-7 h-7 rounded-lg border transition-all cursor-pointer ${
-              isLight
-                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-amber-500 hover:text-amber-600 shadow-2xs'
-                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-amber-300 hover:text-amber-200'
-            }`}
-            title={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
-          >
-            {isLight ? <Moon size={13} weight="fill" /> : <Sun size={13} weight="fill" />}
-          </button>
-
-          {/* New Note Button */}
-          <button
-            type="button"
-            onClick={handleNewNote}
-            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs transition-all cursor-pointer"
-            title="Create new Markdown note"
-          >
-            <Plus size={12} weight="bold" />
-            <span className="text-[11.5px]">New Note</span>
-          </button>
-
-          {/* Sync Button */}
-          <button
-            type="button"
-            onClick={handleSync}
-            disabled={isSyncing}
-            className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer disabled:opacity-50 ${
-              isLight
-                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 hover:border-slate-300 text-slate-700 shadow-2xs'
-                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-[#d8dae0]'
-            }`}
-            title="Synchronize notes and code vault"
-          >
-            <ArrowClockwise
-              size={12}
-              weight="bold"
-              className={
-                isSyncing
-                  ? 'animate-spin text-indigo-500'
-                  : isLight
-                  ? 'text-slate-500'
-                  : 'text-[#8a919e]'
-              }
-            />
-            <span className="text-[11px]">{isSyncing ? 'Sync...' : 'Sync'}</span>
-          </button>
-
-          {/* Release Update Pill if available */}
-          {releaseInfo?.hasUpdate && (
-            <button
-              type="button"
-              onClick={() => setIsReleaseModalOpen(true)}
-              className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                isLight
-                  ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800 shadow-2xs'
-                  : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-400'
-              }`}
-              title={`New version ${releaseInfo.tagName} available`}
-            >
-              <Sparkle size={12} weight="fill" className="text-emerald-500 animate-pulse" />
-              <span className="text-[11px] font-mono">{releaseInfo.tagName}</span>
-            </button>
-          )}
-
-          {/* MCP Status & Settings */}
-          <button
-            type="button"
-            onClick={() => setIsMcpModalOpen(true)}
-            className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-              isLight
-                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 hover:border-slate-300 text-slate-700 shadow-2xs'
-                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-[#d8dae0]'
-            }`}
-            title="MCP Connection &amp; Agent Rules"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span
-              className={`text-[11px] font-mono ${
-                isLight ? 'text-slate-600' : 'text-[#8a919e]'
-              }`}
-            >
-              MCP
-            </span>
-          </button>
-        </div>
-      </header>
-
-      {releaseInfo?.hasUpdate && !isBannerDismissed && (
-        <UpdateBanner
-          release={releaseInfo}
-          theme={theme}
-          onDismiss={handleDismissBanner}
-          onOpenDetails={() => setIsReleaseModalOpen(true)}
-        />
-      )}
-
+    <div className="flex flex-col w-screen h-dvh overflow-hidden select-none transition-colors bg-canvas text-ink">
       {syncProgress && (
         <div
-          className={`shrink-0 border-b px-4 py-2 ${
-            isLight ? 'border-slate-200 bg-white' : 'border-[#1e222c] bg-[#0d0f14]'
-          }`}
+          className="shrink-0 border-b border-line bg-surface px-4 py-2"
           role="status"
           aria-live="polite"
         >
           <div className="flex items-center gap-3">
+            <span className="gf-eyebrow !text-accent-strong">Sync</span>
             <span
-              className={`text-[9px] font-semibold tracking-[0.18em] ${
-                isLight ? 'text-indigo-600' : 'text-indigo-400'
-              }`}
-            >
-              SYNC
-            </span>
-            <span
-              className={`min-w-0 flex-1 truncate text-[10px] font-mono ${
-                isLight ? 'text-slate-600' : 'text-[#8a919e]'
-              }`}
+              className="min-w-0 flex-1 truncate text-[11px] font-mono text-muted"
               title={syncProgress.current_file ?? undefined}
             >
               {syncProgress.current_file
@@ -896,16 +736,14 @@ export const App: React.FC = () => {
                 : getSyncStatus(syncProgress)}
             </span>
             {syncProgress.phase === 'indexing' && (
-              <span className="hidden shrink-0 text-[10px] font-mono text-slate-500 sm:inline">
+              <span className="hidden shrink-0 text-[11px] font-mono text-faint sm:inline tabular-nums">
                 {syncProgress.eta_seconds === null
                   ? 'Estimating time'
                   : `~${formatSyncEta(syncProgress.eta_seconds)} left`}
               </span>
             )}
             <div
-              className={`h-1 w-20 shrink-0 overflow-hidden rounded-full sm:w-28 ${
-                isLight ? 'bg-slate-200' : 'bg-[#2b303e]'
-              }`}
+              className="h-1 w-20 shrink-0 overflow-hidden rounded-full bg-line-strong sm:w-28"
               role="progressbar"
               aria-label="Vault synchronization progress"
               aria-valuemin={0}
@@ -914,7 +752,7 @@ export const App: React.FC = () => {
               aria-valuetext={getSyncStatus(syncProgress)}
             >
               <div
-                className={`h-full rounded-full bg-indigo-500 transition-[width] duration-300 ${
+                className={`h-full rounded-full bg-accent transition-[width] duration-300 ${
                   syncProgress.percent === null ? 'w-1/3 animate-pulse' : ''
                 }`}
                 style={
@@ -929,13 +767,26 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Studio Body */}
-      <div
-        className={`flex-1 flex overflow-hidden relative ${
-          isLight ? 'bg-slate-100' : 'bg-[#0d0f14]'
-        }`}
-      >
+      <div className="flex-1 flex overflow-hidden relative bg-surface">
+        <ActivityBar
+          sidebarOpen={isSidebarOpen}
+          isSyncing={isSyncing}
+          hasUpdate={releaseInfo?.hasUpdate}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          onSearch={() => setIsOmnisearchOpen(true)}
+          onNewNote={handleNewNote}
+          onSync={handleSync}
+          onOpenMcp={() => setIsMcpModalOpen(true)}
+          onOpenReleases={() => setIsReleaseModalOpen(true)}
+        />
         <Sidebar
           projectId={activeProject?.id || 'default'}
+          projects={projects}
+          activeProject={activeProject}
+          onSwitchProject={handleSwitchProject}
+          onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
           notes={notes}
           codeFiles={codeFiles}
           selectedNoteId={selectedNoteId}
@@ -947,8 +798,8 @@ export const App: React.FC = () => {
           onSearchSemantic={handleSearchSemantic}
           onSearchCode={handleSearchCode}
           onRevealInGraph={(id) => setGlowingNode({ id, timestamp: Date.now() })}
-          chunkResults={chunkResults}
-          codeChunkResults={codeChunkResults}
+          chunkResults={[]}
+          codeChunkResults={[]}
           isSearching={isSearching}
           isCollapsed={!isSidebarOpen}
           theme={theme}
@@ -957,11 +808,22 @@ export const App: React.FC = () => {
           onOpenReleases={() => setIsReleaseModalOpen(true)}
         />
 
-        <main
-          className={`flex-1 relative h-full overflow-hidden ${
-            isLight ? 'bg-[#f7f6f3]' : 'bg-[#0a0b0e]'
-          }`}
-        >
+        <div className="flex-1 flex flex-col min-w-0">
+          <DocTabs
+            tabs={openTabs}
+            activeKey={activeTabKey}
+            onSelect={handleSelectTab}
+            onClose={handleCloseTab}
+            onShowGraph={handleShowGraphTab}
+          />
+        <main className="flex-1 relative overflow-hidden bg-canvas">
+          <Suspense
+            fallback={
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="gf-eyebrow">Loading graph…</span>
+              </div>
+            }
+          >
           <GraphView
             projectId={activeProject?.id || 'default'}
             graphData={graphData}
@@ -973,6 +835,7 @@ export const App: React.FC = () => {
             glowingNode={glowingNode}
             theme={theme}
           />
+          </Suspense>
 
           {isEditorOpen && (
             <Suspense fallback={null}>
@@ -1003,7 +866,29 @@ export const App: React.FC = () => {
             </Suspense>
           )}
         </main>
+        <BottomPanel
+          open={panelOpen}
+          chunkResults={chunkResults}
+          codeChunkResults={codeChunkResults}
+          isSearching={isSearching}
+          onSelectNote={handleSelectNote}
+          onSelectCode={handleSelectCodeFile}
+          onClose={() => setPanelOpen(false)}
+        />
+        </div>
       </div>
+
+      <StatusBar
+        project={activeProject}
+        noteCount={notes.length}
+        fileCount={codeFiles.length}
+        linkCount={graphData.links.length}
+        engineReady={engineReady}
+        engineError={engineError}
+        engineStatusMessage={engineStatusMessage}
+        syncProgress={syncProgress}
+        onOpenMcp={() => setIsMcpModalOpen(true)}
+      />
 
       {/* Dynamic Modals */}
       <OmnisearchModal
@@ -1045,22 +930,26 @@ export const App: React.FC = () => {
         )}
       </Suspense>
 
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete note?"
+        description={`"${pendingDelete?.title ?? ''}" will be permanently removed. This cannot be undone.`}
+        onConfirm={confirmDeleteNote}
+        onCancel={() => setPendingDelete(null)}
+      />
+
       {/* Toast Notifications */}
       {toasts.length > 0 && (
         <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium shadow-2xl backdrop-blur-md pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-200 ${
-                isLight
-                  ? 'bg-white/95 border-slate-200 text-slate-800'
-                  : 'bg-[#101216] border-[#1e222c] text-[#edeef0]'
-              }`}
+              className="flex items-center gap-2 px-3 py-2 rounded-md border border-line bg-surface text-ink text-xs font-medium shadow-2xl pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-200"
             >
               {toast.type === 'error' ? (
-                <WarningCircle size={14} weight="fill" className="shrink-0 text-rose-500" />
+                <WarningCircle size={14} weight="fill" className="shrink-0 text-bad" />
               ) : (
-                <CheckCircle size={14} weight="fill" className="shrink-0 text-[#4fb08c]" />
+                <CheckCircle size={14} weight="fill" className="shrink-0 text-good" />
               )}
               <span>{toast.message}</span>
             </div>

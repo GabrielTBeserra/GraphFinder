@@ -1,7 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Folder, FolderPlus, CaretDown, Check, Database } from '@phosphor-icons/react';
+import {
+  Folder,
+  FolderPlus,
+  List,
+  Check,
+  Database,
+  DownloadSimple,
+  CircleNotch,
+  WarningCircle,
+} from '@phosphor-icons/react';
 import type { ProjectInfo } from '../types';
+import { installAgentKit } from '../services/api';
 
 interface ProjectSwitcherProps {
   projects: ProjectInfo[];
@@ -20,72 +30,100 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
 }) => {
   const isLight = theme === 'light';
   const displayName = activeProject ? activeProject.name : 'Default';
+  const [installingId, setInstallingId] = useState<string | null>(null);
+  const [installStatus, setInstallStatus] = useState<{
+    id: string;
+    kind: 'ok' | 'err';
+    message: string;
+  } | null>(null);
+
+  const handleInstallKit = async (e: React.MouseEvent, proj: ProjectInfo) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (installingId) return;
+    setInstallingId(proj.id);
+    setInstallStatus(null);
+    try {
+      const res = await installAgentKit(proj.id);
+      setInstallStatus({ id: proj.id, kind: 'ok', message: res.target });
+    } catch (err) {
+      console.error('Agent kit install failed:', err);
+      setInstallStatus({
+        id: proj.id,
+        kind: 'err',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setInstallingId(null);
+      setTimeout(() => {
+        setInstallStatus((s) => (s && s.id === proj.id ? null : s));
+      }, 5000);
+    }
+  };
 
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          className={`flex items-center gap-2 h-7 px-3 rounded-md border transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-indigo-500/40 ${
-            isLight
-              ? 'bg-slate-100/90 hover:bg-slate-200/80 border-slate-300 text-slate-800'
-              : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#333947] text-[#d8dae0]'
-          }`}
-          title="Switch active knowledge vault"
-        >
-          {/* Emerald Status Dot from banner.svg */}
-          <span className="w-2 h-2 rounded-full bg-[#4fb08c] shrink-0" />
+    <div className="flex items-center gap-1.5 min-w-0">
+      {/* Static vault label */}
+      <span
+        className="flex items-center gap-1.5 text-[11px] font-medium min-w-0"
+        title={activeProject?.path || displayName}
+      >
+        <span className="w-2 h-2 rounded-full bg-good shrink-0" />
+        <span className="text-muted shrink-0">vaults /</span>
+        <span className="font-semibold truncate max-w-[110px] text-ink">
+          {displayName}
+        </span>
+      </span>
 
-          {/* Path notation: vaults / name */}
-          <div className="flex items-center gap-1 text-[11px] font-medium">
-            <span className={isLight ? 'text-slate-400' : 'text-[#8a919e]'}>vaults /</span>
-            <span
-              className={`font-semibold truncate max-w-[150px] ${
-                isLight ? 'text-slate-900' : 'text-[#edeef0]'
-              }`}
-            >
-              {displayName}
-            </span>
-          </div>
-
-          <CaretDown
-            size={11}
-            weight="bold"
-            className={`ml-1 ${isLight ? 'text-slate-400' : 'text-[#8a919e]'}`}
-          />
-        </button>
-      </DropdownMenu.Trigger>
+      {/* Hamburger actions menu (VS Code-style) */}
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            className={`flex items-center justify-center w-6 h-6 rounded-md transition-all cursor-pointer shrink-0 focus:outline-none focus:ring-1 focus:ring-accent/40 ${
+              isLight
+                ? 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-800'
+                : 'text-muted hover:bg-raise hover:text-ink'
+            }`}
+            title="Vault actions — switch vault, install agent kit, new vault"
+            aria-label="Vault actions menu"
+          >
+            <List size={14} weight="bold" />
+          </button>
+        </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          align="center"
+          align="end"
           sideOffset={6}
           className={`z-50 w-80 rounded-lg p-1.5 shadow-2xl backdrop-blur-md animate-in fade-in-0 zoom-in-95 border ${
             isLight
               ? 'bg-white border-slate-200 shadow-xl'
-              : 'bg-[#12151c] border-[#1e222c]'
+              : 'bg-raise border-line'
           }`}
         >
           {/* Header */}
           <div
             className={`px-2.5 py-2 border-b mb-1 ${
-              isLight ? 'border-slate-100' : 'border-[#1e222c]'
+              'border-line'
             }`}
           >
             <div
               className={`flex items-center gap-1.5 ${
-                isLight ? 'text-slate-900' : 'text-[#edeef0]'
+                'text-ink'
               }`}
             >
               <Database
                 size={13}
                 weight="bold"
-                className={isLight ? 'text-slate-400' : 'text-[#8a919e]'}
+                className={'text-muted'}
               />
               <span className="text-xs font-semibold">Knowledge Vaults</span>
             </div>
-            <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-500' : 'text-[#8a919e]'}`}>
-              Local Markdown vaults with independent FastEmbed vector indices
+            <p className={`text-[11px] mt-0.5 ${'text-muted'}`}>
+              Local Markdown vaults with independent FastEmbed vector indices.
+              Use <DownloadSimple size={10} className="inline -mt-0.5" /> to
+              install agent skills + rules into a folder.
             </p>
           </div>
 
@@ -104,11 +142,11 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                   className={`flex items-center justify-between w-full px-2.5 py-2 rounded-md text-left transition-colors cursor-pointer select-none outline-none ${
                     isActive
                       ? isLight
-                        ? 'bg-indigo-50 text-indigo-950 border border-indigo-200'
-                        : 'bg-[#1a1f2c] text-[#edeef0] border border-[#2b303e]'
+                        ? 'bg-accent-soft text-accent-strong border border-accent-line'
+                        : 'bg-raise text-ink border border-line-strong'
                       : isLight
                       ? 'hover:bg-slate-50 text-slate-700'
-                      : 'hover:bg-[#161922] text-[#8a919e]'
+                      : 'hover:bg-raise text-muted'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0 pr-2">
@@ -116,11 +154,11 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                       className={`flex items-center justify-center w-6 h-6 rounded shrink-0 ${
                         isActive
                           ? isLight
-                            ? 'bg-indigo-100 text-indigo-600 border border-indigo-200'
-                            : 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
+                            ? 'bg-accent-soft text-accent-strong border border-accent-line'
+                            : 'bg-accent/20 text-accent border border-accent-line'
                           : isLight
                           ? 'bg-slate-100 text-slate-500 border border-slate-200'
-                          : 'bg-[#161922] text-[#8a919e] border border-[#1e222c]'
+                          : 'bg-raise text-muted border border-line'
                       }`}
                     >
                       <Folder size={13} weight={isActive ? 'fill' : 'regular'} />
@@ -132,19 +170,19 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                           className={`text-xs font-medium truncate ${
                             isLight
                               ? isActive
-                                ? 'text-indigo-950 font-semibold'
+                                ? 'text-accent-strong font-semibold'
                                 : 'text-slate-800'
-                              : 'text-[#edeef0]'
+                              : 'text-ink'
                           }`}
                         >
                           {proj.name}
                         </span>
                         {proj.id === 'default' && (
                           <span
-                            className={`text-[9px] font-mono px-1 py-0.2 rounded border ${
+                            className={`text-[10px] font-mono px-1 py-0.2 rounded border ${
                               isLight
                                 ? 'bg-slate-100 text-slate-600 border-slate-200'
-                                : 'bg-[#1e222c] text-[#8a919e] border-[#2d3342]'
+                                : 'bg-line text-muted border-line-strong'
                             }`}
                           >
                             Default
@@ -153,7 +191,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                       </div>
                       <span
                         className={`block text-[10px] font-mono truncate max-w-[180px] ${
-                          isLight ? 'text-slate-400' : 'text-[#8a919e]'
+                          'text-muted'
                         }`}
                       >
                         {proj.path}
@@ -162,9 +200,33 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => handleInstallKit(e, proj)}
+                      disabled={installingId === proj.id}
+                      className={`flex items-center justify-center w-6 h-6 rounded border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait ${
+                        isLight
+                          ? 'border-slate-200 text-slate-500 hover:text-accent-strong hover:border-accent-line hover:bg-accent-soft'
+                          : 'border-line text-muted hover:text-accent hover:border-accent-line hover:bg-accent/10'
+                      }`}
+                      title={`Install agent skills + AGENTS.md rules into ${proj.path}`}
+                      aria-label={`Install agent kit into ${proj.name}`}
+                    >
+                      {installingId === proj.id ? (
+                        <CircleNotch size={12} className="animate-spin" />
+                      ) : installStatus?.id === proj.id ? (
+                        installStatus.kind === 'ok' ? (
+                          <Check size={12} weight="bold" className="text-good" />
+                        ) : (
+                          <WarningCircle size={12} weight="bold" className="text-bad" />
+                        )
+                      ) : (
+                        <DownloadSimple size={12} />
+                      )}
+                    </button>
                     <span
                       className={`text-[10px] font-mono ${
-                        isLight ? 'text-slate-400' : 'text-[#8a919e]'
+                        'text-muted'
                       }`}
                     >
                       {proj.note_count}
@@ -174,7 +236,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                       <Check
                         size={13}
                         weight="bold"
-                        className={isLight ? 'text-indigo-600' : 'text-indigo-400'}
+                        className={'text-accent-strong'}
                       />
                     )}
                   </div>
@@ -183,18 +245,37 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
             })}
           </div>
 
+          {/* Install feedback */}
+          {installStatus && (
+            <div
+              className={`mx-1 mt-1 px-2 py-1.5 rounded-md text-[10px] font-mono truncate border ${
+                installStatus.kind === 'ok'
+                  ? isLight
+                    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                    : 'text-good bg-good/10 border-good/30'
+                  : isLight
+                  ? 'text-rose-700 bg-rose-50 border-rose-200'
+                  : 'text-bad bg-bad/10 border-bad/30'
+              }`}
+            >
+              {installStatus.kind === 'ok'
+                ? `Agent kit installed → ${installStatus.message}`
+                : `Install failed: ${installStatus.message}`}
+            </div>
+          )}
+
           {/* Footer Create Action */}
           <div
             className={`border-t pt-1 mt-1 ${
-              isLight ? 'border-slate-100' : 'border-[#1e222c]'
+              'border-line'
             }`}
           >
             <DropdownMenu.Item
-              onSelect={onOpenNewProjectModal}
+              onSelect={() => setTimeout(onOpenNewProjectModal, 0)}
               className={`flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer select-none outline-none ${
                 isLight
-                  ? 'text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50'
-                  : 'text-[#4fb08c] hover:text-emerald-300 hover:bg-emerald-950/20'
+                  ? 'text-emerald-700 hover:text-good hover:bg-good/10'
+                  : 'text-good hover:text-good hover:bg-good/15/20'
               }`}
             >
               <FolderPlus size={14} weight="bold" />
@@ -203,6 +284,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
           </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+      </DropdownMenu.Root>
+    </div>
   );
 };
