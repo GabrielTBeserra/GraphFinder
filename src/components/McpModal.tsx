@@ -166,7 +166,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
               <div>
                 <Dialog.Title className="text-sm font-semibold text-ink flex items-center gap-2">
                   <span>AI Agent Hub</span>
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-mono bg-good/10 border border-good/25 text-good">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-good/10 border border-good/25 text-good">
                     <span className="w-1.5 h-1.5 rounded-full bg-good" />
                     Streamable HTTP
                   </span>
@@ -180,7 +180,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
               <button
                 type="button"
                 className="rounded-md p-1.5 text-faint hover:text-ink hover:bg-raise transition-colors cursor-pointer"
-                title="Close"
+                title="Close" aria-label="Close"
               >
                 <X size={15} />
               </button>
@@ -229,7 +229,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
                       <span className="font-mono text-[10px] text-good">:45123</span>
                       {isServerHealthy !== null && (
                         <span
-                          className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold ${
+                          className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-semibold ${
                             isServerHealthy
                               ? 'text-good bg-good/10 border border-good/25'
                               : 'text-warn bg-warn/10 border border-warn/25'
@@ -239,7 +239,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
                         </span>
                       )}
                     </div>
-                    <div className="text-[10.5px] text-muted font-mono mt-0.5">{mcpUrl}</div>
+                    <div className="text-[11px] text-muted font-mono mt-0.5">{mcpUrl}</div>
                   </div>
                 </div>
                 {copyBtn(mcpUrl, 'url-copy', 'Copy URL')}
@@ -279,7 +279,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
                     </button>
                   ))}
                 </div>
-                <pre className="font-mono text-[10.5px] leading-relaxed p-3 rounded-lg bg-canvas border border-line text-accent overflow-x-auto max-h-40">
+                <pre className="font-mono text-[11px] leading-relaxed p-3 rounded-lg bg-canvas border border-line text-accent overflow-x-auto max-h-40">
                   {getClientSnippet(activeClient)}
                 </pre>
               </div>
@@ -297,7 +297,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
                   className="w-full pl-8 pr-3 py-1.5 text-[11px] rounded-md bg-canvas border border-line text-ink placeholder-faint focus:outline-none focus:border-accent/50"
                 />
               </div>
-              <div className="flex items-center gap-3 text-[9.5px] font-mono text-faint px-1">
+              <div className="flex items-center gap-3 text-[10px] font-mono text-faint px-1">
                 <span className="flex items-center gap-1">
                   <LockKey size={10} className="text-good" /> RO = read-only
                 </span>
@@ -312,7 +312,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
               )}
               {Array.from(filteredTools.entries()).map(([group, items]) => (
                 <div key={group}>
-                  <div className="px-1 pt-1 pb-1.5 text-[9.5px] font-mono uppercase tracking-[0.12em] text-faint">
+                  <div className="px-1 pt-1 pb-1.5 text-[10px] font-mono uppercase tracking-[0.12em] text-faint">
                     {group} · {items.length}
                   </div>
                   <div className="space-y-1">
@@ -326,20 +326,20 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
                         </code>
                         <div className="flex-1 min-w-0">
                           {t.description && (
-                            <p className="text-[10.5px] text-muted leading-snug truncate" title={t.description}>
+                            <p className="text-[11px] text-muted leading-snug truncate" title={t.description}>
                               {t.description}
                             </p>
                           )}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           {t.annotations.readOnly && (
-                            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8.5px] font-mono bg-good/10 border border-good/25 text-good">
+                            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-mono bg-good/10 border border-good/25 text-good">
                               <LockKey size={8} />
                               RO
                             </span>
                           )}
                           {t.annotations.destructive && (
-                            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8.5px] font-mono bg-bad/10 border border-bad/25 text-bad">
+                            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-mono bg-bad/10 border border-bad/25 text-bad">
                               <Trash size={8} />
                               DEL
                             </span>
@@ -359,7 +359,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
                   <Pulse size={12} className="text-good" />
                   Live tool calls (last 60)
                 </span>
-                <span className="text-[9.5px] font-mono text-faint">polls every 2.5s</span>
+                <span className="text-[10px] font-mono text-faint">polls every 2.5s</span>
               </div>
               {activity.length === 0 ? (
                 <div className="py-10 text-center text-[11px] text-faint">
@@ -370,11 +370,11 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
                   {activity.map((c, i) => (
                     <div
                       key={`${c.ts_ms}-${i}`}
-                      className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[10.5px] font-mono hover:bg-raise transition-colors"
+                      className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[11px] font-mono hover:bg-raise transition-colors"
                     >
                       <span className="text-faint shrink-0">{formatTime(c.ts_ms)}</span>
                       <span
-                        className={`px-1 py-0.5 rounded text-[8.5px] font-semibold shrink-0 ${
+                        className={`px-1 py-0.5 rounded text-[10px] font-semibold shrink-0 ${
                           c.status < 400
                             ? 'bg-good/10 text-good'
                             : 'bg-bad/10 text-bad'
@@ -405,7 +405,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
                 <span className="font-medium text-ink">AGENTS.md</span>
                 {copyBtn(AGENT_RULE_CONTENT, 'rule-tab', 'Copy Text')}
               </div>
-              <pre className="font-mono text-[10.5px] leading-relaxed p-3 rounded-lg bg-canvas border border-line text-muted overflow-x-auto max-h-56">
+              <pre className="font-mono text-[11px] leading-relaxed p-3 rounded-lg bg-canvas border border-line text-muted overflow-x-auto max-h-56">
                 {AGENT_RULE_CONTENT}
               </pre>
             </Tabs.Content>
@@ -425,13 +425,13 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
                 <span className="font-medium text-ink">SKILL.md</span>
                 {copyBtn(SKILL_CONTENT, 'skill-tab', 'Copy Text')}
               </div>
-              <pre className="font-mono text-[10.5px] leading-relaxed p-3 rounded-lg bg-canvas border border-line text-muted overflow-x-auto max-h-56">
+              <pre className="font-mono text-[11px] leading-relaxed p-3 rounded-lg bg-canvas border border-line text-muted overflow-x-auto max-h-56">
                 {SKILL_CONTENT}
               </pre>
             </Tabs.Content>
           </Tabs.Root>
 
-          <div className="flex items-center justify-between pt-3 border-t border-line text-[9.5px] font-mono text-faint">
+          <div className="flex items-center justify-between pt-3 border-t border-line text-[10px] font-mono text-faint">
             <span>GraphFinder MCP · rmcp SDK</span>
             <span>{isLight ? 'light' : 'dark'} theme</span>
           </div>

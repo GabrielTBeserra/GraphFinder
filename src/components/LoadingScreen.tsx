@@ -91,7 +91,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
           </div>
         </div>
 
-        <div className="mt-5 text-[10.5px] text-faint">
+        <div className="mt-5 text-[11px] text-faint">
           Model download only on first launch.
         </div>
       </div>

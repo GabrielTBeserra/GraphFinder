@@ -25,11 +25,14 @@ import type {
   ProjectInfo,
   SyncProgress,
 } from './types';
-import { GraphView } from './components/GraphView';
+const GraphView = React.lazy(() =>
+  import('./components/GraphView').then((m) => ({ default: m.GraphView }))
+);
 import { Sidebar } from './components/Sidebar';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { OmnisearchModal } from './components/OmnisearchModal';
 import { UpdateBanner } from './components/UpdateBanner';
+import { ConfirmDialog } from './components/ConfirmDialog';
 
 const NoteEditorLazy = React.lazy(() =>
   import('./components/NoteEditor').then((m) => ({ default: m.NoteEditor }))
@@ -101,6 +104,7 @@ export const App: React.FC = () => {
   const [isOmnisearchOpen, setIsOmnisearchOpen] = useState(false);
   const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     try {
       return localStorage.getItem('gf_sidebar') !== '0';
@@ -542,7 +546,14 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleDeleteNote = async (idOrTitle: string, title?: string) => {
+  const handleDeleteNote = (idOrTitle: string, title?: string) => {
+    setPendingDelete({ id: idOrTitle, title: title || idOrTitle });
+  };
+
+  const confirmDeleteNote = async () => {
+    if (!pendingDelete) return;
+    const { id: idOrTitle, title } = pendingDelete;
+    setPendingDelete(null);
     try {
       await deleteNote(idOrTitle);
       showToast(`Note "${title || idOrTitle}" deleted successfully`);
@@ -665,43 +676,28 @@ export const App: React.FC = () => {
   const isLight = theme === 'light';
 
   return (
-    <div
-      className={`flex flex-col w-screen h-screen overflow-hidden select-none transition-colors ${
-        isLight ? 'bg-slate-50 text-slate-800' : 'bg-[#0a0b0e] text-[#edeef0]'
-      }`}
-    >
+    <div className="flex flex-col w-screen h-dvh overflow-hidden select-none transition-colors bg-canvas text-ink">
       {/* Titlebar / Minimalist Header */}
-      <header
-        className={`h-12 px-3.5 flex items-center justify-between border-b shrink-0 z-40 transition-colors ${
-          isLight ? 'border-slate-200 bg-white shadow-2xs' : 'border-[#1e222c] bg-[#0d0f14]'
-        }`}
-      >
+      <header className="h-12 px-3.5 flex items-center justify-between border-b border-line bg-surface shrink-0 z-40 transition-colors">
         {/* Left Section: Brand & Integrated Project Switcher */}
         <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-              isLight
-                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#8a919e] hover:text-[#edeef0] hover:bg-[#161922]'
-            }`}
+            className="gf-icon-btn"
+            aria-label={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
             title={isSidebarOpen ? 'Collapse Sidebar (Ctrl+B)' : 'Expand Sidebar (Ctrl+B)'}
           >
             <SidebarSimple size={16} weight="regular" />
           </button>
 
           <div className="flex items-center gap-2 mr-1">
-            <span
-              className={`text-[13px] font-bold tracking-[0.2px] ${
-                isLight ? 'text-slate-900' : 'text-[#edeef0]'
-              }`}
-            >
+            <span className="font-serif text-[18px] leading-none tracking-[0.01em] text-ink">
               GraphFinder
             </span>
           </div>
 
-          <div className={`w-[1px] h-4 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-[#1e222c]'}`} />
+          <div className="w-px h-4 mx-0.5 bg-line" />
 
           {/* Project Switcher */}
           <ProjectSwitcher
@@ -718,29 +714,14 @@ export const App: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsOmnisearchOpen(true)}
-            className={`flex items-center justify-between w-64 md:w-80 h-7 px-2.5 rounded-lg border text-xs transition-all cursor-pointer shadow-xs ${
-              isLight
-                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 hover:border-slate-300 text-slate-500'
-                : 'bg-[#161922] hover:bg-[#161922] border-[#1e222c] hover:border-[#2b303e] text-[#8a919e] hover:text-[#8a919e]'
-            }`}
+            className="gf-btn w-64 md:w-80 justify-between !text-muted"
             title="Search entire project (Ctrl+K)"
           >
-            <div className="flex items-center gap-2 truncate">
-              <MagnifyingGlass
-                size={13}
-                className={`${isLight ? 'text-slate-400' : 'text-[#8a919e]'} shrink-0`}
-              />
-              <span className="truncate">Search notes or code...</span>
-            </div>
-            <kbd
-              className={`hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded border text-[9px] font-mono shrink-0 ${
-                isLight
-                  ? 'bg-white border-slate-200 text-slate-500 shadow-2xs'
-                  : 'bg-[#1a1f2c] border-[#2b303e] text-[#8a919e]'
-              }`}
-            >
-              Ctrl K
-            </kbd>
+            <span className="flex items-center gap-2 truncate">
+              <MagnifyingGlass size={13} className="shrink-0" />
+              <span className="truncate">Search notes or code…</span>
+            </span>
+            <kbd className="hidden sm:inline-flex shrink-0">Ctrl K</kbd>
           </button>
         </div>
 
@@ -749,113 +730,84 @@ export const App: React.FC = () => {
           {/* Non-blocking Neural Engine Status Indicator */}
           {!engineReady && (
             <div
-              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10.5px] font-medium transition-all ${
+              className={`gf-chip hidden sm:inline-flex ${
                 engineError
-                  ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-                  : isLight
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-600 animate-pulse'
-                  : 'bg-indigo-950/40 border-indigo-800/40 text-indigo-400 animate-pulse'
+                  ? '!border-bad/40 !text-bad'
+                  : '!border-accent-line !text-accent-strong'
               }`}
               title={engineStatusMessage}
             >
-              <div
-                className={`w-1.5 h-1.5 rounded-full ${
-                  engineError ? 'bg-rose-500' : 'bg-indigo-500'
+              <span
+                className={`size-1.5 rounded-full ${
+                  engineError ? 'bg-bad' : 'bg-accent animate-pulse'
                 }`}
               />
-              <span className="truncate max-w-[130px]">
-                {engineError ? 'Engine Error' : 'Neural Warming Up...'}
+              <span className="truncate max-w-32">
+                {engineError ? 'Engine error' : 'Engine warming up'}
               </span>
             </div>
           )}
-
-          {/* Theme Toggle Button */}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className={`inline-flex items-center justify-center w-7 h-7 rounded-lg border transition-all cursor-pointer ${
-              isLight
-                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-amber-500 hover:text-amber-600 shadow-2xs'
-                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-amber-300 hover:text-amber-200'
-            }`}
-            title={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
-          >
-            {isLight ? <Moon size={13} weight="fill" /> : <Sun size={13} weight="fill" />}
-          </button>
-
-          {/* New Note Button */}
-          <button
-            type="button"
-            onClick={handleNewNote}
-            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs transition-all cursor-pointer"
-            title="Create new Markdown note"
-          >
-            <Plus size={12} weight="bold" />
-            <span className="text-[11.5px]">New Note</span>
-          </button>
-
-          {/* Sync Button */}
-          <button
-            type="button"
-            onClick={handleSync}
-            disabled={isSyncing}
-            className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer disabled:opacity-50 ${
-              isLight
-                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 hover:border-slate-300 text-slate-700 shadow-2xs'
-                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-[#d8dae0]'
-            }`}
-            title="Synchronize notes and code vault"
-          >
-            <ArrowClockwise
-              size={12}
-              weight="bold"
-              className={
-                isSyncing
-                  ? 'animate-spin text-indigo-500'
-                  : isLight
-                  ? 'text-slate-500'
-                  : 'text-[#8a919e]'
-              }
-            />
-            <span className="text-[11px]">{isSyncing ? 'Sync...' : 'Sync'}</span>
-          </button>
 
           {/* Release Update Pill if available */}
           {releaseInfo?.hasUpdate && (
             <button
               type="button"
               onClick={() => setIsReleaseModalOpen(true)}
-              className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                isLight
-                  ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800 shadow-2xs'
-                  : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-400'
-              }`}
+              className="gf-btn !border-good/40 !text-good"
               title={`New version ${releaseInfo.tagName} available`}
             >
-              <Sparkle size={12} weight="fill" className="text-emerald-500 animate-pulse" />
-              <span className="text-[11px] font-mono">{releaseInfo.tagName}</span>
+              <Sparkle size={12} weight="fill" className="!text-good" />
+              <span className="font-mono text-[11px]">{releaseInfo.tagName}</span>
             </button>
           )}
 
-          {/* MCP Status & Settings */}
+          {/* Utility cluster: Sync, MCP, theme */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleSync}
+              disabled={isSyncing}
+              className="gf-btn"
+              title="Synchronize notes and code vault" aria-label="Synchronize notes and code vault"
+            >
+              <ArrowClockwise
+                size={12}
+                weight="bold"
+                className={isSyncing ? 'animate-spin !text-accent' : undefined}
+              />
+              <span>{isSyncing ? 'Syncing…' : 'Sync'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsMcpModalOpen(true)}
+              className="gf-btn"
+              title="MCP Connection & Agent Rules"
+            >
+              <span className="size-1.5 rounded-full bg-good" />
+              <span className="font-mono text-[11px]">MCP</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="gf-icon-btn"
+              aria-label={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
+              title={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
+            >
+              {isLight ? <Moon size={13} weight="fill" /> : <Sun size={13} weight="fill" />}
+            </button>
+          </div>
+
+          {/* New Note — sole primary action */}
           <button
             type="button"
-            onClick={() => setIsMcpModalOpen(true)}
-            className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-              isLight
-                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 hover:border-slate-300 text-slate-700 shadow-2xs'
-                : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#2b303e] text-[#d8dae0]'
-            }`}
-            title="MCP Connection &amp; Agent Rules"
+            onClick={handleNewNote}
+            className="gf-btn-primary"
+            title="Create new Markdown note" aria-label="Create new Markdown note"
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span
-              className={`text-[11px] font-mono ${
-                isLight ? 'text-slate-600' : 'text-[#8a919e]'
-              }`}
-            >
-              MCP
-            </span>
+            <Plus size={12} weight="bold" />
+            <span>New Note</span>
           </button>
         </div>
       </header>
@@ -863,7 +815,6 @@ export const App: React.FC = () => {
       {releaseInfo?.hasUpdate && !isBannerDismissed && (
         <UpdateBanner
           release={releaseInfo}
-          theme={theme}
           onDismiss={handleDismissBanner}
           onOpenDetails={() => setIsReleaseModalOpen(true)}
         />
@@ -871,24 +822,14 @@ export const App: React.FC = () => {
 
       {syncProgress && (
         <div
-          className={`shrink-0 border-b px-4 py-2 ${
-            isLight ? 'border-slate-200 bg-white' : 'border-[#1e222c] bg-[#0d0f14]'
-          }`}
+          className="shrink-0 border-b border-line bg-surface px-4 py-2"
           role="status"
           aria-live="polite"
         >
           <div className="flex items-center gap-3">
+            <span className="gf-eyebrow !text-accent-strong">Sync</span>
             <span
-              className={`text-[9px] font-semibold tracking-[0.18em] ${
-                isLight ? 'text-indigo-600' : 'text-indigo-400'
-              }`}
-            >
-              SYNC
-            </span>
-            <span
-              className={`min-w-0 flex-1 truncate text-[10px] font-mono ${
-                isLight ? 'text-slate-600' : 'text-[#8a919e]'
-              }`}
+              className="min-w-0 flex-1 truncate text-[11px] font-mono text-muted"
               title={syncProgress.current_file ?? undefined}
             >
               {syncProgress.current_file
@@ -896,16 +837,14 @@ export const App: React.FC = () => {
                 : getSyncStatus(syncProgress)}
             </span>
             {syncProgress.phase === 'indexing' && (
-              <span className="hidden shrink-0 text-[10px] font-mono text-slate-500 sm:inline">
+              <span className="hidden shrink-0 text-[11px] font-mono text-faint sm:inline tabular-nums">
                 {syncProgress.eta_seconds === null
                   ? 'Estimating time'
                   : `~${formatSyncEta(syncProgress.eta_seconds)} left`}
               </span>
             )}
             <div
-              className={`h-1 w-20 shrink-0 overflow-hidden rounded-full sm:w-28 ${
-                isLight ? 'bg-slate-200' : 'bg-[#2b303e]'
-              }`}
+              className="h-1 w-20 shrink-0 overflow-hidden rounded-full bg-line-strong sm:w-28"
               role="progressbar"
               aria-label="Vault synchronization progress"
               aria-valuemin={0}
@@ -914,7 +853,7 @@ export const App: React.FC = () => {
               aria-valuetext={getSyncStatus(syncProgress)}
             >
               <div
-                className={`h-full rounded-full bg-indigo-500 transition-[width] duration-300 ${
+                className={`h-full rounded-full bg-accent transition-[width] duration-300 ${
                   syncProgress.percent === null ? 'w-1/3 animate-pulse' : ''
                 }`}
                 style={
@@ -929,11 +868,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Studio Body */}
-      <div
-        className={`flex-1 flex overflow-hidden relative ${
-          isLight ? 'bg-slate-100' : 'bg-[#0d0f14]'
-        }`}
-      >
+      <div className="flex-1 flex overflow-hidden relative bg-surface">
         <Sidebar
           projectId={activeProject?.id || 'default'}
           notes={notes}
@@ -957,11 +892,14 @@ export const App: React.FC = () => {
           onOpenReleases={() => setIsReleaseModalOpen(true)}
         />
 
-        <main
-          className={`flex-1 relative h-full overflow-hidden ${
-            isLight ? 'bg-[#f7f6f3]' : 'bg-[#0a0b0e]'
-          }`}
-        >
+        <main className="flex-1 relative h-full overflow-hidden bg-canvas">
+          <Suspense
+            fallback={
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="gf-eyebrow">Loading graph…</span>
+              </div>
+            }
+          >
           <GraphView
             projectId={activeProject?.id || 'default'}
             graphData={graphData}
@@ -973,6 +911,7 @@ export const App: React.FC = () => {
             glowingNode={glowingNode}
             theme={theme}
           />
+          </Suspense>
 
           {isEditorOpen && (
             <Suspense fallback={null}>
@@ -1045,22 +984,26 @@ export const App: React.FC = () => {
         )}
       </Suspense>
 
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete note?"
+        description={`"${pendingDelete?.title ?? ''}" will be permanently removed. This cannot be undone.`}
+        onConfirm={confirmDeleteNote}
+        onCancel={() => setPendingDelete(null)}
+      />
+
       {/* Toast Notifications */}
       {toasts.length > 0 && (
         <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium shadow-2xl backdrop-blur-md pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-200 ${
-                isLight
-                  ? 'bg-white/95 border-slate-200 text-slate-800'
-                  : 'bg-[#101216] border-[#1e222c] text-[#edeef0]'
-              }`}
+              className="flex items-center gap-2 px-3 py-2 rounded-md border border-line bg-surface text-ink text-xs font-medium shadow-2xl pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-200"
             >
               {toast.type === 'error' ? (
-                <WarningCircle size={14} weight="fill" className="shrink-0 text-rose-500" />
+                <WarningCircle size={14} weight="fill" className="shrink-0 text-bad" />
               ) : (
-                <CheckCircle size={14} weight="fill" className="shrink-0 text-[#4fb08c]" />
+                <CheckCircle size={14} weight="fill" className="shrink-0 text-good" />
               )}
               <span>{toast.message}</span>
             </div>

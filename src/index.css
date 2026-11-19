@@ -20,10 +20,13 @@
   --color-faint: var(--gf-faint);
   --color-accent: var(--gf-accent);
   --color-accent-strong: var(--gf-accent-strong);
+  --color-accent-soft: var(--gf-accent-soft);
+  --color-accent-line: var(--gf-accent-line);
   --color-on-accent: var(--gf-on-accent);
   --color-good: var(--gf-good);
   --color-warn: var(--gf-warn);
   --color-bad: var(--gf-bad);
+  --color-overlay: var(--gf-overlay);
 
   /* Muted accent ramps — remap Tailwind palette utilities to design tokens */
   --color-indigo-300: #a4acef;
@@ -95,10 +98,13 @@ html.dark,
   --gf-faint: #565e6b;
   --gf-accent: #6d7ae0;
   --gf-accent-strong: #8891ea;
+  --gf-accent-soft: color-mix(in srgb, var(--gf-accent) 12%, transparent);
+  --gf-accent-line: color-mix(in srgb, var(--gf-accent) 32%, transparent);
   --gf-on-accent: #f2f3fa;
   --gf-good: #4fb08c;
   --gf-warn: #d9a05f;
   --gf-bad: #e07c7c;
+  --gf-overlay: rgba(4, 5, 8, 0.7);
 }
 
 html.light,
@@ -113,10 +119,13 @@ html.light,
   --gf-faint: #a8a49c;
   --gf-accent: #4f5bc0;
   --gf-accent-strong: #3d48a8;
+  --gf-accent-soft: color-mix(in srgb, var(--gf-accent) 9%, transparent);
+  --gf-accent-line: color-mix(in srgb, var(--gf-accent) 28%, transparent);
   --gf-on-accent: #ffffff;
   --gf-good: #346538;
   --gf-warn: #956400;
   --gf-bad: #9f2f2d;
+  --gf-overlay: rgba(47, 52, 55, 0.32);
 }
 
 @layer base {
@@ -289,4 +298,141 @@ html.light,
   background-color: color-mix(in srgb, var(--gf-accent) 16%, transparent);
   border-color: color-mix(in srgb, var(--gf-accent) 45%, transparent);
   color: var(--gf-accent-strong);
+}
+
+/* ------------------------------------------------------------------
+   Component primitives — engine-room chrome.
+   Squared edges, hairline rules, token-driven. No per-theme ternaries:
+   every color resolves through --gf-* which flips via html.light.
+------------------------------------------------------------------- */
+@layer components {
+  /* Secondary toolbar control: uniform 28px height */
+  .gf-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.75rem;
+    padding: 0 0.625rem;
+    border-radius: 6px;
+    border: 1px solid var(--gf-line);
+    background: var(--gf-raise);
+    color: var(--gf-ink);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 160ms var(--ease-out-expo),
+      background-color 160ms var(--ease-out-expo), color 160ms var(--ease-out-expo);
+  }
+  .gf-btn:hover:not(:disabled) {
+    border-color: var(--gf-line-strong);
+    background: var(--gf-line);
+  }
+  .gf-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .gf-btn svg {
+    color: var(--gf-muted);
+  }
+  .gf-btn:hover:not(:disabled) svg {
+    color: var(--gf-ink);
+  }
+
+  /* Single accent action per view */
+  .gf-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.75rem;
+    padding: 0 0.75rem;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: var(--gf-accent);
+    color: var(--gf-on-accent);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 160ms var(--ease-out-expo);
+  }
+  .gf-btn-primary:hover:not(:disabled) {
+    background: var(--gf-accent-strong);
+  }
+  .gf-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  /* Square icon-only control — pair with aria-label */
+  .gf-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--gf-muted);
+    cursor: pointer;
+    transition: border-color 160ms var(--ease-out-expo),
+      background-color 160ms var(--ease-out-expo), color 160ms var(--ease-out-expo);
+  }
+  .gf-icon-btn:hover:not(:disabled) {
+    background: var(--gf-raise);
+    border-color: var(--gf-line);
+    color: var(--gf-ink);
+  }
+  .gf-icon-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .gf-icon-btn[data-active='true'] {
+    background: var(--gf-accent-soft);
+    border-color: var(--gf-accent-line);
+    color: var(--gf-accent-strong);
+  }
+
+  /* Framed surface — the machined-tray panel */
+  .gf-panel {
+    background: var(--gf-surface);
+    border: 1px solid var(--gf-line);
+    border-radius: 8px;
+  }
+
+  /* Eyebrow / section label — mono caps, one tracking value everywhere */
+  .gf-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--gf-faint);
+  }
+
+  /* Small status chip */
+  .gf-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.375rem;
+    padding: 0 0.5rem;
+    border-radius: 5px;
+    border: 1px solid var(--gf-line);
+    background: var(--gf-raise);
+    color: var(--gf-muted);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  /* Modal surface */
+  .gf-dialog {
+    background: var(--gf-surface);
+    border: 1px solid var(--gf-line);
+    border-radius: 10px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+  }
+  .gf-overlay {
+    background: var(--gf-overlay);
+  }
 }

@@ -80,13 +80,13 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
         className={`relative w-full max-w-4xl max-h-[88vh] flex flex-col rounded-xl shadow-2xl border transition-all overflow-hidden ${
           isLight
             ? 'bg-white border-slate-200 text-slate-800'
-            : 'bg-[#0c0f17] border-[#1e222c] text-slate-200'
+            : 'bg-canvas border-line text-slate-200'
         }`}
       >
         {/* Header */}
         <div
           className={`flex items-center justify-between px-6 py-4 border-b ${
-            isLight ? 'border-slate-200 bg-slate-50' : 'border-[#1e222c] bg-[#0f1422]'
+            'border-line bg-canvas'
           }`}
         >
           <div className="flex items-center gap-3">
@@ -97,7 +97,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
               <h2 className="text-base font-bold tracking-tight">
                 Architectural Topology & Community Audit
               </h2>
-              <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className={`text-xs ${'text-muted'}`}>
                 Topological modularity (Louvain/LPA), God Nodes, and cross-subsystem dependencies
               </p>
             </div>
@@ -112,7 +112,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                   ? 'opacity-60 cursor-not-allowed'
                   : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm'
               }`}
-              title="Generate graph.json, GRAPH_REPORT.md, and standalone graph.html"
+              title="Generate graph.json, GRAPH_REPORT.md, and standalone graph.html" aria-label="Generate graph.json, GRAPH_REPORT.md, and standalone graph.html"
             >
               {exporting ? (
                 <SpinnerGap size={14} className="animate-spin" />
@@ -125,7 +125,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
             <button
               onClick={onClose}
               className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                isLight ? 'hover:bg-slate-200 text-slate-600' : 'hover:bg-[#1e222c] text-slate-400'
+                'hover:bg-raise text-muted'
               }`}
             >
               <X size={18} />
@@ -175,7 +175,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div
                   className={`p-3.5 rounded-xl border ${
-                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161922] border-[#1e222c]'
+                    'bg-raise border-line'
                   }`}
                 >
                   <div className="text-[11px] text-slate-400">Nodes / Entities</div>
@@ -185,7 +185,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
 
                 <div
                   className={`p-3.5 rounded-xl border ${
-                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161922] border-[#1e222c]'
+                    'bg-raise border-line'
                   }`}
                 >
                   <div className="text-[11px] text-slate-400">Modular Communities</div>
@@ -197,7 +197,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
 
                 <div
                   className={`p-3.5 rounded-xl border ${
-                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161922] border-[#1e222c]'
+                    'bg-raise border-line'
                   }`}
                 >
                   <div className="text-[11px] text-slate-400">God Nodes (Hubs)</div>
@@ -209,7 +209,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
 
                 <div
                   className={`p-3.5 rounded-xl border ${
-                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161922] border-[#1e222c]'
+                    'bg-raise border-line'
                   }`}
                 >
                   <div className="text-[11px] text-slate-400">Cross Surprises</div>
@@ -275,7 +275,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                           className={`p-4 rounded-xl border transition-all ${
                             isLight
                               ? 'bg-slate-50/60 border-slate-200'
-                              : 'bg-[#101422] border-[#1c2236]'
+                              : 'bg-raise border-line'
                           }`}
                         >
                           <div className="flex items-center justify-between mb-2">
@@ -333,7 +333,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                         className={`border-b font-semibold uppercase text-[10px] tracking-wider ${
                           isLight
                             ? 'bg-slate-100 border-slate-200 text-slate-600'
-                            : 'bg-[#14192a] border-[#1e222c] text-slate-400'
+                            : 'bg-raise border-line text-slate-400'
                         }`}
                       >
                         <tr>
@@ -351,7 +351,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                           <tr
                             key={g.id}
                             className={`hover:bg-slate-800/30 transition-colors ${
-                              isLight ? 'text-slate-800' : 'text-slate-200'
+                              'text-ink'
                             }`}
                           >
                             <td className="p-3 text-amber-400 font-bold">#{idx + 1}</td>
@@ -421,7 +421,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
                           className={`p-3 rounded-lg border text-xs flex flex-col gap-1 ${
                             isLight
                               ? 'bg-slate-50 border-slate-200 text-slate-700'
-                              : 'bg-[#101422] border-[#1c2236] text-slate-300'
+                              : 'bg-raise border-line text-slate-300'
                           }`}
                         >
                           <div className="flex items-center gap-2 font-mono">
@@ -449,7 +449,7 @@ export const ArchitecturalReportModal: React.FC<ArchitecturalReportModalProps> =
           className={`flex items-center justify-between px-6 py-3 border-t text-xs ${
             isLight
               ? 'border-slate-200 bg-slate-50 text-slate-500'
-              : 'border-[#1e222c] bg-[#0c101b] text-slate-400'
+              : 'border-line bg-canvas text-slate-400'
           }`}
         >
           <span>

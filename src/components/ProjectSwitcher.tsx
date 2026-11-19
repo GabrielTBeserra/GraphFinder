@@ -29,19 +29,19 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
           className={`flex items-center gap-2 h-7 px-3 rounded-md border transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-indigo-500/40 ${
             isLight
               ? 'bg-slate-100/90 hover:bg-slate-200/80 border-slate-300 text-slate-800'
-              : 'bg-[#161922] hover:bg-[#1a1f2c] border-[#1e222c] hover:border-[#333947] text-[#d8dae0]'
+              : 'bg-raise hover:bg-raise border-line hover:border-line-strong text-ink'
           }`}
-          title="Switch active knowledge vault"
+          title="Switch active knowledge vault" aria-label="Switch active knowledge vault"
         >
           {/* Emerald Status Dot from banner.svg */}
-          <span className="w-2 h-2 rounded-full bg-[#4fb08c] shrink-0" />
+          <span className="w-2 h-2 rounded-full bg-good shrink-0" />
 
           {/* Path notation: vaults / name */}
           <div className="flex items-center gap-1 text-[11px] font-medium">
-            <span className={isLight ? 'text-slate-400' : 'text-[#8a919e]'}>vaults /</span>
+            <span className={'text-muted'}>vaults /</span>
             <span
               className={`font-semibold truncate max-w-[150px] ${
-                isLight ? 'text-slate-900' : 'text-[#edeef0]'
+                'text-ink'
               }`}
             >
               {displayName}
@@ -51,7 +51,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
           <CaretDown
             size={11}
             weight="bold"
-            className={`ml-1 ${isLight ? 'text-slate-400' : 'text-[#8a919e]'}`}
+            className={`ml-1 ${'text-muted'}`}
           />
         </button>
       </DropdownMenu.Trigger>
@@ -63,28 +63,28 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
           className={`z-50 w-80 rounded-lg p-1.5 shadow-2xl backdrop-blur-md animate-in fade-in-0 zoom-in-95 border ${
             isLight
               ? 'bg-white border-slate-200 shadow-xl'
-              : 'bg-[#12151c] border-[#1e222c]'
+              : 'bg-raise border-line'
           }`}
         >
           {/* Header */}
           <div
             className={`px-2.5 py-2 border-b mb-1 ${
-              isLight ? 'border-slate-100' : 'border-[#1e222c]'
+              'border-line'
             }`}
           >
             <div
               className={`flex items-center gap-1.5 ${
-                isLight ? 'text-slate-900' : 'text-[#edeef0]'
+                'text-ink'
               }`}
             >
               <Database
                 size={13}
                 weight="bold"
-                className={isLight ? 'text-slate-400' : 'text-[#8a919e]'}
+                className={'text-muted'}
               />
               <span className="text-xs font-semibold">Knowledge Vaults</span>
             </div>
-            <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-500' : 'text-[#8a919e]'}`}>
+            <p className={`text-[11px] mt-0.5 ${'text-muted'}`}>
               Local Markdown vaults with independent FastEmbed vector indices
             </p>
           </div>
@@ -105,10 +105,10 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                     isActive
                       ? isLight
                         ? 'bg-indigo-50 text-indigo-950 border border-indigo-200'
-                        : 'bg-[#1a1f2c] text-[#edeef0] border border-[#2b303e]'
+                        : 'bg-raise text-ink border border-line-strong'
                       : isLight
                       ? 'hover:bg-slate-50 text-slate-700'
-                      : 'hover:bg-[#161922] text-[#8a919e]'
+                      : 'hover:bg-raise text-muted'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0 pr-2">
@@ -120,7 +120,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                             : 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
                           : isLight
                           ? 'bg-slate-100 text-slate-500 border border-slate-200'
-                          : 'bg-[#161922] text-[#8a919e] border border-[#1e222c]'
+                          : 'bg-raise text-muted border border-line'
                       }`}
                     >
                       <Folder size={13} weight={isActive ? 'fill' : 'regular'} />
@@ -134,17 +134,17 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                               ? isActive
                                 ? 'text-indigo-950 font-semibold'
                                 : 'text-slate-800'
-                              : 'text-[#edeef0]'
+                              : 'text-ink'
                           }`}
                         >
                           {proj.name}
                         </span>
                         {proj.id === 'default' && (
                           <span
-                            className={`text-[9px] font-mono px-1 py-0.2 rounded border ${
+                            className={`text-[10px] font-mono px-1 py-0.2 rounded border ${
                               isLight
                                 ? 'bg-slate-100 text-slate-600 border-slate-200'
-                                : 'bg-[#1e222c] text-[#8a919e] border-[#2d3342]'
+                                : 'bg-line text-muted border-line-strong'
                             }`}
                           >
                             Default
@@ -153,7 +153,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                       </div>
                       <span
                         className={`block text-[10px] font-mono truncate max-w-[180px] ${
-                          isLight ? 'text-slate-400' : 'text-[#8a919e]'
+                          'text-muted'
                         }`}
                       >
                         {proj.path}
@@ -164,7 +164,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                   <div className="flex items-center gap-1.5 shrink-0">
                     <span
                       className={`text-[10px] font-mono ${
-                        isLight ? 'text-slate-400' : 'text-[#8a919e]'
+                        'text-muted'
                       }`}
                     >
                       {proj.note_count}
@@ -174,7 +174,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                       <Check
                         size={13}
                         weight="bold"
-                        className={isLight ? 'text-indigo-600' : 'text-indigo-400'}
+                        className={'text-accent-strong'}
                       />
                     )}
                   </div>
@@ -186,7 +186,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
           {/* Footer Create Action */}
           <div
             className={`border-t pt-1 mt-1 ${
-              isLight ? 'border-slate-100' : 'border-[#1e222c]'
+              'border-line'
             }`}
           >
             <DropdownMenu.Item
@@ -194,7 +194,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
               className={`flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer select-none outline-none ${
                 isLight
                   ? 'text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50'
-                  : 'text-[#4fb08c] hover:text-emerald-300 hover:bg-emerald-950/20'
+                  : 'text-good hover:text-emerald-300 hover:bg-emerald-950/20'
               }`}
             >
               <FolderPlus size={14} weight="bold" />

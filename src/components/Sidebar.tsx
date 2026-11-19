@@ -28,7 +28,7 @@ interface SidebarProps {
   onSelectNote: (id: string) => void;
   onSelectCodeFile?: (path: string, symbol?: string) => void;
   onNewNote: () => void;
-  onDeleteNote?: (id: string, title: string) => Promise<void>;
+  onDeleteNote?: (id: string, title: string) => void;
   onSearchSemantic: (query: string) => Promise<void>;
   onSearchCode?: (query: string) => Promise<void>;
   onRevealInGraph?: (id: string) => void;
@@ -171,7 +171,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         : 'bg-raise text-muted border-line hover:text-ink hover:border-line-strong'
     }`;
 
-  const sectionLabel = 'px-1 pt-1 pb-0.5 text-[9.5px] font-mono uppercase tracking-[0.12em] text-faint';
+  const sectionLabel = 'px-1 pt-1 pb-0.5 text-[10px] font-mono uppercase tracking-[0.12em] text-faint';
 
   const renderNoteItem = (note: NoteSummary) => {
     const isSelected = selectedNoteId === note.id;
@@ -198,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {onRevealInGraph && (
               <button
                 type="button"
-                title="Reveal in graph"
+                title="Reveal in graph" aria-label="Reveal in graph"
                 onClick={(e) => {
                   e.stopPropagation();
                   onRevealInGraph(note.id);
@@ -210,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
             <button
               type="button"
-              title={isPinned ? 'Unpin' : 'Pin'}
+              title={isPinned ? 'Unpin' : 'Pin'} aria-label={isPinned ? 'Unpin note' : 'Pin note'}
               onClick={(e) => {
                 e.stopPropagation();
                 togglePin(note.id);
@@ -224,7 +224,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {onDeleteNote && (
               <button
                 type="button"
-                title="Delete note"
+                title="Delete note" aria-label="Delete note"
                 onClick={(e) => {
                   e.stopPropagation();
                   onDeleteNote(note.id, note.title);
@@ -257,14 +257,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   setMode('notes');
                   setSelectedTag(t);
                 }}
-                className="text-[9px] px-1 py-0.5 rounded bg-raise border border-line text-muted hover:text-accent hover:border-accent/30 transition-colors cursor-pointer font-mono"
+                className="text-[10px] px-1 py-0.5 rounded bg-raise border border-line text-muted hover:text-accent hover:border-accent/30 transition-colors cursor-pointer font-mono"
               >
                 #{t}
               </button>
             ))}
           </div>
           {note.updated_at && (
-            <span className="text-[9px] text-faint shrink-0 font-mono">
+            <span className="text-[10px] text-faint shrink-0 font-mono">
               {formatRelativeTime(note.updated_at)}
             </span>
           )}
@@ -298,7 +298,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Icon size={13} weight={mode === key ? 'bold' : 'regular'} />
               <span>{label}</span>
               <span
-                className={`px-1 rounded text-[9.5px] font-mono ${
+                className={`px-1 rounded text-[10px] font-mono ${
                   mode === key ? 'bg-accent/20 text-accent' : 'bg-raise text-faint'
                 }`}
               >
@@ -309,7 +309,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <button
           type="button"
-          title={sortAz ? 'Sort by recency' : 'Sort A–Z'}
+          title={sortAz ? 'Sort by recency' : 'Sort A–Z'} aria-label={sortAz ? 'Sort by recency' : 'Sort alphabetically'}
           onClick={() => setSortAz(!sortAz)}
           className={`p-1.5 rounded-md border transition-colors cursor-pointer ${
             sortAz
@@ -322,7 +322,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {mode === 'notes' && (
           <button
             type="button"
-            title="New note"
+            title="New note" aria-label="New note"
             onClick={onNewNote}
             className="p-1.5 rounded-md text-muted hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
           >
@@ -337,7 +337,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={() => setTagsOpen(!tagsOpen)}
-            className="w-full flex items-center justify-between px-1 py-1 text-[9.5px] font-mono uppercase tracking-[0.12em] text-faint hover:text-muted transition-colors cursor-pointer"
+            className="w-full flex items-center justify-between px-1 py-1 text-[10px] font-mono uppercase tracking-[0.12em] text-faint hover:text-muted transition-colors cursor-pointer"
           >
             <span className="flex items-center gap-1">
               <Hash size={10} />
@@ -373,7 +373,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
       {mode === 'code' && languageCounts.length > 0 && (
         <div className="px-2 pb-1.5 border-b border-line">
-          <div className="px-1 py-1 text-[9.5px] font-mono uppercase tracking-[0.12em] text-faint">
+          <div className="px-1 py-1 text-[10px] font-mono uppercase tracking-[0.12em] text-faint">
             Languages {codeLanguageFilter && <span className="text-accent">· {codeLanguageFilter}</span>}
           </div>
           <div className="flex gap-1 overflow-x-auto pb-1 flex-nowrap">
@@ -407,7 +407,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Semantic results (fed by engine search / omnisearch) */}
       {showResults && (
         <div className="px-2.5 py-1.5 border-b border-line bg-accent/5 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-[10.5px] text-muted truncate">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted truncate">
             <Lightning size={11} className="text-accent shrink-0" weight="fill" />
             <span>Neural results</span>
           </div>
@@ -445,12 +445,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span className="text-[11px] font-semibold text-ink truncate">
                       {chunk.note_title}
                     </span>
-                    <span className="text-[9px] font-mono text-good shrink-0">
+                    <span className="text-[10px] font-mono text-good shrink-0">
                       {Math.round(chunk.score * 100)}%
                     </span>
                   </div>
                   {chunk.heading && (
-                    <div className="text-[9.5px] font-mono text-accent mt-0.5 truncate">
+                    <div className="text-[10px] font-mono text-accent mt-0.5 truncate">
                       § {chunk.heading}
                     </div>
                   )}
@@ -472,15 +472,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span className="text-[11px] font-semibold text-ink truncate font-mono">
                       {chunk.symbol_name || chunk.file_name}
                     </span>
-                    <span className="text-[9px] font-mono text-good shrink-0">
+                    <span className="text-[10px] font-mono text-good shrink-0">
                       {Math.round(chunk.score * 100)}%
                     </span>
                   </div>
-                  <div className="text-[9.5px] font-mono text-faint mt-0.5 truncate">
+                  <div className="text-[10px] font-mono text-faint mt-0.5 truncate">
                     {chunk.file_id}
                   </div>
                   {chunk.content && (
-                    <pre className="text-[9px] text-muted leading-snug mt-1 line-clamp-3 font-mono whitespace-pre-wrap">
+                    <pre className="text-[10px] text-muted leading-snug mt-1 line-clamp-3 font-mono whitespace-pre-wrap">
                       {chunk.content}
                     </pre>
                   )}
@@ -544,7 +544,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {onRevealInGraph && (
                       <button
                         type="button"
-                        title="Reveal in graph"
+                        title="Reveal in graph" aria-label="Reveal in graph"
                         onClick={(e) => {
                           e.stopPropagation();
                           onRevealInGraph(cf.path);
@@ -555,21 +555,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </button>
                     )}
                   </div>
-                  <div className="text-[9.5px] font-mono text-faint mt-0.5 truncate pl-3">
+                  <div className="text-[10px] font-mono text-faint mt-0.5 truncate pl-3">
                     {cf.path}
                   </div>
                   <div className="flex items-center gap-1.5 mt-1 pl-3">
-                    <span className={`text-[9px] px-1 py-0.5 rounded border font-mono ${style.bg} ${style.text} ${style.border}`}>
+                    <span className={`text-[10px] px-1 py-0.5 rounded border font-mono ${style.bg} ${style.text} ${style.border}`}>
                       {cf.language}
                     </span>
                     {cf.imports_count > 0 && (
-                      <span className="text-[8.5px] font-mono text-faint flex items-center gap-0.5">
+                      <span className="text-[10px] font-mono text-faint flex items-center gap-0.5">
                         <ArrowUpRight size={8} />
                         {cf.imports_count}
                       </span>
                     )}
                     {cf.dependents_count > 0 && (
-                      <span className="text-[8.5px] font-mono text-faint flex items-center gap-0.5">
+                      <span className="text-[10px] font-mono text-faint flex items-center gap-0.5">
                         <ArrowDownLeft size={8} />
                         {cf.dependents_count}
                       </span>
@@ -583,7 +583,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="px-2.5 py-1.5 border-t border-line flex items-center justify-between text-[9.5px] font-mono text-faint">
+      <div className="px-2.5 py-1.5 border-t border-line flex items-center justify-between text-[10px] font-mono text-faint">
         <span>
           {notes.length} notes · {codeFiles.length} files
         </span>

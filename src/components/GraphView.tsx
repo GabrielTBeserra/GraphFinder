@@ -1212,7 +1212,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   const isLight = theme === 'light';
 
   return (
-    <div className={`relative w-full h-full overflow-hidden transition-colors duration-200 ${isLight ? 'bg-[#f8fafc]' : 'bg-[#090a0f]'}`}>
+    <div className={`relative w-full h-full overflow-hidden transition-colors duration-200 ${'bg-canvas'}`}>
       {/* Canvas container specifically for ForceGraph */}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
 
@@ -1221,14 +1221,14 @@ export const GraphView: React.FC<GraphViewProps> = ({
         className={`absolute top-3 left-3 z-30 flex items-center gap-1.5 p-1 rounded-xl shadow-xl backdrop-blur-md transition-colors ${
           isLight
             ? 'bg-white/90 border border-slate-200/90 shadow-slate-200/50'
-            : 'bg-[#0e1119]/85 border border-[#1f2536]'
+            : 'bg-surface/85 border border-line'
         }`}
         role="toolbar"
         aria-label="Controles do Grafo"
       >
         {/* Node Type Filter Pill Selector */}
         <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
-          isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#090b10] border-[#171b26]'
+          'bg-canvas border-line'
         }`}>
           <Tip label="Exibe todos os nós — notas e arquivos de código juntos no grafo.">
             <button
@@ -1239,7 +1239,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : isLight
                   ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-[#64748b] hover:text-[#f1f5f9]'
+                  : 'text-muted hover:text-ink'
               }`}
             >
               <CirclesThree size={12} weight="bold" />
@@ -1256,7 +1256,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : isLight
                   ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-[#64748b] hover:text-[#f1f5f9]'
+                  : 'text-muted hover:text-ink'
               }`}
             >
               <FileText size={12} />
@@ -1273,7 +1273,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : isLight
                   ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-[#64748b] hover:text-[#f1f5f9]'
+                  : 'text-muted hover:text-ink'
               }`}
             >
               <Code size={12} weight="bold" />
@@ -1282,7 +1282,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           </Tip>
         </div>
 
-        <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
+        <div className={`w-[1px] h-3.5 my-auto ${'bg-line-strong'}`} />
 
         {/* Communities / Clusters toggle */}
         <Tip label="Clusters: colore os nós por comunidade detectada (LPA) — revela fronteiras arquiteturais e agrupamentos naturais.">
@@ -1295,7 +1295,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
                 : isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+                : 'text-muted hover:text-ink hover:bg-raise'
             }`}
             onClick={() => setColorMode(colorMode === 'communities' ? 'default' : 'communities')}
           >
@@ -1315,7 +1315,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   : 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
                 : isLight
                 ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+                : 'text-muted hover:text-ink hover:bg-raise'
             }`}
             onClick={() => setHighlightGodNodes(!highlightGodNodes)}
           >
@@ -1334,7 +1334,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                 : 'bg-sky-500/25 text-sky-300 border border-sky-500/40'
               : isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              : 'text-muted hover:text-ink hover:bg-raise'
           }`}
           onClick={() => setPathMode(!pathMode)}
         >
@@ -1348,7 +1348,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
             isLight
               ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#94a3b8] hover:text-white hover:bg-[#1a2030]'
+              : 'text-muted hover:text-white hover:bg-raise'
           }`}
           onClick={() => setShowAuditModal(true)}
         >
@@ -1356,7 +1356,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           <span>Audit</span>
         </button></Tip>
 
-        <div className={`w-[1px] h-3.5 my-auto ${isLight ? 'bg-slate-200' : 'bg-[#1f2536]'}`} />
+        <div className={`w-[1px] h-3.5 my-auto ${'bg-line-strong'}`} />
 
         {/* Ego Network (N-Hop Focus) toggle + Dynamic Depth Slider */}
         <div className="flex items-center gap-1.5">
@@ -1370,7 +1370,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                     : 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
                   : isLight
                   ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+                  : 'text-muted hover:text-ink hover:bg-raise'
               }`}
               onClick={() => setLocalOnly(!localOnly)}
             >
@@ -1384,11 +1384,11 @@ export const GraphView: React.FC<GraphViewProps> = ({
               className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[10px] font-mono ${
                 isLight
                   ? 'bg-slate-100/90 border-slate-200 text-slate-600'
-                  : 'bg-[#090b10]/90 border-[#171b26] text-slate-300'
+                  : 'bg-canvas/90 border-line text-slate-300'
               }`}
               title={`Profundidade da Ego Network: quantos saltos de vizinhança entram no foco (1–5)`}
             >
-              <span className="text-[9.5px] uppercase tracking-wider opacity-75">Hops</span>
+              <span className="text-[10px] uppercase tracking-wider opacity-75">Hops</span>
               <input
                 type="range"
                 min={1}
@@ -1399,7 +1399,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
                 className="w-14 h-1 accent-indigo-500 cursor-pointer"
                 aria-label="Profundidade N-Hop da Ego Network"
               />
-              <span className={`font-bold ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
+              <span className={`font-bold ${'text-accent-strong'}`}>
                 {egoDepth}
               </span>
             </div>
@@ -1411,7 +1411,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              : 'text-muted hover:text-ink hover:bg-raise'
           }`}
           onClick={handleZoomIn}
         >
@@ -1423,7 +1423,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              : 'text-muted hover:text-ink hover:bg-raise'
           }`}
           onClick={handleZoomOut}
         >
@@ -1435,7 +1435,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              : 'text-muted hover:text-ink hover:bg-raise'
           }`}
           onClick={handleFit}
         >
@@ -1447,7 +1447,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
             isLight
               ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-[#64748b] hover:text-[#f1f5f9] hover:bg-[#151926]'
+              : 'text-muted hover:text-ink hover:bg-raise'
           }`}
           onClick={onRefresh}
         >
@@ -1459,10 +1459,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
       {pathMode && (
         <div className={`absolute top-16 left-3 z-30 flex items-center gap-2.5 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md text-[11px] font-mono border transition-all ${
           isLight
-            ? 'bg-white/95 border-sky-300 text-slate-700 shadow-sky-100'
-            : 'bg-[#0b1220]/90 border-sky-500/40 text-slate-200 shadow-[0_4px_20px_rgba(56,189,248,0.15)]'
+            ? 'bg-surface/95 border-sky-300 text-ink shadow-sky-100'
+            : 'bg-canvas/90 border-sky-500/40 text-ink shadow-lg'
         }`}>
-          <GitBranch size={14} className="text-sky-400 shrink-0 animate-pulse" />
+          <GitBranch size={14} className="text-sky-400 shrink-0" />
           {!pathStartNode ? (
             <span>Clique no <strong className="text-sky-400">nó de origem</strong> no grafo...</span>
           ) : !pathResult ? (
@@ -1499,27 +1499,27 @@ export const GraphView: React.FC<GraphViewProps> = ({
       )}
 
       {/* Floating HUD Telemetry Capsule */}
-      <div className={`absolute bottom-3 left-3 z-30 flex items-center gap-2 px-2.5 py-1 rounded-lg shadow-lg backdrop-blur-md text-[10.5px] font-mono transition-colors ${
+      <div className={`absolute bottom-3 left-3 z-30 flex items-center gap-2 px-2.5 py-1 rounded-lg shadow-lg backdrop-blur-md text-[11px] font-mono transition-colors ${
         isLight
           ? 'bg-white/90 border border-slate-200/90 text-slate-600 shadow-slate-200/40'
-          : 'bg-[#0e1119]/85 border border-[#1f2536] text-[#64748b]'
+          : 'bg-surface/85 border border-line text-muted'
       }`}>
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
         <span>
-          Notes: <strong className={`font-semibold ${isLight ? 'text-slate-900' : 'text-[#f8fafc]'}`}>{stats.notes}</strong>
+          Notes: <strong className={`font-semibold ${'text-ink'}`}>{stats.notes}</strong>
         </span>
-        <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
+        <span className={'text-line-strong'}>•</span>
         <span>
-          Code: <strong className={`font-semibold ${isLight ? 'text-sky-600' : 'text-[#38bdf8]'}`}>{stats.code}</strong>
+          Code: <strong className={`font-semibold ${'text-sky-500'}`}>{stats.code}</strong>
         </span>
-        <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
+        <span className={'text-line-strong'}>•</span>
         <span>
-          Links: <strong className={`font-semibold ${isLight ? 'text-slate-900' : 'text-[#f8fafc]'}`}>{stats.links}</strong>
+          Links: <strong className={`font-semibold ${'text-ink'}`}>{stats.links}</strong>
         </span>
         {localOnly && (
           <>
-            <span className={isLight ? 'text-slate-300' : 'text-[#202738]'}>•</span>
-            <span className={`font-medium ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
+            <span className={'text-line-strong'}>•</span>
+            <span className={`font-medium ${'text-accent-strong'}`}>
               Ego Network ({egoDepth}-Hop)
             </span>
           </>
