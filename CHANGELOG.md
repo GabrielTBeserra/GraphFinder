@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 * **Automatic GPU/CPU execution providers**: ONNX Runtime now registers platform GPU EPs — DirectML on Windows (Intel iGPU, NVIDIA, AMD), CoreML on macOS — with silent per-operator fallback to CPU. No device selection needed on any hardware. `GRAPHFINDER_DEVICE=auto|cpu|dml|coreml|cuda|rocm` forces a backend; `gpu-cuda`/`gpu-rocm` remain opt-in cargo features (they swap the downloaded ORT binary flavor). Same chain applied to the bge-reranker session.
 * **`GRAPHFINDER_BATCH`**: embedding batch size per ONNX call (default 16) with `yield_now()` between spawn_blocking chunks — keeps the UI responsive while fastembed saturates all physical cores during indexing.
 * **`provider` field in `engine-status` events**: reports the requested chain (e.g. `auto(dml->cpu)`) for support/debugging.
+* **Minimize to tray on close**: the desktop app now lives in the system tray (Show GraphFinder / Quit menu, left-click to restore). Closing the window can hide it to the tray so the embedded MCP server stays available to AI agents. The first close asks once; the choice is persisted (`tauri-plugin-store`, `settings.json`) and can be changed in the new Settings modal (Manage > Settings). The close button keeps quitting until the UI has loaded, so the window can never get stuck open.
+* **Single instance**: launching GraphFinder again focuses the running window (including when hidden in the tray) instead of starting a second process that would fail to bind the MCP port.
 
 ## [0.15.0] - 2026-01-XX
 
