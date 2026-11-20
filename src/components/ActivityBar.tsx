@@ -9,6 +9,7 @@ import {
   Gear,
   Sun,
   Moon,
+  SlidersHorizontal,
 } from '@phosphor-icons/react';
 
 interface ActivityBarProps {
@@ -23,6 +24,7 @@ interface ActivityBarProps {
   onSync: () => void;
   onOpenMcp: () => void;
   onOpenReleases: () => void;
+  onOpenSettings: () => void;
 }
 
 export const ActivityBar: React.FC<ActivityBarProps> = ({
@@ -37,6 +39,7 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
   onSync,
   onOpenMcp,
   onOpenReleases,
+  onOpenSettings,
 }) => {
   const item = (
     icon: React.ReactNode,
@@ -91,6 +94,13 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
             sideOffset={8}
             className="z-[70] min-w-44 rounded-lg gf-dialog shadow-2xl p-1 animate-in fade-in-0 zoom-in-95"
           >
+            <DropdownMenu.Item
+              onSelect={onOpenSettings}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-ink cursor-pointer outline-none data-[highlighted]:bg-raise"
+            >
+              <SlidersHorizontal size={13} />
+              Settings
+            </DropdownMenu.Item>
             <DropdownMenu.Item
               onSelect={onOpenReleases}
               className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-ink cursor-pointer outline-none data-[highlighted]:bg-raise"

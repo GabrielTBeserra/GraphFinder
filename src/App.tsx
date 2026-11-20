@@ -14,6 +14,9 @@ import {
   switchProject,
   createProject,
   fetchEngineStatus,
+  markClosePromptReady,
+  resolveClosePrompt,
+  type CloseBehavior,
 } from './services/api';
 import type {
   ChunkHit,
@@ -31,6 +34,7 @@ const GraphView = React.lazy(() =>
 import { Sidebar } from './components/Sidebar';
 import { OmnisearchModal } from './components/OmnisearchModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { ClosePromptDialog } from './components/ClosePromptDialog';
 import { ActivityBar } from './components/ActivityBar';
 import { DocTabs, type DocTab } from './components/DocTabs';
 import { BottomPanel, StatusBar } from './components/StudioPanels';
@@ -49,6 +53,9 @@ const NewProjectModal = React.lazy(() =>
 );
 const ReleaseModal = React.lazy(() =>
   import('./components/ReleaseModal').then((m) => ({ default: m.ReleaseModal }))
+);
+const SettingsModal = React.lazy(() =>
+  import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal }))
 );
 import { checkForUpdates, type ReleaseInfo } from './services/updater';
 import {
@@ -120,6 +127,8 @@ export const App: React.FC = () => {
   const [engineError, setEngineError] = useState<boolean>(false);
   const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo | null>(null);
   const [isReleaseModalOpen, setIsReleaseModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isClosePromptOpen, setIsClosePromptOpen] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       const saved = localStorage.getItem('gf_theme');
@@ -570,6 +579,38 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
+  // First-close prompt: the backend only asks (instead of quitting) once this
+  // listener is registered and acknowledged via markClosePromptReady().
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    listen('close-requested', () => setIsClosePromptOpen(true)).then((fn) => {
+      if (disposed) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+      markClosePromptReady().catch((err) =>
+        console.error('Failed to enable close prompt:', err)
+      );
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  const handleClosePromptChoice = async (behavior: CloseBehavior) => {
+    setIsClosePromptOpen(false);
+    try {
+      await resolveClosePrompt(behavior);
+    } catch (err) {
+      console.error('Failed to save close behavior:', err);
+      showToast('Could not save the close preference', 'error');
+    }
+  };
+
   const handleNewNote = () => {
     setSelectedNoteId(null);
     setActiveNote(null);
@@ -780,6 +821,7 @@ export const App: React.FC = () => {
           onSync={handleSync}
           onOpenMcp={() => setIsMcpModalOpen(true)}
           onOpenReleases={() => setIsReleaseModalOpen(true)}
+          onOpenSettings={() => setIsSettingsModalOpen(true)}
         />
         <Sidebar
           projectId={activeProject?.id || 'default'}
@@ -928,6 +970,12 @@ export const App: React.FC = () => {
             theme={theme}
           />
         )}
+        {isSettingsModalOpen && (
+          <SettingsModal
+            isOpen={isSettingsModalOpen}
+            onClose={() => setIsSettingsModalOpen(false)}
+          />
+        )}
       </Suspense>
 
       <ConfirmDialog
@@ -936,6 +984,12 @@ export const App: React.FC = () => {
         description={`"${pendingDelete?.title ?? ''}" will be permanently removed. This cannot be undone.`}
         onConfirm={confirmDeleteNote}
         onCancel={() => setPendingDelete(null)}
+      />
+
+      <ClosePromptDialog
+        open={isClosePromptOpen}
+        onChoose={handleClosePromptChoice}
+        onCancel={() => setIsClosePromptOpen(false)}
       />
 
       {/* Toast Notifications */}

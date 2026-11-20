@@ -628,3 +628,30 @@ export async function fetchMcpActivity(): Promise<McpCallEntry[]> {
     return [];
   }
 }
+
+export type CloseBehavior = 'tray' | 'quit';
+
+export async function getCloseBehavior(): Promise<CloseBehavior | null> {
+  if (isTauri) {
+    return await invoke<CloseBehavior | null>('get_close_behavior');
+  }
+  return null;
+}
+
+export async function setCloseBehavior(behavior: CloseBehavior): Promise<void> {
+  if (isTauri) {
+    await invoke('set_close_behavior', { behavior });
+  }
+}
+
+export async function resolveClosePrompt(behavior: CloseBehavior): Promise<void> {
+  if (isTauri) {
+    await invoke('resolve_close_prompt', { behavior });
+  }
+}
+
+export async function markClosePromptReady(): Promise<void> {
+  if (isTauri) {
+    await invoke('close_prompt_ready');
+  }
+}
