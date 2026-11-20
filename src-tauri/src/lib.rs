@@ -3,6 +3,7 @@ use tauri::{Emitter, Manager, State};
 
 pub mod engine;
 pub mod mcp;
+mod tray;
 
 use engine::{
     agent_kit, AgentKitResult, ChunkHit, CodeChunkHit, CodeDependencies, CodeFileRecord,
@@ -508,7 +509,22 @@ fn open_url(url: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+
+    // Must be the first plugin: a second launch focuses the running instance
+    // (which may be hidden in the tray) instead of failing to bind the MCP port.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_main_window(app);
+        }));
+    }
+
+    builder
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .manage(tray::TrayState::default())
+        .on_window_event(tray::handle_window_event)
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -615,9 +631,14 @@ pub fn run() {
                 let win = window.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-                    let _ = win.show();
+                    if !win.state::<tray::TrayState>().hidden_by_user() {
+                        let _ = win.show();
+                    }
                 });
             }
+
+            #[cfg(desktop)]
+            tray::create_tray(app.handle())?;
 
             app.manage(manager);
             Ok(())
@@ -655,7 +676,11 @@ pub fn run() {
             find_path,
             explain_node,
             export_artifacts,
-            open_url
+            open_url,
+            tray::get_close_behavior,
+            tray::set_close_behavior,
+            tray::close_prompt_ready,
+            tray::resolve_close_prompt
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
