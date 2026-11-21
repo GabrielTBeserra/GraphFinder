@@ -4,7 +4,7 @@ use axum::{
     http::{header, HeaderMap, Method, StatusCode},
     middleware::{self, Next},
     response::{Html, IntoResponse, Json, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use rmcp::transport::streamable_http_server::{
@@ -473,6 +473,20 @@ async fn info_handler(
     .into_response()
 }
 
+/// Executes a forwarded CLI invocation inside this running instance so its
+/// results (syncs, project registrations, searches) are immediately visible
+/// in the GUI — the backbone of single-instance CLI→GUI coordination.
+async fn cli_exec_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<crate::cli::CliExecRequest>,
+) -> impl IntoResponse {
+    let cwd = std::path::PathBuf::from(&req.cwd);
+    let result =
+        crate::cli::execute(req.args, cwd, Arc::clone(&state.manager), state.app_handle.clone())
+            .await;
+    Json(result)
+}
+
 pub async fn start_http_mcp_server(
     manager: Arc<VaultManager>,
     app_handle: Option<AppHandle>,
@@ -510,6 +524,7 @@ pub async fn start_http_mcp_server(
         .route("/health", get(info_handler))
         .route("/api/tools", get(tools_handler))
         .route("/api/mcp-activity", get(activity_handler))
+        .route("/api/cli", post(cli_exec_handler))
         .route("/mcp", get(info_handler).post_service(mcp_service))
         .route("/sse", get(info_handler).post_service(sse_service))
         .layer(middleware::from_fn(security_middleware))

@@ -1,8 +1,14 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, State};
 
+pub mod cli;
 pub mod engine;
+pub mod instance;
 pub mod mcp;
+pub mod settings;
+
+use settings::AppSettings;
+use tauri_plugin_autostart::ManagerExt;
 
 use engine::{
     agent_kit, AgentKitResult, ChunkHit, CodeChunkHit, CodeDependencies, CodeFileRecord,
@@ -506,9 +512,47 @@ fn open_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_app_settings(app: tauri::AppHandle) -> Result<AppSettings, String> {
+    let state = app.state::<Mutex<AppSettings>>();
+    state
+        .lock()
+        .map(|s| s.clone())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_app_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
+    // Apply autostart to the OS (registry Run key on Windows).
+    if settings.autostart {
+        app.autolaunch().enable().map_err(|e| e.to_string())?;
+    } else {
+        let _ = app.autolaunch().disable();
+    }
+    {
+        let state = app.state::<Mutex<AppSettings>>();
+        *state.lock().map_err(|e| e.to_string())? = settings.clone();
+    }
+    settings::save(&crate::engine::project::resolve_base_dir(), &settings);
+    Ok(settings)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // A second GraphFinder.exe launch (GUI) focuses the existing window
+        // instead of spawning a duplicate process.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--minimized"]),
+        ))
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -519,6 +563,31 @@ pub fn run() {
             }
 
             println!("[GraphFinder Tauri] Loading semantic engine with asynchronous initialization...");
+
+            // ── Single instance ──────────────────────────────────────
+            // Hold the exclusive lock for the app lifetime and publish our
+            // HTTP port so CLI invocations know to delegate here.
+            let base_dir = crate::engine::project::resolve_base_dir();
+            let _ = std::fs::create_dir_all(&base_dir);
+            if let Some(lock_file) = crate::instance::try_acquire_lock(&base_dir) {
+                std::mem::forget(lock_file); // keep the OS lock until process exit
+            }
+
+            // ── User settings (tray behaviour, Windows autostart) ────
+            let loaded_settings = settings::load(&base_dir);
+            app.manage(Mutex::new(loaded_settings.clone()));
+            // Reconcile stored preference with the OS autostart entry.
+            match app.autolaunch().is_enabled() {
+                Ok(enabled) if enabled != loaded_settings.autostart => {
+                    let _ = if loaded_settings.autostart {
+                        app.autolaunch().enable()
+                    } else {
+                        app.autolaunch().disable()
+                    };
+                }
+                _ => {}
+            }
+
             let embeddings = Arc::new(EmbeddingEngine::new_lazy());
             let manager = Arc::new(VaultManager::new(embeddings.clone()).expect("Failed to initialize VaultManager"));
 
@@ -527,6 +596,7 @@ pub fn run() {
                 .ok()
                 .and_then(|p| p.parse::<u16>().ok())
                 .unwrap_or(45123);
+            crate::instance::write_info(&base_dir, "gui", Some(mcp_port));
 
             let manager_for_mcp = Arc::clone(&manager);
             let app_handle_for_mcp = app.handle().clone();
@@ -588,6 +658,21 @@ pub fn run() {
                             let has_md = events.iter().any(|e| {
                                 e.path.extension().map(|ext| ext == "md").unwrap_or(false)
                             });
+                            // projects.json changes mean another process (CLI,
+                            // delegated request) registered/switched a project.
+                            let has_meta = events.iter().any(|e| {
+                                e.path.file_name()
+                                    .map(|n| n == "projects.json")
+                                    .unwrap_or(false)
+                            });
+                            if has_meta {
+                                let manager = Arc::clone(&manager_for_watch);
+                                let handle = app_handle_for_watch.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    manager.reload_meta().await;
+                                    let _ = handle.emit("projects-changed", ());
+                                });
+                            }
                             if has_md {
                                 let manager = Arc::clone(&manager_for_watch);
                                 let handle = app_handle_for_watch.clone();
@@ -608,12 +693,88 @@ pub fn run() {
                 }
             });
 
+            // ── System tray ─────────────────────────────────────────
+            use tauri::menu::{Menu, MenuItem};
+            use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+            let show_item = MenuItem::with_id(app, "tray-show", "Open GraphFinder", true, None::<&str>)?;
+            let sync_item = MenuItem::with_id(app, "tray-sync", "Sync vault now", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "tray-quit", "Quit GraphFinder", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&show_item, &sync_item, &quit_item])?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().expect("missing app icon").clone())
+                .menu(&tray_menu)
+                .tooltip("GraphFinder — Neural Knowledge Graph")
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "tray-show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "tray-sync" => {
+                        let _ = app.emit("tray-sync-requested", ());
+                    }
+                    "tray-quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
             if let Some(window) = app.get_webview_window("main") {
                 if let Some(icon) = app.default_window_icon() {
                     let _ = window.set_icon(icon.clone());
                 }
+
+                // Close-to-tray: hide the window instead of quitting when the
+                // `closeToTray` preference is enabled.
+                let win_for_event = window.clone();
+                let app_for_event = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        let close_to_tray = app_for_event
+                            .try_state::<Mutex<AppSettings>>()
+                            .and_then(|s| s.lock().ok().map(|g| g.close_to_tray))
+                            .unwrap_or(true);
+                        if close_to_tray {
+                            api.prevent_close();
+                            let _ = win_for_event.hide();
+                        }
+                    }
+                });
+
                 let win = window.clone();
+                let app_for_boot = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
+                    // When launched minimized by autostart, keep the window
+                    // hidden — it stays reachable through the tray icon.
+                    let start_minimized = app_for_boot
+                        .try_state::<Mutex<AppSettings>>()
+                        .and_then(|s| s.lock().ok().map(|g| g.start_minimized))
+                        .unwrap_or(false);
+                    let launched_minimized = std::env::args().any(|a| a == "--minimized" || a == "--tray");
+                    if start_minimized && launched_minimized {
+                        return;
+                    }
                     tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                     let _ = win.show();
                 });
@@ -655,8 +816,16 @@ pub fn run() {
             find_path,
             explain_node,
             export_artifacts,
-            open_url
+            open_url,
+            get_app_settings,
+            update_app_settings
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Release our instance marker so CLI commands stop delegating.
+                crate::instance::remove_info(&crate::engine::project::resolve_base_dir());
+            }
+        });
 }

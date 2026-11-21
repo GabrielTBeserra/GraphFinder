@@ -14,6 +14,7 @@ import {
   switchProject,
   createProject,
   fetchEngineStatus,
+  checkMcpHealth,
 } from './services/api';
 import type {
   ChunkHit,
@@ -33,7 +34,9 @@ import { OmnisearchModal } from './components/OmnisearchModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ActivityBar } from './components/ActivityBar';
 import { DocTabs, type DocTab } from './components/DocTabs';
-import { BottomPanel, StatusBar } from './components/StudioPanels';
+import { StatusBar } from './components/StudioPanels';
+import { ShortcutsModal } from './components/ShortcutsModal';
+import { SettingsModal } from './components/SettingsModal';
 
 const NoteEditorLazy = React.lazy(() =>
   import('./components/NoteEditor').then((m) => ({ default: m.NoteEditor }))
@@ -53,6 +56,7 @@ const ReleaseModal = React.lazy(() =>
 import { checkForUpdates, type ReleaseInfo } from './services/updater';
 import {
   CheckCircle,
+  Info,
   WarningCircle,
 } from '@phosphor-icons/react';
 
@@ -97,10 +101,12 @@ export const App: React.FC = () => {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isOmnisearchOpen, setIsOmnisearchOpen] = useState(false);
   const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
   const [openTabs, setOpenTabs] = useState<DocTab[]>([]);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [mcpUp, setMcpUp] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     try {
       return localStorage.getItem('gf_sidebar') !== '0';
@@ -314,10 +320,6 @@ export const App: React.FC = () => {
     handleClearSelection();
   }, [handleClearSelection]);
 
-  useEffect(() => {
-    if (chunkResults.length > 0 || codeChunkResults.length > 0) setPanelOpen(true);
-  }, [chunkResults.length, codeChunkResults.length]);
-
   const handleNavigateNote = useCallback((titleOrId: string) => {
     handleSelectNote(titleOrId);
   }, [handleSelectNote]);
@@ -467,18 +469,23 @@ export const App: React.FC = () => {
       }
     }, 600);
 
-    // Hard fallback timeout: always show UI after 4 seconds even if engine is still warming up
-    const fallbackTimeout = setTimeout(() => {
+    // Honest status: keep polling until the engine reports ready. After 30s
+    // without readiness, surface a warning message instead of faking green.
+    const slowTimeout = setTimeout(() => {
       if (!isCancelled) {
-        setEngineReady(true);
+        setEngineStatusMessage(
+          'Neural engine is still initializing — semantic search may be unavailable'
+        );
       }
-    }, 4000);
+    }, 30000);
 
     let unlistenSync: (() => void) | undefined;
     let unlistenSyncProgress: (() => void) | undefined;
     let unlistenStructure: (() => void) | undefined;
     let unlistenMcp: (() => void) | undefined;
     let unlistenEngine: (() => void) | undefined;
+    let unlistenProjects: (() => void) | undefined;
+    let unlistenTraySync: (() => void) | undefined;
     let syncCompleteTimeout: ReturnType<typeof setTimeout> | undefined;
 
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
@@ -513,6 +520,22 @@ export const App: React.FC = () => {
         unlistenSync = unlisten;
       });
 
+      // Another process (CLI / delegated request) registered or switched a
+      // project — reload metadata so new projects appear immediately.
+      listen('projects-changed', () => {
+        loadProjects();
+        loadData();
+      }).then((unlisten) => {
+        unlistenProjects = unlisten;
+      });
+
+      // Sync triggered from the system tray menu.
+      listen('tray-sync-requested', () => {
+        handleSyncRef.current?.();
+      }).then((unlisten) => {
+        unlistenTraySync = unlisten;
+      });
+
       listen<string>('mcp-node-updated', (event) => {
         const nodeId = event.payload;
         setGlowingNode({ id: nodeId, timestamp: Date.now() });
@@ -542,13 +565,15 @@ export const App: React.FC = () => {
     return () => {
       isCancelled = true;
       clearInterval(statusInterval);
-      clearTimeout(fallbackTimeout);
+      clearTimeout(slowTimeout);
       if (syncCompleteTimeout) clearTimeout(syncCompleteTimeout);
       if (unlistenSync) unlistenSync();
       if (unlistenSyncProgress) unlistenSyncProgress();
       if (unlistenStructure) unlistenStructure();
       if (unlistenMcp) unlistenMcp();
       if (unlistenEngine) unlistenEngine();
+      if (unlistenProjects) unlistenProjects();
+      if (unlistenTraySync) unlistenTraySync();
     };
   }, []);
 
@@ -565,9 +590,29 @@ export const App: React.FC = () => {
         e.preventDefault();
         setIsSidebarOpen((prev) => !prev);
       }
+      // Ctrl+/ -> Shortcuts cheatsheet
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault();
+        setIsShortcutsOpen((prev) => !prev);
+      }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
+  // MCP server health polling — keeps the status-bar dot honest
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      const up = await checkMcpHealth();
+      if (!cancelled) setMcpUp(up);
+    };
+    poll();
+    const interval = setInterval(poll, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   const handleNewNote = () => {
@@ -715,10 +760,12 @@ export const App: React.FC = () => {
       setIsSyncing(false);
     }
   };
+  const handleSyncRef = useRef(handleSync);
+  handleSyncRef.current = handleSync;
 
   // Non-blocking boot: UI renders immediately from local SQLite database
   return (
-    <div className="flex flex-col w-screen h-dvh overflow-hidden select-none transition-colors bg-canvas text-ink">
+    <div className="flex flex-col w-screen h-dvh overflow-hidden transition-colors bg-canvas text-ink">
       {syncProgress && (
         <div
           className="shrink-0 border-b border-line bg-surface px-4 py-2"
@@ -780,6 +827,7 @@ export const App: React.FC = () => {
           onSync={handleSync}
           onOpenMcp={() => setIsMcpModalOpen(true)}
           onOpenReleases={() => setIsReleaseModalOpen(true)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
         />
         <Sidebar
           projectId={activeProject?.id || 'default'}
@@ -798,8 +846,8 @@ export const App: React.FC = () => {
           onSearchSemantic={handleSearchSemantic}
           onSearchCode={handleSearchCode}
           onRevealInGraph={(id) => setGlowingNode({ id, timestamp: Date.now() })}
-          chunkResults={[]}
-          codeChunkResults={[]}
+          chunkResults={chunkResults}
+          codeChunkResults={codeChunkResults}
           isSearching={isSearching}
           isCollapsed={!isSidebarOpen}
           theme={theme}
@@ -834,6 +882,8 @@ export const App: React.FC = () => {
             onRefresh={loadData}
             glowingNode={glowingNode}
             theme={theme}
+            onCreateNote={handleNewNote}
+            onSyncVault={handleSync}
           />
           </Suspense>
 
@@ -866,15 +916,6 @@ export const App: React.FC = () => {
             </Suspense>
           )}
         </main>
-        <BottomPanel
-          open={panelOpen}
-          chunkResults={chunkResults}
-          codeChunkResults={codeChunkResults}
-          isSearching={isSearching}
-          onSelectNote={handleSelectNote}
-          onSelectCode={handleSelectCodeFile}
-          onClose={() => setPanelOpen(false)}
-        />
         </div>
       </div>
 
@@ -887,6 +928,7 @@ export const App: React.FC = () => {
         engineError={engineError}
         engineStatusMessage={engineStatusMessage}
         syncProgress={syncProgress}
+        mcpUp={mcpUp}
         onOpenMcp={() => setIsMcpModalOpen(true)}
       />
 
@@ -930,6 +972,17 @@ export const App: React.FC = () => {
         )}
       </Suspense>
 
+      <ShortcutsModal
+        isOpen={isShortcutsOpen}
+        onClose={() => setIsShortcutsOpen(false)}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onToast={showToast}
+      />
+
       <ConfirmDialog
         open={pendingDelete !== null}
         title="Delete note?"
@@ -948,6 +1001,8 @@ export const App: React.FC = () => {
             >
               {toast.type === 'error' ? (
                 <WarningCircle size={14} weight="fill" className="shrink-0 text-bad" />
+              ) : toast.type === 'info' ? (
+                <Info size={14} weight="fill" className="shrink-0 text-muted" />
               ) : (
                 <CheckCircle size={14} weight="fill" className="shrink-0 text-good" />
               )}

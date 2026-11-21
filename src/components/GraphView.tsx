@@ -31,6 +31,8 @@ interface GraphViewProps {
   onRefresh: () => void;
   glowingNode?: { id: string; timestamp: number } | null;
   theme?: 'dark' | 'light';
+  onCreateNote?: () => void;
+  onSyncVault?: () => void;
 }
 
 const COMMUNITY_PALETTE = [
@@ -207,6 +209,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
   onRefresh,
   glowingNode,
   theme = 'dark',
+  onCreateNote,
+  onSyncVault,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphInstanceRef = useRef<any>(null);
@@ -283,7 +287,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
     themeRef.current = theme;
     if (graphInstanceRef.current) {
       try {
-        graphInstanceRef.current.backgroundColor(theme === 'light' ? '#f8fafc' : '#090a0f');
+        graphInstanceRef.current.backgroundColor(
+          getComputedStyle(document.documentElement).getPropertyValue('--gf-canvas').trim() ||
+            (theme === 'light' ? '#faf6ef' : '#120f0d')
+        );
         requestCanvasRepaint();
       } catch (err) {
         console.warn('Error updating graph theme:', err);
@@ -456,6 +463,92 @@ export const GraphView: React.FC<GraphViewProps> = ({
     });
   }, [recomputeVisibility]);
 
+  // ── Minimap ──────────────────────────────────────────────────────
+  const minimapRef = useRef<HTMLCanvasElement>(null);
+  const minimapBoundsRef = useRef({ minX: 0, minY: 0, maxX: 1, maxY: 1 });
+  const MINIMAP_W = 168;
+  const MINIMAP_H = 112;
+
+  const paintMinimap = useCallback(() => {
+    const canvas = minimapRef.current;
+    const g = graphInstanceRef.current;
+    if (!canvas || !g) return;
+    const data = g.graphData?.() || { nodes: [], links: [] };
+    const nodes: any[] = data.nodes || [];
+    if (nodes.length === 0) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      if (!isFinite(n.x) || !isFinite(n.y)) continue;
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    }
+    if (!isFinite(minX)) return;
+    const pad = Math.max(20, (maxX - minX) * 0.06);
+    minX -= pad; maxX += pad; minY -= pad; maxY += pad;
+    minimapBoundsRef.current = { minX, minY, maxX, maxY };
+
+    const w = canvas.width, h = canvas.height;
+    const sx = w / (maxX - minX), sy = h / (maxY - minY);
+    const isLight = themeRef.current === 'light';
+    ctx.clearRect(0, 0, w, h);
+
+    const idToNode = new Map<string, any>();
+    for (const n of nodes) idToNode.set(n.id, n);
+
+    // Edges — cheap straight segments
+    ctx.strokeStyle = isLight ? 'rgba(100,116,139,0.22)' : 'rgba(148,163,184,0.14)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    for (const l of data.links || []) {
+      const s = typeof l.source === 'object' ? l.source : idToNode.get(l.source);
+      const t = typeof l.target === 'object' ? l.target : idToNode.get(l.target);
+      if (!s || !t || !isFinite(s.x) || !isFinite(t.x)) continue;
+      ctx.moveTo((s.x - minX) * sx, (s.y - minY) * sy);
+      ctx.lineTo((t.x - minX) * sx, (t.y - minY) * sy);
+    }
+    ctx.stroke();
+
+    // Nodes — 2px color dots
+    for (const n of nodes) {
+      if (!isFinite(n.x) || !isFinite(n.y)) continue;
+      ctx.fillStyle = getNodeColor(n, isLight, colorModeRef.current);
+      ctx.fillRect((n.x - minX) * sx - 1, (n.y - minY) * sy - 1, 2.2, 2.2);
+    }
+
+    // Viewport rectangle from the current zoom transform
+    const { k, x, y } = transformRef.current;
+    const gw = g.width?.() || 0, gh = g.height?.() || 0;
+    if (gw && gh && k > 0) {
+      const left = -x / k, top = -y / k, vw = gw / k, vh = gh / k;
+      ctx.strokeStyle = isLight ? 'rgba(79,70,229,0.85)' : 'rgba(129,140,248,0.9)';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect((left - minX) * sx, (top - minY) * sy, vw * sx, vh * sy);
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(paintMinimap, 350);
+    return () => clearInterval(id);
+  }, [paintMinimap]);
+
+  const handleMinimapClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const g = graphInstanceRef.current;
+    const canvas = minimapRef.current;
+    if (!g || !canvas) return;
+    const b = minimapBoundsRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const py = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    const gx = b.minX + px / (canvas.width / (b.maxX - b.minX));
+    const gy = b.minY + py / (canvas.height / (b.maxY - b.minY));
+    g.centerAt(gx, gy, 400);
+  }, []);
+
   useEffect(() => {
     egoDepthRef.current = egoDepth;
     recomputeConnected(hoverNodeIdRef.current || selectedNodeIdRef.current, egoDepth);
@@ -536,7 +629,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
     graph
       .width(width)
       .height(height)
-      .backgroundColor(themeRef.current === 'light' ? '#f8fafc' : '#090a0f')
+      .backgroundColor(
+        getComputedStyle(document.documentElement).getPropertyValue('--gf-canvas').trim() ||
+          (themeRef.current === 'light' ? '#faf6ef' : '#120f0d')
+      )
       .autoPauseRedraw(true)
       .minZoom(0.05)
       .maxZoom(8)
@@ -591,6 +687,49 @@ export const GraphView: React.FC<GraphViewProps> = ({
         const connected = connectedNodeIdsRef.current;
         if (connected.has(s) && connected.has(t)) return 2.2;
         return 1.2;
+      })
+      // Slight curvature disambiguates parallel/bidirectional edges.
+      .linkCurvature(0.12)
+      // Directional arrows on dependency ('imports') edges only — wikilinks
+      // stay undirected so the semantics remain honest.
+      .linkDirectionalArrowLength((link: any) => (link.label === 'imports' ? 5 : 0))
+      .linkDirectionalArrowRelPos(1)
+      .linkDirectionalArrowColor(() => {
+        const isLight = themeRef.current === 'light';
+        return isLight ? 'rgba(2, 132, 199, 0.55)' : 'rgba(56, 189, 248, 0.45)';
+      })
+      // Flowing particles on the edges of the focused ego-network (or path)
+      // make the active neighborhood visually "alive" without noise elsewhere.
+      .linkDirectionalParticles((link: any) => {
+        const s = typeof link.source === 'object' ? link.source.id : link.source;
+        const t = typeof link.target === 'object' ? link.target.id : link.target;
+        if (pathResultRef.current && pathResultRef.current.steps.length > 1) {
+          const steps = pathResultRef.current.steps;
+          const onPath = steps.some((step, idx) => {
+            if (idx === 0) return false;
+            const prev = steps[idx - 1];
+            return (prev.node_id === s && step.node_id === t) || (prev.node_id === t && step.node_id === s);
+          });
+          if (onPath) return 3;
+        }
+        const connected = connectedNodeIdsRef.current;
+        return connected.size > 0 && connected.has(s) && connected.has(t) ? 2 : 0;
+      })
+      .linkDirectionalParticleSpeed(0.005)
+      .linkDirectionalParticleWidth(2.2)
+      .linkDirectionalParticleColor((link: any) =>
+        link.label === 'imports' ? '#38bdf8' : '#a5b4fc'
+      )
+      // Dragging pins a node in place; right-click releases it back to the sim.
+      .onNodeDragEnd((node: any) => {
+        node.fx = node.x;
+        node.fy = node.y;
+      })
+      .onNodeRightClick((node: any) => {
+        if (!node) return;
+        node.fx = undefined;
+        node.fy = undefined;
+        graphInstanceRef.current?.d3ReheatSimulation();
       })
       .onRenderFramePre((ctx: CanvasRenderingContext2D, globalScale: number) => {
         if (colorModeRef.current !== 'communities' || !graphInstanceRef.current) return;
@@ -1357,94 +1496,93 @@ export const GraphView: React.FC<GraphViewProps> = ({
     }
   };
 
-  const isLight = theme === 'light';
+  const pillBtn = (active: boolean) =>
+    `flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+      active ? 'bg-accent text-on-accent shadow-xs' : 'text-muted hover:text-ink'
+    }`;
+
+  const toggleBtn = (active: boolean, activeCls: string) =>
+    `flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+      active ? activeCls : 'text-muted hover:text-ink hover:bg-raise'
+    }`;
+
+  const iconBtn =
+    'flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer text-muted hover:text-ink hover:bg-raise';
 
   return (
-    <div className={`relative w-full h-full overflow-hidden transition-colors duration-200 ${'bg-canvas'}`}>
+    <div className="relative w-full h-full overflow-hidden transition-colors duration-200 bg-canvas">
       {/* Canvas container specifically for ForceGraph */}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
 
+      {/* Empty state — vault with no indexed content */}
+      {stats.total === 0 && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+          <div className="flex flex-col items-center gap-3 text-center max-w-xs px-6 py-8 rounded-2xl border border-line bg-surface/90 backdrop-blur-md shadow-xl pointer-events-auto">
+            <CirclesThree size={28} className="text-accent" weight="duotone" />
+            <div>
+              <p className="text-sm font-semibold text-ink">Nothing here yet</p>
+              <p className="text-[11px] text-muted mt-1 leading-relaxed">
+                The graph is empty. Create your first note or sync the vault to index files.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {onCreateNote && (
+                <button
+                  type="button"
+                  onClick={onCreateNote}
+                  className="px-3 h-7 rounded-md text-[11px] font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-colors cursor-pointer"
+                >
+                  New note
+                </button>
+              )}
+              {onSyncVault && (
+                <button
+                  type="button"
+                  onClick={onSyncVault}
+                  className="px-3 h-7 rounded-md text-[11px] font-semibold text-muted border border-line hover:text-ink hover:border-line-strong transition-colors cursor-pointer"
+                >
+                  Sync vault
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Floating Toolbar Deck */}
       <div
-        className={`absolute top-3 left-3 z-30 flex items-center gap-1.5 p-1 rounded-xl shadow-xl backdrop-blur-md transition-colors ${
-          isLight
-            ? 'bg-white/90 border border-slate-200/90 shadow-slate-200/50'
-            : 'bg-surface/85 border border-line'
-        }`}
+        className="absolute top-3 left-3 z-30 flex items-center gap-1.5 p-1 rounded-xl shadow-xl backdrop-blur-md transition-colors bg-surface/85 border border-line"
         role="toolbar"
-        aria-label="Controles do Grafo"
+        aria-label="Graph controls"
       >
         {/* Node Type Filter Pill Selector */}
-        <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
-          'bg-canvas border-line'
-        }`}>
-          <Tip label="Exibe todos os nós — notas e arquivos de código juntos no grafo.">
-            <button
-              type="button"
-              onClick={() => setFilterMode('all')}
-              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                filterMode === 'all'
-                  ? 'bg-accent text-white shadow-xs'
-                  : isLight
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-muted hover:text-ink'
-              }`}
-            >
+        <div className="flex items-center gap-0.5 p-0.5 rounded-lg border bg-canvas border-line">
+          <Tip label="Show all nodes — notes and code files together in the graph.">
+            <button type="button" onClick={() => setFilterMode('all')} className={pillBtn(filterMode === 'all')}>
               <CirclesThree size={12} weight="bold" />
               <span>All ({stats.total})</span>
             </button>
           </Tip>
-
-          <Tip label="Mostra apenas as notas Markdown do vault e seus wikilinks.">
-            <button
-              type="button"
-              onClick={() => setFilterMode('notes')}
-              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                filterMode === 'notes'
-                  ? 'bg-accent text-white shadow-xs'
-                  : isLight
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-muted hover:text-ink'
-              }`}
-            >
+          <Tip label="Show only Markdown notes and their wikilinks.">
+            <button type="button" onClick={() => setFilterMode('notes')} className={pillBtn(filterMode === 'notes')}>
               <FileText size={12} />
               <span>Notes ({stats.notes})</span>
             </button>
           </Tip>
-
-          <Tip label="Mostra apenas arquivos de código e suas dependências (imports).">
-            <button
-              type="button"
-              onClick={() => setFilterMode('code')}
-              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                filterMode === 'code'
-                  ? 'bg-accent text-white shadow-xs'
-                  : isLight
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-muted hover:text-ink'
-              }`}
-            >
+          <Tip label="Show only code files and their import dependencies.">
+            <button type="button" onClick={() => setFilterMode('code')} className={pillBtn(filterMode === 'code')}>
               <Code size={12} weight="bold" />
               <span>Code ({stats.code})</span>
             </button>
           </Tip>
         </div>
 
-        <div className={`w-[1px] h-3.5 my-auto ${'bg-line-strong'}`} />
+        <div className="w-[1px] h-3.5 my-auto bg-line-strong" />
 
-        {/* Communities / Clusters toggle */}
-        <Tip label="Clusters: colore os nós por comunidade detectada (LPA) — revela fronteiras arquiteturais e agrupamentos naturais.">
+        <Tip label="Clusters: color nodes by detected community (LPA) — reveals architectural boundaries and natural groupings.">
           <button
             type="button"
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-              colorMode === 'communities'
-                ? isLight
-                  ? 'bg-purple-100 text-purple-700 border border-purple-200'
-                  : 'bg-accent-soft text-accent-strong border border-accent-line'
-                : isLight
-                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-muted hover:text-ink hover:bg-raise'
-            }`}
+            className={toggleBtn(colorMode === 'communities', 'bg-accent-soft text-accent-strong border border-accent-line')}
             onClick={() => setColorMode(colorMode === 'communities' ? 'default' : 'communities')}
           >
             <SquaresFour size={12} weight={colorMode === 'communities' ? 'bold' : 'regular'} />
@@ -1452,19 +1590,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
           </button>
         </Tip>
 
-        {/* God Nodes / Hubs toggle */}
-        <Tip label="Hubs: destaca God Nodes (degree ≥ 12) com anel dourado — os pontos de maior centralidade do sistema.">
+        <Tip label="Hubs: highlight God Nodes (degree ≥ 12) with a golden ring — the most connected points in the system.">
           <button
             type="button"
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-              highlightGodNodes
-                ? isLight
-                  ? 'bg-warn/15 text-warn border border-warn/30'
-                  : 'bg-warn/25 text-warn border border-warn/40/40'
-                : isLight
-                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-muted hover:text-ink hover:bg-raise'
-            }`}
+            className={toggleBtn(highlightGodNodes, 'bg-warn/20 text-warn border border-warn/40')}
             onClick={() => setHighlightGodNodes(!highlightGodNodes)}
           >
             <Crown size={12} weight={highlightGodNodes ? 'bold' : 'regular'} />
@@ -1472,54 +1601,31 @@ export const GraphView: React.FC<GraphViewProps> = ({
           </button>
         </Tip>
 
-        {/* Path Inspector toggle */}
-        <Tip label="Path Inspector: clique em 2 nós para descobrir o caminho mais curto entre eles (wikilinks + imports)."><button
+        <Tip label="Path Inspector: click 2 nodes to find the shortest path between them (wikilinks + imports)."><button
           type="button"
-          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-            pathMode
-              ? isLight
-                ? 'bg-sky-100 text-sky-700 border border-sky-200'
-                : 'bg-sky-500/25 text-sky-300 border border-sky-500/40'
-              : isLight
-              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-muted hover:text-ink hover:bg-raise'
-          }`}
+          className={toggleBtn(pathMode, 'bg-accent-soft text-accent-strong border border-accent-line')}
           onClick={() => setPathMode(!pathMode)}
         >
           <GitBranch size={12} weight={pathMode ? 'bold' : 'regular'} />
           <span>Path</span>
         </button></Tip>
 
-        {/* Architectural Audit Modal */}
-        <Tip label="Abre o relatório de auditoria arquitetural — comunidades, god nodes e acoplamentos suspeitos."><button
+        <Tip label="Open the architectural audit report — communities, god nodes and suspicious couplings."><button
           type="button"
-          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-            isLight
-              ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-muted hover:text-white hover:bg-raise'
-          }`}
+          className={toggleBtn(false, '')}
           onClick={() => setShowAuditModal(true)}
         >
           <ChartBar size={12} weight="bold" />
           <span>Audit</span>
         </button></Tip>
 
-        <div className={`w-[1px] h-3.5 my-auto ${'bg-line-strong'}`} />
+        <div className="w-[1px] h-3.5 my-auto bg-line-strong" />
 
-        {/* Ego Network (N-Hop Focus) toggle + Dynamic Depth Slider */}
         <div className="flex items-center gap-1.5">
-          <Tip label={localOnly ? 'Ego Network ativa — clique pra voltar a exibir o grafo completo.' : 'Ego Network: foca só no nó selecionado e seus vizinhos em até N saltos — ideal pra navegar regiões específicas.'}>
+          <Tip label={localOnly ? 'Ego Network active — click to show the full graph again.' : 'Ego Network: focus on the selected node and its neighbors up to N hops — ideal for exploring specific regions.'}>
             <button
               type="button"
-              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                localOnly
-                  ? isLight
-                    ? 'bg-accent-soft text-accent-strong border border-accent-line'
-                    : 'bg-accent/30 text-accent-strong border border-accent/40'
-                  : isLight
-                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-muted hover:text-ink hover:bg-raise'
-              }`}
+              className={toggleBtn(localOnly, 'bg-accent/30 text-accent-strong border border-accent/40')}
               onClick={() => setLocalOnly(!localOnly)}
             >
               {localOnly ? <Crosshair size={12} weight="bold" /> : <Compass size={12} />}
@@ -1527,14 +1633,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
             </button>
           </Tip>
 
-          {(localOnly || selectedNodeId) && (
+          {localOnly && (
             <div
-              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[10px] font-mono ${
-                isLight
-                  ? 'bg-slate-100/90 border-slate-200 text-slate-600'
-                  : 'bg-canvas/90 border-line text-slate-300'
-              }`}
-              title={`Profundidade da Ego Network: quantos saltos de vizinhança entram no foco (1–5)`}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[10px] font-mono bg-canvas/90 border-line text-muted"
+              title="Ego Network depth: how many neighbor hops enter the focus (1-5)"
             >
               <span className="text-[10px] uppercase tracking-wider opacity-75">Hops</span>
               <input
@@ -1545,82 +1647,44 @@ export const GraphView: React.FC<GraphViewProps> = ({
                 value={egoDepth}
                 onChange={(e) => setEgoDepth(Number(e.target.value))}
                 className="w-14 h-1 accent-[var(--gf-accent)] cursor-pointer"
-                aria-label="Profundidade N-Hop da Ego Network"
+                aria-label="Ego Network N-hop depth"
               />
-              <span className={`font-bold ${'text-accent-strong'}`}>
-                {egoDepth}
-              </span>
+              <span className="font-bold text-accent-strong">{egoDepth}</span>
             </div>
           )}
         </div>
 
-        <Tip label="Ampliar o grafo (zoom in)."><button
-          type="button"
-          className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
-            isLight
-              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-muted hover:text-ink hover:bg-raise'
-          }`}
-          onClick={handleZoomIn}
-        >
+        <Tip label="Zoom in."><button type="button" className={iconBtn} onClick={handleZoomIn}>
           <MagnifyingGlassPlus size={13} />
         </button></Tip>
 
-        <Tip label="Reduzir o grafo (zoom out)."><button
-          type="button"
-          className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
-            isLight
-              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-muted hover:text-ink hover:bg-raise'
-          }`}
-          onClick={handleZoomOut}
-        >
+        <Tip label="Zoom out."><button type="button" className={iconBtn} onClick={handleZoomOut}>
           <MagnifyingGlassMinus size={13} />
         </button></Tip>
 
-        <Tip label="Enquadra todos os nós na área visível."><button
-          type="button"
-          className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
-            isLight
-              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-muted hover:text-ink hover:bg-raise'
-          }`}
-          onClick={handleFit}
-        >
+        <Tip label="Fit all nodes into view."><button type="button" className={iconBtn} onClick={handleFit}>
           <ArrowsOut size={13} />
         </button></Tip>
 
-        <Tip label="Re-executa o layout force-directed — reorganiza as posições dos nós."><button
-          type="button"
-          className={`flex items-center justify-center w-6.5 h-6.5 rounded-lg transition-colors cursor-pointer ${
-            isLight
-              ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              : 'text-muted hover:text-ink hover:bg-raise'
-          }`}
-          onClick={onRefresh}
-        >
+        <Tip label="Re-run the force-directed layout — reorganizes node positions."><button type="button" className={iconBtn} onClick={onRefresh}>
           <ArrowClockwise size={13} />
         </button></Tip>
       </div>
 
       {/* Floating Path Inspector Banner */}
       {pathMode && (
-        <div className={`absolute top-16 left-3 z-30 flex items-center gap-2.5 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md text-[11px] font-mono border transition-all ${
-          isLight
-            ? 'bg-surface/95 border-sky-300 text-ink shadow-sky-100'
-            : 'bg-canvas/90 border-sky-500/40 text-ink shadow-lg'
-        }`}>
-          <GitBranch size={14} className="text-sky-400 shrink-0" />
+        <div className="absolute top-16 left-3 z-30 flex items-center gap-2.5 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md text-[11px] font-mono border transition-all bg-canvas/90 border-accent/40 text-ink">
+          <GitBranch size={14} className="text-accent shrink-0" />
           {!pathStartNode ? (
-            <span>Clique no <strong className="text-sky-400">nó de origem</strong> no grafo...</span>
+            <span>Click the <strong className="text-accent">source node</strong> in the graph…</span>
           ) : !pathResult ? (
             <span>
-              Origem: <strong className="text-sky-400">{pathStartNode.title || pathStartNode.id}</strong> → Clique no <strong className="text-good">nó de destino</strong>...
+              Source: <strong className="text-accent">{pathStartNode.title || pathStartNode.id}</strong> → click the <strong className="text-good">target node</strong>…
             </span>
           ) : (
             <div className="flex items-center gap-2">
               <span>
-                Caminho: <strong className="text-sky-400">{pathResult.length} nós</strong> ({pathResult.steps.length > 1 ? pathResult.steps.length - 1 : 0} saltos)
+                Path: <strong className="text-accent">{pathResult.length} nodes</strong> ({pathResult.steps.length > 1 ? pathResult.steps.length - 1 : 0} hops)
               </span>
               <button
                 type="button"
@@ -1628,17 +1692,17 @@ export const GraphView: React.FC<GraphViewProps> = ({
                   setPathStartNode(null);
                   setPathResult(null);
                 }}
-                className="px-1.5 py-0.5 rounded text-[10px] bg-slate-700 hover:bg-slate-600 text-white cursor-pointer"
+                className="px-1.5 py-0.5 rounded text-[10px] bg-raise hover:bg-line text-ink cursor-pointer"
               >
-                Limpar
+                Clear
               </button>
             </div>
           )}
-          <Tip label="Fecha o Path Inspector.">
+          <Tip label="Close Path Inspector.">
             <button
               type="button"
               onClick={() => setPathMode(false)}
-              className="p-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              className="p-1 text-faint hover:text-ink transition-colors cursor-pointer"
             >
               <X size={12} />
             </button>
@@ -1647,32 +1711,58 @@ export const GraphView: React.FC<GraphViewProps> = ({
       )}
 
       {/* Floating HUD Telemetry Capsule */}
-      <div className={`absolute bottom-3 left-3 z-30 flex items-center gap-2 px-2.5 py-1 rounded-lg shadow-lg backdrop-blur-md text-[11px] font-mono transition-colors ${
-        isLight
-          ? 'bg-white/90 border border-slate-200/90 text-slate-600 shadow-slate-200/40'
-          : 'bg-surface/85 border border-line text-muted'
-      }`}>
-        <span className="w-1.5 h-1.5 rounded-full bg-good/100 shrink-0 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
-        <span>
-          Notes: <strong className={`font-semibold ${'text-ink'}`}>{stats.notes}</strong>
-        </span>
-        <span className={'text-line-strong'}>•</span>
-        <span>
-          Code: <strong className={`font-semibold ${'text-sky-500'}`}>{stats.code}</strong>
-        </span>
-        <span className={'text-line-strong'}>•</span>
-        <span>
-          Links: <strong className={`font-semibold ${'text-ink'}`}>{stats.links}</strong>
-        </span>
+      <div className="absolute bottom-3 left-3 z-30 flex items-center gap-2 px-2.5 py-1 rounded-lg shadow-lg backdrop-blur-md text-[11px] font-mono transition-colors bg-surface/85 border border-line text-muted">
+        <span className="w-1.5 h-1.5 rounded-full bg-good shrink-0 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
+        <span>Notes: <strong className="font-semibold text-ink">{stats.notes}</strong></span>
+        <span className="text-line-strong">•</span>
+        <span>Code: <strong className="font-semibold text-sky-500">{stats.code}</strong></span>
+        <span className="text-line-strong">•</span>
+        <span>Links: <strong className="font-semibold text-ink">{stats.links}</strong></span>
         {localOnly && (
           <>
-            <span className={'text-line-strong'}>•</span>
-            <span className={`font-medium ${'text-accent-strong'}`}>
-              Ego Network ({egoDepth}-Hop)
-            </span>
+            <span className="text-line-strong">•</span>
+            <span className="font-medium text-accent-strong">Ego Network ({egoDepth}-Hop)</span>
           </>
         )}
       </div>
+
+      {/* Minimap — live overview + click-to-navigate */}
+      {stats.total > 0 && (
+        <canvas
+          ref={minimapRef}
+          width={MINIMAP_W}
+          height={MINIMAP_H}
+          onClick={handleMinimapClick}
+          title="Minimap — click to navigate"
+          className="absolute bottom-12 right-3 z-30 rounded-lg shadow-lg backdrop-blur-md border border-line bg-surface/70 cursor-crosshair"
+        />
+      )}
+
+      {/* Legend */}
+      {stats.total > 0 && (
+        <div className="absolute bottom-3 right-3 z-30 flex items-center gap-2.5 px-2.5 py-1 rounded-lg shadow-lg backdrop-blur-md text-[10px] font-mono transition-colors bg-surface/85 border border-line text-muted">
+          {colorMode === 'communities' ? (
+            <span title="Nodes are colored by detected community">Colors = communities</span>
+          ) : (
+            <>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-accent" /> note
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-sky-500" /> code
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full border border-faint" /> unresolved
+              </span>
+            </>
+          )}
+          {highlightGodNodes && (
+            <span className="flex items-center gap-1" title="God Nodes are highlighted with a golden ring">
+              <span className="w-2 h-2 rounded-full border-2 border-warn" /> hub
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Architectural Audit Modal */}
       <ArchitecturalReportModal

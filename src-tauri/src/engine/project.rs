@@ -635,7 +635,63 @@ impl VaultManager {
         })
     }
 
+    /// Re-reads `vaults/projects.json` from disk and merges it into memory.
+    /// Used when another process (e.g. the CLI or a delegated request)
+    /// registered, renamed or switched projects concurrently.
+    pub async fn reload_meta(&self) {
+        let meta_file = self.base_dir.join("vaults").join("projects.json");
+        let Ok(raw) = fs::read_to_string(&meta_file) else {
+            return;
+        };
+        let Ok(meta) = serde_json::from_str::<ProjectsMeta>(&raw) else {
+            return;
+        };
+
+        {
+            let mut names = self.custom_names.write().await;
+            for (k, v) in meta.custom_names {
+                names.entry(k).or_insert(v);
+            }
+        }
+        {
+            let mut paths = self.custom_paths.write().await;
+            for (k, v) in meta.custom_paths {
+                paths.entry(k).or_insert(v);
+            }
+        }
+        {
+            let mut counts = self.cached_counts.write().await;
+            for (k, v) in meta.cached_counts {
+                counts.entry(k).or_insert(v);
+            }
+        }
+        if !meta.active_project.is_empty() {
+            *self.active_project_id.write().await = meta.active_project;
+        }
+    }
+
     async fn save_meta(&self) {
+        // Merge concurrent on-disk updates first (a CLI process may have
+        // registered projects since this manager last loaded) so writes from
+        // another process are never silently clobbered.
+        let meta_path = self.base_dir.join("vaults").join("projects.json");
+        if let Ok(raw) = fs::read_to_string(&meta_path) {
+            if let Ok(disk) = serde_json::from_str::<ProjectsMeta>(&raw) {
+                {
+                    let mut names = self.custom_names.write().await;
+                    for (k, v) in disk.custom_names {
+                        names.entry(k).or_insert(v);
+                    }
+                }
+                {
+                    let mut paths = self.custom_paths.write().await;
+                    for (k, v) in disk.custom_paths {
+                        paths.entry(k).or_insert(v);
+                    }
+                }
+            }
+        }
+
         let active = self.active_project_id().await;
         let names = self.custom_names.read().await.clone();
         let custom_paths = self.custom_paths.read().await.clone();
