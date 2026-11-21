@@ -12,6 +12,8 @@ import {
   ArrowDownLeft,
   ArrowClockwise,
   Crosshair,
+  MagnifyingGlass,
+  X,
   SortAscending,
   SortDescending,
   CaretDown,
@@ -85,6 +87,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectCodeFile,
   onNewNote,
   onDeleteNote,
+  onSearchSemantic,
+  onSearchCode,
   onRevealInGraph,
   chunkResults,
   codeChunkResults = [],
@@ -102,6 +106,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [sortAz, setSortAz] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [pinned, setPinned] = useState<Set<string>>(loadPinned);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [width, setWidth] = useState<number>(() => {
+    try {
+      const w = Number(localStorage.getItem('gf_sidebar_w'));
+      return w >= 200 && w <= 480 ? w : 288;
+    } catch {
+      return 288;
+    }
+  });
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    const onMove = (ev: MouseEvent) => {
+      setWidth(Math.min(480, Math.max(200, startW + ev.clientX - startX)));
+    };
+    const onUp = (ev: MouseEvent) => {
+      const final = Math.min(480, Math.max(200, startW + ev.clientX - startX));
+      setWidth(final);
+      try { localStorage.setItem('gf_sidebar_w', String(final)); } catch { /* noop */ }
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const runSearch = () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    if (mode === 'code' && onSearchCode) onSearchCode(q);
+    else onSearchSemantic(q);
+  };
+
+  const clearSearch = () => setSearchQuery('');
 
   const hasResults = chunkResults.length > 0 || codeChunkResults.length > 0;
   const showResults = hasResults && !dismissedResults;
@@ -110,6 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setSelectedTag(null);
     setCodeLanguageFilter(null);
     setDismissedResults(false);
+    setSearchQuery('');
   }, [projectId]);
 
   useEffect(() => {
@@ -285,9 +326,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className="w-72 h-full flex flex-col border-r shrink-0 select-none z-10 bg-surface border-line transition-colors duration-200"
+      className="relative h-full flex flex-col border-r shrink-0 select-none z-10 bg-surface border-line transition-colors duration-200"
+      style={{ width }}
       aria-label="Sidebar"
     >
+      {/* Resize handle */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        onMouseDown={startResize}
+        className="absolute -right-0.5 top-0 bottom-0 w-1 cursor-col-resize z-20 hover:bg-accent/50 active:bg-accent transition-colors"
+      />
       {/* Explorer header — workspace switcher */}
       {projects && onSwitchProject && (
         <div className="px-2 pt-2 pb-1 flex items-center justify-between border-b border-line">
@@ -352,6 +402,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Plus size={13} weight="bold" />
           </button>
         )}
+      </div>
+
+      {/* Semantic search input */}
+      <div className="px-2 pb-2">
+        <div className="flex items-center gap-1.5 px-2 rounded-lg border bg-canvas border-line focus-within:border-accent/50 transition-colors">
+          <MagnifyingGlass size={12} className="text-faint shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') runSearch();
+              if (e.key === 'Escape') clearSearch();
+            }}
+            placeholder={mode === 'code' ? 'Semantic code search…' : 'Semantic note search…'}
+            aria-label={mode === 'code' ? 'Semantic code search' : 'Semantic note search'}
+            className="flex-1 min-w-0 bg-transparent py-1.5 text-[11px] text-ink placeholder-faint focus:outline-none"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              aria-label="Clear search"
+              className="p-0.5 rounded text-faint hover:text-ink transition-colors cursor-pointer"
+            >
+              <X size={11} />
+            </button>
+          )}
+          {isSearching && (
+            <ArrowClockwise size={11} className="text-accent animate-spin shrink-0" />
+          )}
+        </div>
       </div>
 
       {/* Tag / language chips — one scrollable row, expandable */}

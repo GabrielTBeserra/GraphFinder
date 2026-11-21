@@ -14,6 +14,7 @@ import type {
   NodeExplanation,
   NoteRecord,
   NoteSummary,
+  AppSettings,
   PathResult,
   ProjectInfo,
   SearchHit,
@@ -627,4 +628,29 @@ export async function fetchMcpActivity(): Promise<McpCallEntry[]> {
   } catch {
     return [];
   }
+}
+
+export async function checkMcpHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${MCP_HTTP}/api/tools`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function getAppSettings(): Promise<AppSettings> {
+  if (isTauri) {
+    return invoke('get_app_settings');
+  }
+  return { autostart: false, closeToTray: true, startMinimized: false };
+}
+
+export async function updateAppSettings(
+  settings: AppSettings
+): Promise<AppSettings> {
+  if (isTauri) {
+    return invoke('update_app_settings', { settings });
+  }
+  return settings;
 }

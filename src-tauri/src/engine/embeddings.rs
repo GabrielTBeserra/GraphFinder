@@ -127,6 +127,9 @@ pub struct EmbeddingEngine {
     reranker: Arc<Mutex<Option<TextRerank>>>,
     status: Arc<Mutex<String>>,
     model_id: Arc<Mutex<String>>,
+    /// Bounded LRU-ish cache for query embeddings — agents repeat queries
+    /// constantly and re-running ONNX per repeat is pure waste.
+    query_cache: Arc<Mutex<std::collections::HashMap<String, Vec<f32>>>>,
     /// E5-family models require "query: "/"passage: " prefixes.
     needs_prefix: Arc<Mutex<bool>>,
 }
@@ -138,6 +141,7 @@ impl EmbeddingEngine {
             reranker: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new("initializing".to_string())),
             model_id: Arc::new(Mutex::new("unknown".to_string())),
+            query_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
             needs_prefix: Arc::new(Mutex::new(false)),
         }
     }
@@ -149,6 +153,7 @@ impl EmbeddingEngine {
             reranker: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new("ready".to_string())),
             model_id: Arc::new(Mutex::new(model_id.to_string())),
+            query_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
             needs_prefix: Arc::new(Mutex::new(needs_prefix)),
         })
     }
@@ -375,8 +380,20 @@ impl EmbeddingEngine {
         &self,
         text: &str,
     ) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        self.embed_text(&self.prefixed(text.to_string(), "query"))
-            .await
+        let key = self.prefixed(text.to_string(), "query");
+        if let Ok(cache) = self.query_cache.lock() {
+            if let Some(hit) = cache.get(&key) {
+                return Ok(hit.clone());
+            }
+        }
+        let vec = self.embed_text(&key).await?;
+        if let Ok(mut cache) = self.query_cache.lock() {
+            if cache.len() >= 512 {
+                cache.clear();
+            }
+            cache.insert(key, vec.clone());
+        }
+        Ok(vec)
     }
 
     /// Embed one document for indexing ("passage: " prefix on E5 models).

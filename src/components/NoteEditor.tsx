@@ -20,6 +20,7 @@ import {
 } from '@phosphor-icons/react';
 import type { LinkSuggestion, NoteRecord, NoteSummary, SectionSummary } from '../types';
 import { getCompressedContext, suggestLinks } from '../services/api';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface NoteEditorProps {
   note: NoteRecord | null;
@@ -58,16 +59,46 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   onClose,
   onNavigateNote,
   availableNotes = [],
-  theme = 'dark',
 }) => {
-  const isLight = theme === 'light';
   const [title, setTitle] = useState(note?.title ?? (note ? '' : 'New Note'));
   const [content, setContent] = useState(
     note?.content ??
       '# New Note\n\nStart writing your thoughts here.\nConnect to other notes with [[Note Title]] and add #tags.'
   );
   const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'split'>('split');
-  const [isFullscreen, setIsFullscreen] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [editorWidth, setEditorWidth] = useState<number>(() => {
+    try {
+      const w = Number(localStorage.getItem('gf_editor_w'));
+      return w >= 340 && w <= 900 ? w : 520;
+    } catch {
+      return 520;
+    }
+  });
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = editorWidth;
+    const onMove = (ev: MouseEvent) => {
+      setEditorWidth(Math.min(900, Math.max(340, startW - (ev.clientX - startX))));
+    };
+    const onUp = (ev: MouseEvent) => {
+      const final = Math.min(900, Math.max(340, startW - (ev.clientX - startX)));
+      setEditorWidth(final);
+      try { localStorage.setItem('gf_editor_w', String(final)); } catch { /* noop */ }
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const requestClose = () => {
+    if (isDirty) setConfirmClose(true);
+    else onClose();
+  };
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(!note);
   const [suggestions, setSuggestions] = useState<LinkSuggestion[]>([]);
@@ -148,10 +179,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         e.preventDefault();
         handleSave();
       }
+      if (e.key === 'Escape' && !autocomplete.isOpen) {
+        if (isDirty) setConfirmClose(true);
+        else onClose();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleSave]);
+  }, [handleSave, autocomplete.isOpen, isDirty, onClose]);
 
   // Extract headings from the current document
   const currentHeadings = useMemo(() => {
@@ -514,12 +549,20 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   return (
     <div
       className={`absolute top-0 bottom-0 z-30 flex flex-col border-l shadow-2xl backdrop-blur-md transition-all duration-200 ${
-        isFullscreen
-          ? 'left-0 right-0 w-full'
-          : 'right-0 w-full md:w-[480px] lg:w-[540px]'
+        isFullscreen ? 'left-0 right-0 w-full' : 'right-0'
       } ${'bg-surface border-line shadow-sm'}`}
+      style={isFullscreen ? undefined : { width: editorWidth }}
       aria-label="Note Editor"
     >
+      {!isFullscreen && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize editor"
+          onMouseDown={startResize}
+          className="absolute -left-0.5 top-0 bottom-0 w-1 cursor-col-resize z-30 hover:bg-accent/50 active:bg-accent transition-colors"
+        />
+      )}
       {/* Editor Header */}
       <div className={`flex items-center justify-between gap-3 px-4 py-3 border-b transition-colors ${
         'bg-surface/70 border-line'
@@ -551,9 +594,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             disabled={isSaving}
             className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               isDirty
-                ? 'bg-accent hover:bg-accent text-white shadow-xs'
-                : isLight
-                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                ? 'bg-accent hover:bg-accent-strong text-on-accent shadow-xs'
                 : 'bg-raise hover:bg-raise text-ink border border-line'
             }`}
             title="Save changes (Ctrl+S / Cmd+S)" aria-label="Save changes (Ctrl+S / Cmd+S)"
@@ -574,16 +615,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           {note?.id && onDelete && (
             <button
               type="button"
-              onClick={async () => {
-                if (window.confirm(`Are you sure you want to delete note "${note.title}"?`)) {
-                  await onDelete(note.id, note.title);
-                  onClose();
-                }
-              }}
+              onClick={() => onDelete(note.id, note.title)}
               className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-                isLight
-                  ? 'text-slate-400 hover:text-bad hover:bg-bad/10 border border-transparent'
-                  : 'text-muted hover:text-bad hover:bg-bad/15/40 border border-transparent hover:border-bad/40/40'
+                'text-muted hover:text-bad hover:bg-bad/15 border border-transparent hover:border-bad/40'
               }`}
               title="Delete note permanently"
             >
@@ -595,9 +629,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             type="button"
             onClick={() => setIsFullscreen(!isFullscreen)}
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-              isLight
-                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-muted hover:text-ink hover:bg-raise'
+              'text-muted hover:text-ink hover:bg-raise'
             }`}
             title={isFullscreen ? 'Exit Fullscreen' : 'Focus Mode (Fullscreen)'} aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           >
@@ -606,11 +638,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-              isLight
-                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-muted hover:text-ink hover:bg-raise'
+              'text-muted hover:text-ink hover:bg-raise'
             }`}
             title="Close Panel (Esc)" aria-label="Close Panel (Esc)"
           >
@@ -633,9 +663,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onClick={() => setViewMode('edit')}
             className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
               viewMode === 'edit'
-                ? 'bg-accent text-white shadow-xs'
-                : isLight
-                ? 'text-slate-600 hover:text-slate-900'
+                ? 'bg-accent text-on-accent shadow-xs'
                 : 'text-muted hover:text-ink'
             }`}
           >
@@ -650,9 +678,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onClick={() => setViewMode('split')}
             className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
               viewMode === 'split'
-                ? 'bg-accent text-white shadow-xs'
-                : isLight
-                ? 'text-slate-600 hover:text-slate-900'
+                ? 'bg-accent text-on-accent shadow-xs'
                 : 'text-muted hover:text-ink'
             }`}
           >
@@ -667,9 +693,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onClick={() => setViewMode('preview')}
             className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
               viewMode === 'preview'
-                ? 'bg-accent text-white shadow-xs'
-                : isLight
-                ? 'text-slate-600 hover:text-slate-900'
+                ? 'bg-accent text-on-accent shadow-xs'
                 : 'text-muted hover:text-ink'
             }`}
           >
@@ -684,9 +708,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onClick={handleSuggestLinks}
             disabled={isSuggesting}
             className={`inline-flex items-center gap-1.5 h-6 px-2 rounded-md text-[11px] transition-colors cursor-pointer ${
-              isLight
-                ? 'bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-700'
-                : 'bg-raise border border-line hover:bg-raise text-ink'
+              'bg-raise border border-line hover:bg-raise text-ink'
             }`}
             title="Semantic Auto-Linker: discover conceptual connections" aria-label="Semantic Auto-Linker: discover conceptual connections"
           >
@@ -698,9 +720,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             type="button"
             onClick={insertWikilink}
             className={`flex items-center justify-center w-6 h-6 rounded-md border transition-colors cursor-pointer ${
-              isLight
-                ? 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
-                : 'bg-raise border border-line text-muted hover:text-ink'
+              'bg-raise border border-line text-muted hover:text-ink'
             }`}
             title="Insert Wikilink [[Link]]" aria-label="Insert Wikilink [[Link]]"
           >
@@ -747,7 +767,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 <button
                   type="button"
                   onClick={() => handleApplySuggestion(s)}
-                  className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-accent hover:bg-accent text-white text-[11px] font-medium transition-colors cursor-pointer shrink-0"
+                  className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-accent hover:bg-accent-strong text-on-accent text-[11px] font-medium transition-colors cursor-pointer shrink-0"
                 >
                   <Plus size={10} weight="bold" />
                   <span>Connect</span>
@@ -765,9 +785,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             <textarea
               ref={textareaRef}
               className={`w-full h-full p-4 font-mono text-xs bg-transparent resize-none focus:outline-none border-r leading-relaxed ${
-                isLight
-                  ? 'text-ink border-line placeholder:text-faint selection:bg-accent-soft'
-                  : 'text-ink border-line placeholder:text-faint selection:bg-accent/30'
+                'text-ink border-line placeholder:text-faint selection:bg-accent/30'
               }`}
               value={content}
               onChange={handleContentChange}
@@ -808,11 +826,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                         }
                         className={`px-3 py-2 text-xs flex items-center justify-between gap-2 cursor-pointer transition-colors ${
                           isSelected
-                            ? isLight
-                              ? 'bg-accent-soft text-accent-strong font-semibold'
-                              : 'bg-accent/20 text-ink'
-                            : isLight
-                            ? 'text-slate-700 hover:bg-slate-50'
+                            ? 'bg-accent/20 text-ink'
                             : 'text-ink hover:bg-raise'
                         }`}
                       >
@@ -886,9 +900,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     type="button"
                     onClick={() => onNavigateNote(b)}
                     className={`px-2 py-0.5 rounded font-mono text-[11px] transition-colors cursor-pointer border ${
-                      isLight
-                        ? 'bg-white hover:bg-slate-100 border-slate-200 text-sky-700'
-                        : 'bg-raise hover:bg-raise border-line hover:border-line-strong text-sky-400'
+                      'bg-raise hover:bg-raise border-line hover:border-line-strong text-sky-400'
                     }`}
                   >
                     [[{b}]]
@@ -911,9 +923,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     type="button"
                     onClick={() => onNavigateNote(l)}
                     className={`px-2 py-0.5 rounded font-mono text-[11px] transition-colors cursor-pointer border ${
-                      isLight
-                        ? 'bg-white hover:bg-slate-100 border-slate-200 text-sky-700'
-                        : 'bg-raise hover:bg-raise border-line hover:border-line-strong text-sky-400'
+                      'bg-raise hover:bg-raise border-line hover:border-line-strong text-sky-400'
                     }`}
                   >
                     [[{l}]]
@@ -924,6 +934,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmClose}
+        title="Discard unsaved changes?"
+        description="This note has unsaved edits that will be lost."
+        confirmLabel="Discard"
+        onConfirm={() => {
+          setConfirmClose(false);
+          onClose();
+        }}
+        onCancel={() => setConfirmClose(false)}
+      />
     </div>
   );
 };

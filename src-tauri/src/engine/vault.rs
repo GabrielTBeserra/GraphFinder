@@ -23,6 +23,9 @@ pub struct Engine {
     vault_path: PathBuf,
     db_path: PathBuf,
     db: Arc<Mutex<DbManager>>,
+    /// Dedicated read connection — WAL lets readers proceed while the
+    /// writer (sync) holds its own lock, so queries never stall.
+    rdb: Arc<Mutex<DbManager>>,
     embeddings: Arc<EmbeddingEngine>,
     sync_mutex: Arc<Mutex<()>>,
     cached_count: Arc<AtomicUsize>,
@@ -69,12 +72,14 @@ impl Engine {
         }
 
         let db = DbManager::new(db_path.to_str().unwrap_or("index.db"))?;
+        let rdb = DbManager::new(db_path.to_str().unwrap_or("index.db"))?;
         let initial_count = db.total_indexed_count();
 
         Ok(Self {
             vault_path,
             db_path,
             db: Arc::new(Mutex::new(db)),
+            rdb: Arc::new(Mutex::new(rdb)),
             embeddings,
             sync_mutex: Arc::new(Mutex::new(())),
             cached_count: Arc::new(AtomicUsize::new(initial_count)),
@@ -96,7 +101,7 @@ impl Engine {
 
     /// Live (notes, code files) counts from the open database.
     pub async fn item_counts(&self) -> (usize, usize) {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         db.item_counts()
     }
 
@@ -144,7 +149,7 @@ impl Engine {
         // note and code file under the new model, then re-stamp at the end.
         let current_model_id = self.embeddings.model_id();
         {
-            let db = self.db.lock().await;
+            let db = self.rdb.lock().await;
             let stamped = db.get_meta("embedding_model")?.unwrap_or_default();
             if stamped != current_model_id {
                 if stamped.is_empty() {
@@ -161,7 +166,7 @@ impl Engine {
 
         // 1. Fetch existing timestamps and content hashes for instant incremental sync
         let (existing_note_meta, existing_code_meta) = {
-            let db = self.db.lock().await;
+            let db = self.rdb.lock().await;
             (db.get_all_notes_meta()?, db.get_all_code_files_meta()?)
         };
 
@@ -779,7 +784,7 @@ impl Engine {
             let mut seen_targets = std::collections::HashSet::new();
 
             {
-                let db = self.db.lock().await;
+                let db = self.rdb.lock().await;
                 if let Ok(suggestions) = db.suggest_links(&note_embedding, &id, 0.70, 10) {
                     for s in suggestions {
                         let key = s.target_title.to_lowercase();
@@ -991,7 +996,7 @@ impl Engine {
         &self,
         id_or_title: &str,
     ) -> Result<Option<NoteRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         if let Some(n) = db.get_note_by_id(id_or_title)? {
             return Ok(Some(n));
         }
@@ -1001,14 +1006,14 @@ impl Engine {
     pub async fn list_notes(
         &self,
     ) -> Result<Vec<NoteSummary>, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.get_all_notes()?)
     }
 
     pub async fn get_vault_stats(
         &self,
     ) -> Result<VaultStats, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.get_vault_stats()?)
     }
 
@@ -1026,7 +1031,7 @@ impl Engine {
             }
         }
         let summaries = {
-            let db = self.db.lock().await;
+            let db = self.rdb.lock().await;
             db.get_all_summaries()?
         };
         let engine = Arc::new(super::graph_analytics::GraphAnalyticsEngine::new(
@@ -1045,7 +1050,7 @@ impl Engine {
     ) {
         // 1. Try persisted positions (valid only for the same graph fingerprint)
         let positions = {
-            let db = self.db.lock().await;
+            let db = self.rdb.lock().await;
             let stored_fp = db
                 .get_meta("layout_fingerprint")
                 .ok()
@@ -1122,7 +1127,7 @@ impl Engine {
     pub async fn get_graph(&self) -> Result<GraphData, Box<dyn std::error::Error + Send + Sync>> {
         let t_start = Instant::now();
         let mut graph = {
-            let db = self.db.lock().await;
+            let db = self.rdb.lock().await;
             db.get_graph_data()?
         };
         let t_db = t_start.elapsed();
@@ -1163,7 +1168,7 @@ impl Engine {
     ) -> Result<Arc<super::graph_analytics::GraphAnalyticsEngine>, Box<dyn std::error::Error + Send + Sync>>
     {
         let graph = {
-            let db = self.db.lock().await;
+            let db = self.rdb.lock().await;
             db.get_graph_data()?
         };
         let fingerprint = super::layout::graph_fingerprint(&graph);
@@ -1212,7 +1217,7 @@ impl Engine {
         target: &str,
         depth: usize,
     ) -> Result<Neighborhood, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.get_neighborhood(target, depth)?)
     }
 
@@ -1222,7 +1227,7 @@ impl Engine {
         limit: usize,
     ) -> Result<Vec<SearchHit>, Box<dyn std::error::Error + Send + Sync>> {
         let query_emb = self.embeddings.embed_query(query).await?;
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.semantic_search(&query_emb, limit)?)
     }
 
@@ -1239,7 +1244,7 @@ impl Engine {
             limit
         };
         let mut hits = {
-            let db = self.db.lock().await;
+            let db = self.rdb.lock().await;
             db.search_chunks_hybrid(query, &query_emb, candidate_limit)?
         };
         self.embeddings.rerank_chunks(query, &mut hits, limit);
@@ -1255,7 +1260,7 @@ impl Engine {
         limit: usize,
     ) -> Result<Vec<LinkSuggestion>, Box<dyn std::error::Error + Send + Sync>> {
         let text_emb = self.embeddings.embed_passage(text).await?;
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.suggest_links(&text_emb, exclude_note_id, threshold, limit)?)
     }
 
@@ -1264,7 +1269,7 @@ impl Engine {
         &self,
         target: &str,
     ) -> Result<Option<CompressedContext>, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.get_compressed_context(target)?)
     }
 
@@ -1274,7 +1279,7 @@ impl Engine {
         target: &str,
         section: &str,
     ) -> Result<Option<ChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.get_section(target, section)?)
     }
 
@@ -1335,7 +1340,7 @@ impl Engine {
             limit
         };
         let mut hits = {
-            let db = self.db.lock().await;
+            let db = self.rdb.lock().await;
             db.search_code_hybrid(query, &query_emb, candidate_limit, lang_filter)?
         };
         self.embeddings.rerank_code_chunks(query, &mut hits, limit);
@@ -1348,7 +1353,7 @@ impl Engine {
         language: Option<&str>,
         limit: usize,
     ) -> Result<Vec<CodeFileRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.find_files(pattern, language, limit)?)
     }
 
@@ -1356,7 +1361,7 @@ impl Engine {
         &self,
         file_path: &str,
     ) -> Result<Option<FileContext>, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.get_file_context(file_path)?)
     }
 
@@ -1365,7 +1370,7 @@ impl Engine {
         file_path: &str,
         symbol_or_lines: Option<&str>,
     ) -> Result<Option<CodeChunkHit>, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.read_code_chunk(file_path, symbol_or_lines)?)
     }
 
@@ -1374,7 +1379,7 @@ impl Engine {
         file_path: &str,
         direction: &str,
     ) -> Result<CodeDependencies, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.get_code_dependencies(file_path, direction)?)
     }
 
@@ -1382,7 +1387,7 @@ impl Engine {
         &self,
         limit: usize,
     ) -> Result<Vec<CodeFileRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        let db = self.db.lock().await;
+        let db = self.rdb.lock().await;
         Ok(db.list_code_files(limit)?)
     }
 }

@@ -5,6 +5,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tauri::Emitter;
 
+pub mod bridge;
+
 use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
@@ -16,7 +18,7 @@ use rmcp::{
         Role, ServerCapabilities, ServerConfig,
     },
     service::RequestContext,
-    tool, tool_handler, tool_router, ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
+    tool, tool_router, ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
 };
 
 use crate::engine::VaultManager;
@@ -26,6 +28,56 @@ use crate::engine::VaultManager;
 const MAX_SEARCH_CHUNK_TOKENS: usize = 1500;
 
 /// Truncates a string to at most `max_chars` bytes on a char boundary.
+const DEFAULT_OUTPUT_BUDGET: usize = 8000;
+
+/// Result diversification: keeps at most `per_parent` hits per parent
+/// (note/file) and drops near-duplicates (Jaccard >= 0.8 on tokens).
+fn diversify<T>(
+    items: Vec<T>,
+    parent: impl Fn(&T) -> String,
+    content: impl Fn(&T) -> &str,
+    per_parent: usize,
+) -> Vec<T> {
+    use std::collections::HashSet;
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut seen: Vec<HashSet<String>> = Vec::new();
+    let mut out = Vec::with_capacity(items.len());
+    'outer: for item in items {
+        let p = parent(&item);
+        let c = counts.entry(p).or_insert(0);
+        if *c >= per_parent {
+            continue;
+        }
+        let tokens: HashSet<String> = content(&item)
+            .split_whitespace()
+            .map(|w| w.to_lowercase())
+            .collect();
+        for prev in &seen {
+            let union = tokens.union(prev).count() as f32;
+            if union > 0.0 && tokens.intersection(prev).count() as f32 / union >= 0.8 {
+                continue 'outer;
+            }
+        }
+        *c += 1;
+        seen.push(tokens);
+        out.push(item);
+    }
+    out
+}
+
+/// Appends a formatted block unless it would exceed the budget —
+/// then writes an explicit truncation marker so agents can narrow.
+fn push_budgeted(out: &mut String, block: &str, budget: usize) -> bool {
+    if out.len() + block.len() > budget {
+        out.push_str("
+… truncated — narrow 'query', lower 'limit', or pass 'offset'.
+");
+        return false;
+    }
+    out.push_str(block);
+    true
+}
+
 fn truncate_str(s: &str, max_chars: usize) -> &str {
     if s.len() <= max_chars {
         return s;
@@ -69,6 +121,18 @@ pub struct SearchSemanticArgs {
     pub project: Option<String>,
     /// 'dense_chunks' (default, surgical 60-80 token chunks) or 'summaries' (1-line overview)
     pub format: Option<String>,
+    /// Result offset for cursor-style pagination (default: 0)
+    #[serde(default)]
+    pub offset: Option<usize>,
+    /// 'ids' returns only deep links + scores for 2-stage retrieval (cheap exploration)
+    #[serde(default)]
+    pub fields: Option<String>,
+    /// Batch mode: run multiple queries in a single call
+    #[serde(default)]
+    pub queries: Option<Vec<String>>,
+    /// Soft response-size budget in characters (default: 8000)
+    #[serde(default)]
+    pub max_chars: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -157,6 +221,9 @@ pub struct ListRecentNotesArgs {
     pub limit: Option<usize>,
     /// Target project/vault ID (optional)
     pub project: Option<String>,
+    /// Result offset for pagination (default: 0)
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -225,6 +292,18 @@ pub struct SearchCodeArgs {
     /// Target project/vault ID (optional)
     #[serde(default)]
     pub project: Option<String>,
+    /// Result offset for pagination (default: 0)
+    #[serde(default)]
+    pub offset: Option<usize>,
+    /// 'ids' returns only [[file#symbol]] links + scores
+    #[serde(default)]
+    pub fields: Option<String>,
+    /// Batch mode: multiple queries in one call
+    #[serde(default)]
+    pub queries: Option<Vec<String>>,
+    /// Soft response-size budget in characters (default: 8000)
+    #[serde(default)]
+    pub max_chars: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -241,6 +320,12 @@ pub struct FindFilesArgs {
     /// Target project/vault ID (optional)
     #[serde(default)]
     pub project: Option<String>,
+    /// Result offset for pagination (default: 0)
+    #[serde(default)]
+    pub offset: Option<usize>,
+    /// 'ids' returns only file paths
+    #[serde(default)]
+    pub fields: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -419,24 +504,58 @@ impl GraphFinderMcpServer {
             return Ok(CallToolResult::success(vec![ContentBlock::text(out)]));
         }
 
-        let chunks = match engine.search_chunks(&args.query, limit).await {
-            Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error during chunk search: {}", e))])),
-        };
-        if chunks.is_empty() {
-            return Ok(CallToolResult::success(vec![ContentBlock::text("No relevant semantic chunks found in vault.")]));
-        }
+        let offset = args.offset.unwrap_or(0);
+        let ids_only = matches!(args.fields.as_deref(), Some("ids") | Some("id"));
+        let budget = args.max_chars.unwrap_or(DEFAULT_OUTPUT_BUDGET);
+        let queries: Vec<String> = args
+            .queries
+            .clone()
+            .filter(|qs| !qs.is_empty())
+            .unwrap_or_else(|| vec![args.query.clone()]);
+        let fetch_n = offset + limit + 1;
 
         let mut out = String::from("High-Density Semantic Chunks (Token-Efficient):\n\n");
-        for (i, c) in chunks.into_iter().enumerate() {
-            out.push_str(&format!(
-                "{}. {} | Score: {:.0}% (~{} tokens)\n\"{}\"\n\n",
-                i + 1,
-                c.deep_link,
-                c.score * 100.0,
-                c.token_estimate,
-                c.content.trim()
-            ));
+        let mut any = false;
+        for q in &queries {
+            if queries.len() > 1 {
+                out.push_str(&format!("=== '{}' ===\n", q));
+            }
+            let chunks = match engine.search_chunks(q, fetch_n).await {
+                Ok(c) => c,
+                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error during chunk search: {}", e))])),
+            };
+            let has_more = chunks.len() >= fetch_n;
+            let chunks = diversify(
+                chunks,
+                |c: &crate::engine::ChunkHit| c.note_id.clone(),
+                |c: &crate::engine::ChunkHit| c.content.as_str(),
+                2,
+            );
+            let idx = offset;
+            for (i, c) in chunks.into_iter().skip(offset).take(limit).enumerate() {
+                any = true;
+                let block = if ids_only {
+                    format!("{}. {} | {:.0}%\n", idx + i + 1, c.deep_link, c.score * 100.0)
+                } else {
+                    format!(
+                        "{}. {} | Score: {:.0}% (~{} tokens)\n\"{}\"\n\n",
+                        idx + i + 1,
+                        c.deep_link,
+                        c.score * 100.0,
+                        c.token_estimate,
+                        c.content.trim()
+                    )
+                };
+                if !push_budgeted(&mut out, &block, budget) {
+                    return Ok(CallToolResult::success(vec![ContentBlock::text(out)]));
+                }
+            }
+            if has_more {
+                out.push_str(&format!("... more results — pass 'offset': {}\n", offset + limit));
+            }
+        }
+        if !any {
+            return Ok(CallToolResult::success(vec![ContentBlock::text("No relevant semantic chunks found in vault.")]));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
@@ -599,11 +718,15 @@ impl GraphFinderMcpServer {
     async fn list_recent_notes(&self, Parameters(args): Parameters<ListRecentNotesArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let limit = args.limit.unwrap_or(10);
+        let offset = args.offset.unwrap_or(0);
         let notes = match engine.list_notes().await {
             Ok(n) => n,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to list notes: {}", e))])),
         };
-        let display_notes = notes.into_iter().take(limit);
+        let total = notes.len();
+        let page: Vec<_> = notes.into_iter().skip(offset).take(limit).collect();
+        let remaining = total.saturating_sub(offset + page.len());
+        let display_notes = page.into_iter();
 
         let mut out = String::from("Notes in Knowledge Vault:\n");
         for n in display_notes {
@@ -611,6 +734,9 @@ impl GraphFinderMcpServer {
                 "- [[{}]] (Tags: {:?}) - \"{}\"\n",
                 n.title, n.tags, n.summary
             ));
+        }
+        if remaining > 0 {
+            out.push_str(&format!("... {} more — pass 'offset': {}\n", remaining, offset + limit));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
@@ -775,43 +901,79 @@ impl GraphFinderMcpServer {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let limit = args.limit.unwrap_or(5);
 
-        let hits = match engine.search_code(&args.query, limit, args.language.as_deref()).await {
-            Ok(h) => h,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error searching code: {}", e))])),
-        };
-
-        if hits.is_empty() {
-            return Ok(CallToolResult::success(vec![ContentBlock::text("No relevant code chunks found.")]));
-        }
+        let offset = args.offset.unwrap_or(0);
+        let ids_only = matches!(args.fields.as_deref(), Some("ids") | Some("id"));
+        let budget = args.max_chars.unwrap_or(DEFAULT_OUTPUT_BUDGET);
+        let queries: Vec<String> = args
+            .queries
+            .clone()
+            .filter(|qs| !qs.is_empty())
+            .unwrap_or_else(|| vec![args.query.clone()]);
+        let fetch_n = offset + limit + 1;
 
         let mut out = String::from("Relevant Code Chunks (Neural + FTS5 Hybrid Search):\n\n");
-        for (i, h) in hits.into_iter().enumerate() {
-            let content = h.content.trim();
-            let body = if h.token_estimate > MAX_SEARCH_CHUNK_TOKENS {
-                let truncated = truncate_str(content, MAX_SEARCH_CHUNK_TOKENS * 4);
-                let target = h
-                    .symbol_name
-                    .clone()
-                    .unwrap_or_else(|| format!("L{}-L{}", h.start_line, h.end_line));
-                format!(
-                    "{}\n... [truncated — full chunk is ~{} tokens; use `read_code_chunk(\"{}\", \"{}\")` for the complete symbol]",
-                    truncated, h.token_estimate, h.file_id, target
-                )
-            } else {
-                content.to_string()
+        let mut any = false;
+        for q in &queries {
+            if queries.len() > 1 {
+                out.push_str(&format!("=== '{}' ===\n", q));
+            }
+            let hits = match engine.search_code(q, fetch_n, args.language.as_deref()).await {
+                Ok(h) => h,
+                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error searching code: {}", e))])),
             };
-            out.push_str(&format!(
-                "{}. {} (Lines {}-{}, Relevance: {:.0}%, ~{} tokens)\n   Language: {}\n```{}\n{}\n```\n\n",
-                i + 1,
-                h.deep_link,
-                h.start_line,
-                h.end_line,
-                h.score * 100.0,
-                h.token_estimate,
-                h.language,
-                h.language,
-                body
-            ));
+            let has_more = hits.len() >= fetch_n;
+            let hits = diversify(
+                hits,
+                |h: &crate::engine::CodeChunkHit| h.file_id.clone(),
+                |h: &crate::engine::CodeChunkHit| h.content.as_str(),
+                2,
+            );
+            let idx = offset;
+            for (i, h) in hits.into_iter().skip(offset).take(limit).enumerate() {
+                any = true;
+                let block = if ids_only {
+                    format!(
+                        "{}. {} (L{}-{}, {:.0}%)\n",
+                        idx + i + 1, h.deep_link, h.start_line, h.end_line, h.score * 100.0
+                    )
+                } else {
+                    let content = h.content.trim();
+                    let body = if h.token_estimate > MAX_SEARCH_CHUNK_TOKENS {
+                        let truncated = truncate_str(content, MAX_SEARCH_CHUNK_TOKENS * 4);
+                        let target = h
+                            .symbol_name
+                            .clone()
+                            .unwrap_or_else(|| format!("L{}-L{}", h.start_line, h.end_line));
+                        format!(
+                            "{}\n... [truncated — full chunk is ~{} tokens; use `read_code_chunk(\"{}\", \"{}\")` for the complete symbol]",
+                            truncated, h.token_estimate, h.file_id, target
+                        )
+                    } else {
+                        content.to_string()
+                    };
+                    format!(
+                        "{}. {} (Lines {}-{}, Relevance: {:.0}%, ~{} tokens)\n   Language: {}\n```{}\n{}\n```\n\n",
+                        idx + i + 1,
+                        h.deep_link,
+                        h.start_line,
+                        h.end_line,
+                        h.score * 100.0,
+                        h.token_estimate,
+                        h.language,
+                        h.language,
+                        body
+                    )
+                };
+                if !push_budgeted(&mut out, &block, budget) {
+                    return Ok(CallToolResult::success(vec![ContentBlock::text(out)]));
+                }
+            }
+            if has_more {
+                out.push_str(&format!("... more results — pass 'offset': {}\n", offset + limit));
+            }
+        }
+        if !any {
+            return Ok(CallToolResult::success(vec![ContentBlock::text("No relevant code chunks found.")]));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
@@ -822,21 +984,32 @@ impl GraphFinderMcpServer {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let limit = args.limit.unwrap_or(20);
 
-        let files = match engine.find_files(args.pattern.as_deref(), args.language.as_deref(), limit).await {
+        let offset = args.offset.unwrap_or(0);
+        let ids_only = matches!(args.fields.as_deref(), Some("ids") | Some("id"));
+        let files = match engine.find_files(args.pattern.as_deref(), args.language.as_deref(), offset + limit + 1).await {
             Ok(f) => f,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error finding files: {}", e))])),
         };
+        let has_more = files.len() > offset + limit;
+        let files: Vec<_> = files.into_iter().skip(offset).take(limit).collect();
 
         if files.is_empty() {
             return Ok(CallToolResult::success(vec![ContentBlock::text("No files found matching the provided filters.")]));
         }
 
-        let mut out = format!("Files found in project (Total: {}):\n\n", files.len());
+        let mut out = format!("Files found in project (showing {}):\n\n", files.len());
         for f in files {
-            out.push_str(&format!(
-                "- `{}` ({}, {} bytes) | Internal imports: {} | External pkgs: {} | Dependents: {}\n  Summary: {}\n\n",
-                f.path, f.language, f.size_bytes, f.imports_count, f.external_count, f.dependents_count, f.summary
-            ));
+            if ids_only {
+                out.push_str(&format!("- `{}`\n", f.path));
+            } else {
+                out.push_str(&format!(
+                    "- `{}` ({}, {} bytes) | Internal imports: {} | External pkgs: {} | Dependents: {}\n  Summary: {}\n\n",
+                    f.path, f.language, f.size_bytes, f.imports_count, f.external_count, f.dependents_count, f.summary
+                ));
+            }
+        }
+        if has_more {
+            out.push_str(&format!("... more — pass 'offset': {}\n", offset + limit));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
@@ -1423,8 +1596,45 @@ impl GraphFinderMcpServer {
     }
 }
 
-#[tool_handler]
 impl ServerHandler for GraphFinderMcpServer {
+    async fn call_tool(
+        &self,
+        request: rmcp::model::CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::CallToolResponse, McpError> {
+        let tcc = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        self.tool_router.call(tcc).await
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListToolsResult, McpError> {
+        let mut tools = self.tool_router.list_all();
+        // GRAPHFINDER_MCP_PROFILE=core exposes only the essential toolset —
+        // cuts the schema token cost agents pay on every session init.
+        if std::env::var("GRAPHFINDER_MCP_PROFILE").ok().as_deref() == Some("core") {
+            const CORE: &[&str] = &[
+                "search_semantic",
+                "read_section",
+                "store_context",
+                "sync_vault",
+                "search_code",
+                "read_code_chunk",
+                "find_files",
+                "list_projects",
+                "get_compressed_context",
+                "suggest_links",
+            ];
+            tools.retain(|t| CORE.contains(&t.name.as_ref()));
+        }
+        Ok(rmcp::model::ListToolsResult {
+            tools,
+            ..Default::default()
+        })
+    }
+
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(
             ServerCapabilities::builder()

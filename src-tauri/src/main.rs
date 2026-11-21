@@ -411,6 +411,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     let cmd = args[1].to_lowercase();
+
+    // Flags de relançamento (autostart / bandeja) abrem a interface gráfica
+    if cmd == "--tray" || cmd == "--minimized" {
+        app_lib::run();
+        return Ok(());
+    }
     let is_mcp = cmd == "--mcp" || cmd == "mcp" || args.iter().any(|a| a == "--mcp" || a == "mcp");
 
     // Argumentos de terminal presentes: conecta ao console pai (no Windows), exceto em modo MCP stdio
@@ -427,6 +433,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // 2. Headless MCP Stdio Mode
     if is_mcp {
+        // If a GraphFinder instance is already running, bridge stdio to its
+        // HTTP MCP endpoint instead of loading a second engine + model.
+        let base_dir = app_lib::engine::project::resolve_base_dir();
+        if let Some(port) = app_lib::instance::probe_gui(&base_dir) {
+            eprintln!(
+                "[GraphFinder MCP] Bridging stdio to running instance on port {}.",
+                port
+            );
+            app_lib::mcp::bridge::run_stdio_bridge(port)?;
+            return Ok(());
+        }
+
         eprintln!("[GraphFinder MCP] Headless stdio mode activated.");
         let embeddings = Arc::new(EmbeddingEngine::new_lazy());
         let manager = Arc::new(VaultManager::new(Arc::clone(&embeddings))?);
@@ -476,6 +494,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     "graphfinder": {
                         "command": exe_str,
                         "args": ["--mcp"]
+                    },
+                    "graphfinder-http": {
+                        "type": "http",
+                        "url": "http://127.0.0.1:45123/mcp",
+                        "comment": "Shared engine on the running GUI instance — zero process spawn. Requires GraphFinder to be running."
                     }
                 }
             });
@@ -538,8 +561,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   }}
 }}"#, escaped_exe);
 
-        println!("\n3. Streamable HTTP Mode (for Remote Agents or Web Dashboards)");
-        println!("   Endpoint: http://127.0.0.1:45123/mcp");
+        println!("\n3. Streamable HTTP Mode (editors with native HTTP transport — no process spawn,");
+        println!("   shares the engine of the already-running GraphFinder instance):");
+        println!(r#"{{
+  "mcpServers": {{
+    "graphfinder": {{
+      "type": "http",
+      "url": "http://127.0.0.1:45123/mcp"
+    }}
+  }}
+}}"#);
 
         println!("\nTip: Run 'graphfinder config --install' to automatically register GraphFinder");
         println!("     into all installed AI editors on this machine.");
@@ -596,6 +627,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("\nCompatible with: Cursor, Claude Desktop, VS Code, Windsurf, Zed, Antigravity, and all AI Agents.");
         println!("======================================================================");
         return Ok(());
+    }
+
+    // ── Single-instance enforcement ──────────────────────────────────
+    // When the GraphFinder GUI is already running, vault commands are
+    // delegated to it over localhost HTTP: they execute inside the live
+    // instance against the same VaultManager, and their results appear in
+    // the interface immediately (projects-changed / vault-sync-complete).
+    const DELEGATABLE_COMMANDS: &[&str] = &[
+        "sync", "syn", "index", "status", "info", "projects", "list",
+        "search", "path", "explain", "export", "report", "audit",
+    ];
+    let _instance_lock;
+    if DELEGATABLE_COMMANDS.contains(&cmd.as_str()) {
+        let base_dir = app_lib::engine::project::resolve_base_dir();
+        if let Some(port) = app_lib::instance::probe_gui(&base_dir) {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            match app_lib::instance::delegate_to_gui(port, &args, &cwd) {
+                Ok(res) => {
+                    print!("{}", res.stdout);
+                    eprint!("{}", res.stderr);
+                    std::process::exit(res.code);
+                }
+                Err(e) => {
+                    eprintln!("[instance] GUI delegation failed ({}); running locally.", e);
+                }
+            }
+        }
+        match app_lib::instance::try_acquire_lock(&base_dir) {
+            Some(f) => _instance_lock = f,
+            None => {
+                eprintln!("GraphFinder is already running. Only one instance can use the vault at a time.");
+                eprintln!("If the app is open in a window or in the system tray, this command");
+                eprintln!("is forwarded to it automatically — otherwise wait for the running");
+                eprintln!("process to finish and try again.");
+                std::process::exit(1);
+            }
+        }
     }
 
     // 3. Command: sync / syn / index

@@ -1270,16 +1270,40 @@ impl DbManager {
         // 2. FTS5 Candidate Collection
         let mut fts_ranks: HashMap<String, usize> = HashMap::new();
         if has_fts {
-            let fts_stmt = self.conn.prepare(
-                "SELECT chunk_id, rank FROM chunks_fts WHERE chunks_fts MATCH ?1 ORDER BY rank LIMIT 50",
-            );
-            if let Ok(mut stmt) = fts_stmt {
-                if let Ok(rows) = stmt.query_map(params![fts_query], |row| {
-                    Ok(row.get::<_, String>(0)?)
-                }) {
-                    for (rank, r) in rows.flatten().enumerate() {
-                        fts_ranks.insert(r, rank + 1);
+            let collect = |conn: &rusqlite::Connection, q: &str| -> HashMap<String, usize> {
+                let mut ranks = HashMap::new();
+                if let Ok(mut stmt) = conn.prepare(
+                    "SELECT chunk_id, rank FROM chunks_fts WHERE chunks_fts MATCH ?1 ORDER BY rank LIMIT 50",
+                ) {
+                    if let Ok(rows) = stmt.query_map(params![q], |row| {
+                        Ok(row.get::<_, String>(0)?)
+                    }) {
+                        for (rank, r) in rows.flatten().enumerate() {
+                            ranks.insert(r, rank + 1);
+                        }
                     }
+                }
+                ranks
+            };
+            fts_ranks = collect(&self.conn, &fts_query);
+            // Prefix-expansion fallback: if the literal MATCH found
+            // nothing, retry with `token*` OR-ed variants (typos,
+            // inflections, partial identifiers).
+            if fts_ranks.is_empty() && !fts_query.trim().is_empty() {
+                let expanded = fts_query
+                    .split_whitespace()
+                    .filter_map(|t| {
+                        let t = t.trim_matches(|ch: char| !ch.is_alphanumeric() && ch != '_');
+                        if t.len() >= 2 {
+                            Some(format!("{}*", t))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+                if !expanded.is_empty() {
+                    fts_ranks = collect(&self.conn, &expanded);
                 }
             }
         }
@@ -1314,7 +1338,7 @@ impl DbManager {
         let max_rrf = (1.0 / 61.0) + (1.0 / 61.0);
 
         // 4. Batch fetch full content and metadata for winning chunks (avoids N+1 query loop)
-        let mut hit_map: HashMap<String, (String, String, Option<String>, String, usize)> =
+        let mut hit_map: HashMap<String, (String, String, Option<String>, String, usize, i64)> =
             HashMap::new();
         for batch in rrf_scored.chunks(100) {
             let placeholders = (1..=batch.len())
@@ -1323,7 +1347,7 @@ impl DbManager {
                 .join(",");
             let sql = format!(
                 r#"
-                SELECT c.id, c.note_id, n.title, c.heading, c.content, c.token_estimate
+                SELECT c.id, c.note_id, n.title, c.heading, c.content, c.token_estimate, n.updated_at
                 FROM note_chunks c
                 JOIN notes n ON n.id = c.note_id
                 WHERE c.id IN ({})
@@ -1341,13 +1365,17 @@ impl DbManager {
                 let heading: Option<String> = row.get(3)?;
                 let content: String = row.get(4)?;
                 let token_estimate = row.get::<_, i64>(5)? as usize;
-                hit_map.insert(id, (note_id, note_title, heading, content, token_estimate));
+                let updated_at: i64 = row.get(6)?;
+                hit_map.insert(
+                    id,
+                    (note_id, note_title, heading, content, token_estimate, updated_at),
+                );
             }
         }
 
         let mut hits = Vec::with_capacity(rrf_scored.len());
         for (chunk_id, rrf_score) in rrf_scored {
-            if let Some((note_id, note_title, heading, content, token_estimate)) =
+            if let Some((note_id, note_title, heading, content, token_estimate, updated_at)) =
                 hit_map.remove(&chunk_id)
             {
                 let deep_link = match &heading {
@@ -1362,6 +1390,15 @@ impl DbManager {
                 } else {
                     normalized_rrf
                 };
+                // Recency boost: notes touched in the last days get up to
+                // +15% (half-life ~21 days), keeping stale notes ranked down.
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                let age_days = (now - updated_at).max(0) as f32 / 86400.0;
+                let display_score = (display_score * (1.0 + 0.15 * (-age_days / 30.0).exp()))
+                    .clamp(0.0, 1.0);
 
                 hits.push(ChunkHit {
                     chunk_id,
@@ -1375,6 +1412,7 @@ impl DbManager {
                 });
             }
         }
+        hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
         Ok(hits)
     }

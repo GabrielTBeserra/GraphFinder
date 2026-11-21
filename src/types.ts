@@ -278,3 +278,9 @@ export interface ExportSummary {
   god_nodes_count: number;
 }
 
+
+export interface AppSettings {
+  autostart: boolean;
+  closeToTray: boolean;
+  startMinimized: boolean;
+}

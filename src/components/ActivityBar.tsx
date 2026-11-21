@@ -9,6 +9,7 @@ import {
   Gear,
   Sun,
   Moon,
+  SlidersHorizontal,
 } from '@phosphor-icons/react';
 
 interface ActivityBarProps {
@@ -23,6 +24,7 @@ interface ActivityBarProps {
   onSync: () => void;
   onOpenMcp: () => void;
   onOpenReleases: () => void;
+  onOpenSettings: () => void;
 }
 
 export const ActivityBar: React.FC<ActivityBarProps> = ({
@@ -37,6 +39,7 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
   onSync,
   onOpenMcp,
   onOpenReleases,
+  onOpenSettings,
 }) => {
   const item = (
     icon: React.ReactNode,
@@ -49,7 +52,7 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`relative w-full h-11 flex items-center justify-center transition-colors cursor-pointer ${
+      className={`relative w-full h-11 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 ${
         active
           ? 'text-accent before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:bg-accent before:rounded-r'
           : 'text-faint hover:text-ink'
@@ -76,7 +79,7 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
             type="button"
             aria-label="Manage"
             title={hasUpdate ? 'Manage — update available' : 'Manage'}
-            className="relative w-full h-11 flex items-center justify-center text-faint hover:text-ink transition-colors cursor-pointer focus:outline-none"
+            className="relative w-full h-11 flex items-center justify-center text-faint hover:text-ink transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
           >
             <Gear size={18} />
             {hasUpdate && (
@@ -99,6 +102,13 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
                 Releases
                 {hasUpdate && <span className="absolute -right-3 top-1 size-1.5 rounded-full bg-good" />}
               </span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={onOpenSettings}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-ink cursor-pointer outline-none data-[highlighted]:bg-raise"
+            >
+              <SlidersHorizontal size={13} />
+              Preferences
             </DropdownMenu.Item>
             <DropdownMenu.Item
               onSelect={onToggleTheme}

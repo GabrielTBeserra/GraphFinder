@@ -95,3 +95,8 @@ vaults/*/
 *.tmp
 *.bak
 *.orig
+
+# GraphFinder runtime artifacts (single-instance lock, instance info, app settings)
+/graphfinder.lock
+/instance.json
+/settings.json
