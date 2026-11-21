@@ -61,8 +61,7 @@ function formatTime(ts: number): string {
   return d.toLocaleTimeString(undefined, { hour12: false });
 }
 
-export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'dark' }) => {
-  const isLight = theme === 'light';
+export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose }) => {
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [mcpInfo, setMcpInfo] = useState<McpConfigInfo | null>(null);
   const [activeClient, setActiveClient] = useState<ClientTab>('cursor');
@@ -433,7 +432,7 @@ export const McpModal: React.FC<McpModalProps> = ({ isOpen, onClose, theme = 'da
 
           <div className="flex items-center justify-between pt-3 border-t border-line text-[10px] font-mono text-faint">
             <span>GraphFinder MCP · rmcp SDK</span>
-            <span>{isLight ? 'light' : 'dark'} theme</span>
+            <span>{'dark'} theme</span>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

@@ -29,9 +29,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
   onClose,
   releaseInfo,
   onUpdateReleaseInfo,
-  theme = 'dark',
 }) => {
-  const isLight = theme === 'light';
   const [isChecking, setIsChecking] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -78,9 +76,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md" />
         <Dialog.Content
           className={`fixed left-1/2 top-1/2 z-50 w-full max-w-xl max-h-[88vh] -translate-x-1/2 -translate-y-1/2 rounded-2xl border p-6 shadow-2xl flex flex-col focus:outline-none overflow-hidden transition-colors ${
-            isLight
-              ? 'bg-white border-slate-200 text-slate-800'
-              : 'bg-surface border-line text-ink'
+            'bg-surface border-line text-ink'
           }`}
         >
           {/* Header */}
@@ -93,11 +89,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
               <div
                 className={`flex items-center justify-center w-10 h-10 rounded-xl border ${
                   hasUpdate
-                    ? isLight
-                      ? 'bg-good/10 border-good/30 text-good'
-                      : 'bg-good/100/10 border-good/40/25 text-good'
-                    : isLight
-                    ? 'bg-accent-soft border-accent-line text-accent-strong'
+                    ? 'bg-good/100 border-good/40 text-good'
                     : 'bg-accent/10 border-accent-line text-accent'
                 }`}
               >
@@ -113,12 +105,8 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
                   <span
                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono font-medium ${
                       hasUpdate
-                        ? isLight
-                          ? 'bg-good/15 text-good border border-good/30'
-                          : 'bg-good/100/15 text-good border border-good/40/30'
-                        : isLight
-                        ? 'bg-slate-100 text-slate-700 border border-slate-200'
-                        : 'bg-raise text-slate-300 border border-line-strong'
+                        ? 'bg-good/100 text-good border border-good/40'
+                        : 'bg-raise text-ink border border-line-strong'
                     }`}
                   >
                     {hasUpdate ? 'Update Available' : 'Up to Date'}
@@ -138,9 +126,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
               <button
                 type="button"
                 className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  isLight
-                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                    : 'text-muted hover:text-ink hover:bg-line'
+                  'text-muted hover:text-ink hover:bg-line'
                 }`}
                 title="Close" aria-label="Close"
               >
@@ -152,9 +138,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
           {/* Versions Summary Bar */}
           <div
             className={`my-4 p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
-              isLight
-                ? 'bg-slate-50 border-slate-200'
-                : 'bg-raise border-line'
+              'bg-raise border-line'
             }`}
           >
             <div className="flex items-center gap-4">
@@ -189,9 +173,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
                   className={`font-mono font-bold text-sm ${
                     hasUpdate
                       ? 'text-good'
-                      : isLight
-                      ? 'text-slate-700'
-                      : 'text-slate-300'
+                      : 'text-ink'
                   }`}
                 >
                   v{latestVer}
@@ -205,9 +187,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
                 onClick={handleCheckNow}
                 disabled={isChecking}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer disabled:opacity-50 ${
-                  isLight
-                    ? 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs'
-                    : 'bg-raise hover:bg-raise text-slate-200 border border-line-strong'
+                  'bg-raise hover:bg-raise text-ink border border-line-strong'
                 }`}
               >
                 <ArrowClockwise
@@ -224,12 +204,8 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
             <div
               className={`mb-3 px-3 py-1.5 rounded-lg text-xs font-medium border ${
                 hasUpdate
-                  ? isLight
-                    ? 'bg-good/10 border-good/30 text-emerald-700'
-                    : 'bg-good/100/10 border-good/40/25 text-good'
-                  : isLight
-                  ? 'bg-slate-100 border-slate-200 text-slate-700'
-                  : 'bg-raise border-line text-slate-300'
+                  ? 'bg-good/100 border-good/40 text-good'
+                  : 'bg-raise border-line text-ink'
               }`}
             >
               {statusMessage}
@@ -260,9 +236,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
             {renderedNotes ? (
               <div
                 className={`text-xs leading-relaxed p-3.5 rounded-xl border prose max-w-none ${
-                  isLight
-                    ? 'bg-slate-50/60 border-slate-200 prose-slate'
-                    : 'bg-surface border-line prose-invert text-slate-300'
+                  'bg-surface border-line prose-invert text-ink'
                 }`}
                 dangerouslySetInnerHTML={{ __html: renderedNotes }}
               />
@@ -293,9 +267,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
                       type="button"
                       onClick={() => openExternalUrl(asset.browser_download_url)}
                       className={`flex items-center justify-between p-2 rounded-lg border text-[11px] font-mono transition-colors text-left truncate cursor-pointer ${
-                        isLight
-                          ? 'bg-raise hover:bg-accent-soft border-line text-ink'
-                          : 'bg-raise hover:bg-raise border-line text-slate-300 hover:text-white'
+                        'bg-raise hover:bg-raise border-line text-ink hover:text-ink'
                       }`}
                       title={asset.name}
                     >
@@ -328,9 +300,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
                 <button
                   type="button"
                   className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-                    isLight
-                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                      : 'bg-line hover:bg-raise text-slate-300'
+                    'bg-line hover:bg-raise text-ink'
                   }`}
                 >
                   Close
@@ -340,7 +310,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
               <button
                 type="button"
                 onClick={handleOpenReleases}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-semibold bg-accent hover:bg-accent text-white shadow-xs transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-semibold bg-accent hover:bg-accent-strong text-on-accent shadow-xs transition-all cursor-pointer"
               >
                 <span>Go to Releases Page</span>
                 <ArrowSquareOut size={13} weight="bold" />

@@ -28,17 +28,18 @@ export const DocTabs: React.FC<DocTabsProps> = ({
     <div
       role="tablist"
       aria-label="Open documents"
-      className="flex items-stretch h-8 border-b border-line bg-surface overflow-x-auto shrink-0"
+      className="flex items-stretch h-8 border-b border-line bg-surface overflow-x-auto shrink-0 select-none"
     >
       <button
         type="button"
         role="tab"
         aria-selected={activeKey === null}
+        title="Show knowledge graph"
         onClick={onShowGraph}
         className={`${base} ${activeKey === null ? 'bg-canvas text-ink' : 'text-muted hover:text-ink'}`}
       >
         <span className="font-mono text-[10px] text-faint">◈</span>
-        <span>Grafo</span>
+        <span>Graph</span>
       </button>
       {tabs.map((tab) => {
         const isActive = activeKey === tab.key;
@@ -48,6 +49,12 @@ export const DocTabs: React.FC<DocTabsProps> = ({
             role="tab"
             aria-selected={isActive}
             onClick={() => onSelect(tab)}
+            onMouseDown={(e) => {
+              if (e.button === 1) {
+                e.preventDefault();
+                onClose(tab);
+              }
+            }}
             className={`${base} ${isActive ? 'bg-canvas text-ink' : 'text-muted hover:text-ink hover:bg-raise'}`}
           >
             {tab.type === 'note' ? (
@@ -63,7 +70,7 @@ export const DocTabs: React.FC<DocTabsProps> = ({
                 e.stopPropagation();
                 onClose(tab);
               }}
-              className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-line text-faint hover:text-ink transition-opacity cursor-pointer"
+              className="p-0.5 rounded opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-line text-faint hover:text-ink transition-opacity cursor-pointer"
             >
               <X size={10} />
             </button>

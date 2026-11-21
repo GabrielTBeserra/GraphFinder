@@ -26,9 +26,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
   activeProject,
   onSwitchProject,
   onOpenNewProjectModal,
-  theme = 'dark',
 }) => {
-  const isLight = theme === 'light';
   const displayName = activeProject ? activeProject.name : 'Default';
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [installStatus, setInstallStatus] = useState<{
@@ -81,9 +79,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
           <button
             type="button"
             className={`flex items-center justify-center w-6 h-6 rounded-md transition-all cursor-pointer shrink-0 focus:outline-none focus:ring-1 focus:ring-accent/40 ${
-              isLight
-                ? 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-800'
-                : 'text-muted hover:bg-raise hover:text-ink'
+              'text-muted hover:bg-raise hover:text-ink'
             }`}
             title="Vault actions — switch vault, install agent kit, new vault"
             aria-label="Vault actions menu"
@@ -97,9 +93,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
           align="end"
           sideOffset={6}
           className={`z-50 w-80 rounded-lg p-1.5 shadow-2xl backdrop-blur-md animate-in fade-in-0 zoom-in-95 border ${
-            isLight
-              ? 'bg-white border-slate-200 shadow-xl'
-              : 'bg-raise border-line'
+            'bg-raise border-line'
           }`}
         >
           {/* Header */}
@@ -141,11 +135,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                   }}
                   className={`flex items-center justify-between w-full px-2.5 py-2 rounded-md text-left transition-colors cursor-pointer select-none outline-none ${
                     isActive
-                      ? isLight
-                        ? 'bg-accent-soft text-accent-strong border border-accent-line'
-                        : 'bg-raise text-ink border border-line-strong'
-                      : isLight
-                      ? 'hover:bg-slate-50 text-slate-700'
+                      ? 'bg-raise text-ink border border-line-strong'
                       : 'hover:bg-raise text-muted'
                   }`}
                 >
@@ -153,11 +143,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                     <div
                       className={`flex items-center justify-center w-6 h-6 rounded shrink-0 ${
                         isActive
-                          ? isLight
-                            ? 'bg-accent-soft text-accent-strong border border-accent-line'
-                            : 'bg-accent/20 text-accent border border-accent-line'
-                          : isLight
-                          ? 'bg-slate-100 text-slate-500 border border-slate-200'
+                          ? 'bg-accent/20 text-accent border border-accent-line'
                           : 'bg-raise text-muted border border-line'
                       }`}
                     >
@@ -168,11 +154,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                       <div className="flex items-center gap-1.5">
                         <span
                           className={`text-xs font-medium truncate ${
-                            isLight
-                              ? isActive
-                                ? 'text-accent-strong font-semibold'
-                                : 'text-slate-800'
-                              : 'text-ink'
+                            isActive ? 'text-accent-strong font-semibold' : 'text-ink'
                           }`}
                         >
                           {proj.name}
@@ -180,9 +162,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                         {proj.id === 'default' && (
                           <span
                             className={`text-[10px] font-mono px-1 py-0.2 rounded border ${
-                              isLight
-                                ? 'bg-slate-100 text-slate-600 border-slate-200'
-                                : 'bg-line text-muted border-line-strong'
+                              'bg-line text-muted border-line-strong'
                             }`}
                           >
                             Default
@@ -205,9 +185,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                       onClick={(e) => handleInstallKit(e, proj)}
                       disabled={installingId === proj.id}
                       className={`flex items-center justify-center w-6 h-6 rounded border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait ${
-                        isLight
-                          ? 'border-slate-200 text-slate-500 hover:text-accent-strong hover:border-accent-line hover:bg-accent-soft'
-                          : 'border-line text-muted hover:text-accent hover:border-accent-line hover:bg-accent/10'
+                        'border-line text-muted hover:text-accent hover:border-accent-line hover:bg-accent/10'
                       }`}
                       title={`Install agent skills + AGENTS.md rules into ${proj.path}`}
                       aria-label={`Install agent kit into ${proj.name}`}
@@ -250,11 +228,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
             <div
               className={`mx-1 mt-1 px-2 py-1.5 rounded-md text-[10px] font-mono truncate border ${
                 installStatus.kind === 'ok'
-                  ? isLight
-                    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-                    : 'text-good bg-good/10 border-good/30'
-                  : isLight
-                  ? 'text-rose-700 bg-rose-50 border-rose-200'
+                  ? 'text-good bg-good/10 border-good/30'
                   : 'text-bad bg-bad/10 border-bad/30'
               }`}
             >
@@ -273,9 +247,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
             <DropdownMenu.Item
               onSelect={() => setTimeout(onOpenNewProjectModal, 0)}
               className={`flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer select-none outline-none ${
-                isLight
-                  ? 'text-emerald-700 hover:text-good hover:bg-good/10'
-                  : 'text-good hover:text-good hover:bg-good/15/20'
+                'text-good hover:text-good hover:bg-good/15'
               }`}
             >
               <FolderPlus size={14} weight="bold" />

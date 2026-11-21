@@ -35,9 +35,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
   onClose,
   onNavigateFile,
   initialSymbol,
-  theme = 'dark',
 }) => {
-  const isLight = theme === 'light';
   const [context, setContext] = useState<FileContext | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedSymbol, setSelectedSymbol] = useState<SymbolInfo | null>(null);
@@ -45,8 +43,16 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
   const [loadingChunk, setLoadingChunk] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(true);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'symbols' | 'deps' | 'code'>('symbols');
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   useEffect(() => {
     if (!fileId) {
@@ -160,9 +166,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
             type="button"
             onClick={copyDeepLink}
             className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-              isLight
-                ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700'
-                : 'bg-raise hover:bg-raise border-line text-ink'
+              'bg-raise hover:bg-raise border-line text-ink'
             }`}
             title="Copy Deep Link wikilink for this file/symbol" aria-label="Copy Deep Link wikilink for this file/symbol"
           >
@@ -182,9 +186,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
             type="button"
             onClick={() => setIsFullscreen(!isFullscreen)}
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-              isLight
-                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-muted hover:text-ink hover:bg-raise'
+              'text-muted hover:text-ink hover:bg-raise'
             }`}
             title={isFullscreen ? 'Exit Fullscreen' : 'Focus Mode (Fullscreen)'} aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           >
@@ -194,9 +196,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
             type="button"
             onClick={onClose}
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-              isLight
-                ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                : 'text-muted hover:text-ink hover:bg-raise'
+              'text-muted hover:text-ink hover:bg-raise'
             }`}
             title="Close" aria-label="Close"
           >
@@ -233,9 +233,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
           {/* Metadata telemetry pill bar */}
           <div
             className={`px-4 py-2 border-b flex items-center justify-between text-[11px] font-mono ${
-              isLight
-                ? 'border-slate-200 bg-slate-50 text-slate-500'
-                : 'border-line bg-surface text-muted'
+              'border-line bg-surface text-muted'
             }`}
           >
             <div className="flex items-center gap-3">
@@ -253,9 +251,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
           {/* Navigation Tabs */}
           <div
             className={`flex items-center border-b px-3 ${
-              isLight
-                ? 'border-slate-200 bg-white'
-                : 'border-line bg-raise'
+              'border-line bg-raise'
             }`}
             role="tablist"
           >
@@ -266,11 +262,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
               onClick={() => setActiveTab('symbols')}
               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer ${
                 activeTab === 'symbols'
-                  ? isLight
-                    ? 'border-accent-strong text-accent-strong font-semibold'
-                    : 'border-accent text-ink'
-                  : isLight
-                  ? 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-accent text-ink'
                   : 'border-transparent text-muted hover:text-ink'
               }`}
             >
@@ -285,11 +277,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
               onClick={() => setActiveTab('deps')}
               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer ${
                 activeTab === 'deps'
-                  ? isLight
-                    ? 'border-accent-strong text-accent-strong font-semibold'
-                    : 'border-accent text-ink'
-                  : isLight
-                  ? 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-accent text-ink'
                   : 'border-transparent text-muted hover:text-ink'
               }`}
             >
@@ -306,11 +294,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
               onClick={() => setActiveTab('code')}
               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer ${
                 activeTab === 'code'
-                  ? isLight
-                    ? 'border-accent-strong text-accent-strong font-semibold'
-                    : 'border-accent text-ink'
-                  : isLight
-                  ? 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-accent text-ink'
                   : 'border-transparent text-muted hover:text-ink'
               }`}
             >
@@ -344,11 +328,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                           onClick={() => handleSelectSymbol(sym)}
                           className={`p-2.5 rounded-lg border transition-all cursor-pointer flex flex-col gap-1.5 ${
                             isCurrent
-                              ? isLight
-                                ? 'bg-accent-soft border-accent-line text-ink font-medium shadow-xs'
-                                : 'bg-accent/10 border-accent/50 text-ink'
-                              : isLight
-                              ? 'bg-slate-50/70 border-slate-200 hover:bg-slate-100 text-slate-800'
+                              ? 'bg-accent/10 border-accent/50 text-ink'
                               : 'bg-raise border-line hover:bg-raise text-ink'
                           }`}
                         >
@@ -373,9 +353,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                               </span>
                               <span
                                 className={`px-1.5 py-0.5 rounded border ${
-                                  isLight
-                                    ? 'bg-white border-slate-200 text-slate-600 shadow-2xs'
-                                    : 'bg-raise border-line-strong text-muted'
+                                  'bg-raise border-line-strong text-muted'
                                 }`}
                               >
                                 ~{sym.token_estimate} tok
@@ -388,9 +366,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                               {sym.calls && sym.calls.length > 0 && (
                                 <span
                                   className={`px-1.5 py-0.5 rounded ${
-                                    isLight
-                                      ? 'bg-sky-100/80 text-sky-800'
-                                      : 'bg-sky-500/10 text-sky-400'
+                                    'bg-sky-500/10 text-sky-400'
                                   }`}
                                   title={`Calls: ${sym.calls.join(', ')}`}
                                 >
@@ -401,9 +377,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                               {sym.called_by && sym.called_by.length > 0 && (
                                 <span
                                   className={`px-1.5 py-0.5 rounded ${
-                                    isLight
-                                      ? 'bg-accent-soft text-accent-strong'
-                                      : 'bg-accent-soft text-accent'
+                                    'bg-accent-soft text-accent'
                                   }`}
                                   title={`Called by: ${sym.called_by.join(', ')}`}
                                 >
@@ -444,18 +418,14 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                           key={imp}
                           onClick={() => onNavigateFile(imp)}
                           className={`flex items-center justify-between p-2 rounded-lg border text-xs font-mono transition-all cursor-pointer group ${
-                            isLight
-                              ? 'bg-slate-50 border-slate-200 hover:border-sky-400 hover:bg-sky-50/50 text-slate-800'
-                              : 'bg-raise border-line hover:border-sky-500/40 hover:bg-raise text-ink'
+                            'bg-raise border-line hover:border-sky-500/40 hover:bg-raise text-ink'
                           }`}
                         >
                           <span className="truncate">{imp}</span>
                           <ArrowSquareOut
                             size={12}
                             className={`shrink-0 ${
-                              isLight
-                                ? 'text-slate-400 group-hover:text-sky-600'
-                                : 'text-muted group-hover:text-sky-400'
+                              'text-muted group-hover:text-sky-400'
                             }`}
                           />
                         </div>
@@ -484,9 +454,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                         <span
                           key={pkg}
                           className={`px-2 py-1 rounded-md border text-[11px] font-mono ${
-                            isLight
-                              ? 'bg-slate-50 border-slate-200 text-slate-700'
-                              : 'bg-raise border-line text-muted'
+                            'bg-raise border-line text-muted'
                           }`}
                         >
                           {pkg}
@@ -500,7 +468,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                 <div>
                   <div
                     className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider mb-2 ${
-                      isLight ? 'text-purple-700' : 'text-purple-400'
+                      'text-purple-400'
                     }`}
                   >
                     <ArrowDownLeft size={13} weight="bold" />
@@ -517,18 +485,14 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                           key={dep}
                           onClick={() => onNavigateFile(dep)}
                           className={`flex items-center justify-between p-2 rounded-lg border text-xs font-mono transition-all cursor-pointer group ${
-                            isLight
-                              ? 'bg-slate-50 border-slate-200 hover:border-accent-line hover:bg-accent-soft text-slate-800'
-                              : 'bg-raise border-line hover:border-accent-line hover:bg-raise text-ink'
+                            'bg-raise border-line hover:border-accent-line hover:bg-raise text-ink'
                           }`}
                         >
                           <span className="truncate">{dep}</span>
                           <ArrowSquareOut
                             size={12}
                             className={`shrink-0 ${
-                              isLight
-                                ? 'text-slate-400 group-hover:text-accent-strong'
-                                : 'text-muted group-hover:text-accent'
+                              'text-muted group-hover:text-accent'
                             }`}
                           />
                         </div>
@@ -556,9 +520,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                       type="button"
                       onClick={copyChunkCode}
                       className={`flex items-center gap-1 text-[11px] font-mono cursor-pointer transition-colors ${
-                        isLight
-                          ? 'text-slate-500 hover:text-slate-900'
-                          : 'text-muted hover:text-ink'
+                        'text-muted hover:text-ink'
                       }`}
                     >
                       {copiedCode ? (
@@ -588,9 +550,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                 ) : activeChunk ? (
                   <div
                     className={`relative rounded-xl border overflow-hidden ${
-                      isLight
-                        ? 'bg-slate-900 border-slate-700 text-slate-100 shadow-sm'
-                        : 'bg-surface border-line text-ink'
+                      'bg-surface border-line text-ink'
                     }`}
                   >
                     <pre className="p-3 text-[11.5px] font-mono leading-relaxed overflow-x-auto whitespace-pre">
@@ -600,9 +560,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
                 ) : (
                   <div
                     className={`p-4 rounded-lg border text-xs text-center ${
-                      isLight
-                        ? 'bg-slate-50 border-slate-200 text-slate-500'
-                        : 'bg-raise border-line text-muted'
+                      'bg-raise border-line text-muted'
                     }`}
                   >
                     Select a symbol in the "Symbols" tab to inspect its isolated excerpt.
