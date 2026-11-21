@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-21
+
+### Fixed
+* **Inverted graph canvas on theme switch**: `data-theme` is now applied in `useLayoutEffect` — GraphView's passive effect no longer reads a stale `--gf-canvas` (also fixes wrong canvas color on boot when light theme was saved).
+
 ## [0.19.0] - 2026-11-21
 
 ### Added

@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect, useCallback, useRef } from 'react';
+import React, { Suspense, useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
   fetchGraph,
@@ -155,7 +155,7 @@ export const App: React.FC = () => {
     }
   }, [isSidebarOpen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (theme === 'light') {
       document.documentElement.classList.add('light');
       document.documentElement.classList.remove('dark');
