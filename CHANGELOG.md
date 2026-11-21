@@ -6,10 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-21
+
+### Added
+* **Single running instance across GUI + CLI**: exclusive `graphfinder.lock` (fs2) + `instance.json` ownership metadata. `tauri-plugin-single-instance` focuses the existing window on a second GUI launch; CLI commands delegate to the running GUI via `POST /api/cli` (`sync`, `status`, `search`, `projects`, `path`, `explain`, `export`, `report`) so delegated syncs emit `vault-sync-complete`/`projects-changed` and the UI refreshes instantly.
+* **System tray + Windows autostart**: native tray menu (Open / Sync now / Quit), close-to-tray, `tauri-plugin-autostart` Run-key registration, start-minimized flag — all configurable in the new Settings modal persisted to `settings.json`.
+* **Graph UX**: directional arrows on `imports` edges, link curvature, particles on focused/path edges, drag-to-pin nodes, minimap with live viewport.
+* **MCP stdio→HTTP bridge**: `graphfinder --mcp` delegates to the running instance's Streamable HTTP endpoint (`127.0.0.1:45123/mcp`) — no duplicated ONNX model, single DB writer, unified telemetry. Standalone fallback preserved.
+* **MCP retrieval economy**: `offset` pagination with "more results" markers, `max_chars` output budget with explicit truncation marker, `fields=ids` two-stage retrieval, `queries[]` batch mode, `diversify()` (max 2 hits per note/file + Jaccard near-dup removal).
+* **MCP operations**: `GRAPHFINDER_MCP_PROFILE=core` trims the tool schema 24→10 at session init; `/api/mcp-activity` reports per-tool count/avg/p50/p95 latency and `latest_mutation_ms` for cheap change polling; `graphfinder config` emits a native streamable-HTTP `mcpServers` entry.
+
+### Changed
+* Dedicated SQLite read connection — queries never block behind sync writes (WAL).
+* Bounded 512-entry query-embedding cache — repeated agent queries skip ONNX entirely.
+* Recency boost on hybrid scores (+15%, ~21-day half-life); FTS5 `token*` prefix-expansion fallback when literal MATCH yields zero hits.
+* `VaultManager::reload_meta()` + merge-on-save for `projects.json` — concurrent CLI/GUI writers no longer clobber each other.
+* Release builds now ship Windows + Linux only (macOS target dropped).
+* Panel polish: inspector, sidebar, tabs and modal cleanup.
+
+## [0.18.0] - 2026-11-19
+
+### Added
+* **One-click agent kit installer** + hamburger vault menu.
+* **Animated boot splash** in `index.html`; window stays hidden until first paint (no blank frames).
+* **Studio layout**: activity bar, document tabs, bottom panel, status bar — chrome-free canvas like VS Code.
+* **Paper & Oxide theme**: terracotta accent, warm neutrals; editorial/engine-room redesign with token deslop, lazy graph and a11y pass.
+
+### Changed
+* Masthead removed; update banner strip dropped — update badge now lives on the activity-bar gear.
+
+## [0.17.0] - 2026-11-09
+
+### Changed
+* **Sync throughput**: Markdown and code files parsed in parallel with rayon; `vault-structure-ready` event lets the UI render the graph before embeddings finish; embed depth scales down automatically on huge syncs.
+* **DB batch queries**: call graph and code relations resolved in batch instead of per-row queries.
+* **Graph rendering**: LOD rendering, physics tuning and density caps for huge graphs; community hulls cached; per-frame string churn eliminated.
+
+## [0.16.0] - 2026-11-05
+
 ### Added
 * **Automatic GPU/CPU execution providers**: ONNX Runtime now registers platform GPU EPs — DirectML on Windows (Intel iGPU, NVIDIA, AMD), CoreML on macOS — with silent per-operator fallback to CPU. No device selection needed on any hardware. `GRAPHFINDER_DEVICE=auto|cpu|dml|coreml|cuda|rocm` forces a backend; `gpu-cuda`/`gpu-rocm` remain opt-in cargo features (they swap the downloaded ORT binary flavor). Same chain applied to the bge-reranker session.
 * **`GRAPHFINDER_BATCH`**: embedding batch size per ONNX call (default 16) with `yield_now()` between spawn_blocking chunks — keeps the UI responsive while fastembed saturates all physical cores during indexing.
 * **`provider` field in `engine-status` events**: reports the requested chain (e.g. `auto(dml->cpu)`) for support/debugging.
+* **MCP code file counts** exposed in file listings; code retrieval hardened.
+
+### Fixed
+* `tauri.localhost` origin accepted by the local MCP HTTP security middleware (Windows webviews).
 
 ## [0.15.0] - 2026-01-XX
 
