@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-21
+
+### Fixed
+* **Window revealed only after ~15s on every launch**: `boot.js` calls `window.show()` right after the boot splash paints, but `core:window:allow-show` was never granted in capabilities — the call was rejected and the window stayed hidden until the fallback timer. The window now appears immediately after first paint.
+* **Neural model re-downloaded (~470MB) per launch directory**: fastembed resolved its `.fastembed_cache` relative to the current working directory, scattering cache folders and re-downloading `multilingual-e5-small` on every new cwd — failing outright on network drives (`Failed to retrieve onnx/model.onnx`). The cache is now pinned to the resolved base dir for the embedder (including the CPU-retry path) and the reranker.
+
 ## [0.20.0] - 2026-11-21
 
 ### Fixed

@@ -87,15 +87,25 @@ fn device_label() -> String {
     }
 }
 
+/// Stable fastembed cache location. Without this the crate creates
+/// `.fastembed_cache` relative to the *current working directory*, so the
+/// ~470MB model is re-downloaded for every directory the app is launched
+/// from (and the download fails on network drives like Z:).
+fn model_cache_dir() -> PathBuf {
+    super::project::resolve_base_dir().join(".fastembed_cache")
+}
+
 fn init_options(model_name: EmbeddingModel) -> InitOptions {
-    InitOptions::new(model_name).with_execution_providers(provider_chain())
+    InitOptions::new(model_name)
+        .with_execution_providers(provider_chain())
+        .with_cache_dir(model_cache_dir())
 }
 
 /// Session creation prefers the provider chain; retries CPU-only on failure.
 fn try_new_embedding(
     opts: InitOptions,
 ) -> Result<TextEmbedding, Box<dyn std::error::Error + Send + Sync>> {
-    let cpu_opts = InitOptions::new(opts.model_name.clone());
+    let cpu_opts = InitOptions::new(opts.model_name.clone()).with_cache_dir(model_cache_dir());
     match TextEmbedding::try_new(opts) {
         Ok(m) => Ok(m),
         Err(e) => {
@@ -480,6 +490,7 @@ impl EmbeddingEngine {
     pub fn init_reranker(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let opt = RerankInitOptions::new(RerankerModel::BGERerankerBase)
             .with_execution_providers(provider_chain())
+            .with_cache_dir(model_cache_dir())
             .with_show_download_progress(false);
         let reranker = match TextRerank::try_new(opt) {
             Ok(r) => r,
@@ -487,6 +498,7 @@ impl EmbeddingEngine {
                 eprintln!("[GraphFinder] execution-provider init failed ({e}); retrying CPU-only");
                 TextRerank::try_new(
                     RerankInitOptions::new(RerankerModel::BGERerankerBase)
+                        .with_cache_dir(model_cache_dir())
                         .with_show_download_progress(false),
                 )?
             }
