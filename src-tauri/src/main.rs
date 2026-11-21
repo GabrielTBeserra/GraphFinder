@@ -494,6 +494,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     "graphfinder": {
                         "command": exe_str,
                         "args": ["--mcp"]
+                    },
+                    "graphfinder-http": {
+                        "type": "http",
+                        "url": "http://127.0.0.1:45123/mcp",
+                        "comment": "Shared engine on the running GUI instance — zero process spawn. Requires GraphFinder to be running."
                     }
                 }
             });
@@ -556,8 +561,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   }}
 }}"#, escaped_exe);
 
-        println!("\n3. Streamable HTTP Mode (for Remote Agents or Web Dashboards)");
-        println!("   Endpoint: http://127.0.0.1:45123/mcp");
+        println!("\n3. Streamable HTTP Mode (editors with native HTTP transport — no process spawn,");
+        println!("   shares the engine of the already-running GraphFinder instance):");
+        println!(r#"{{
+  "mcpServers": {{
+    "graphfinder": {{
+      "type": "http",
+      "url": "http://127.0.0.1:45123/mcp"
+    }}
+  }}
+}}"#);
 
         println!("\nTip: Run 'graphfinder config --install' to automatically register GraphFinder");
         println!("     into all installed AI editors on this machine.");

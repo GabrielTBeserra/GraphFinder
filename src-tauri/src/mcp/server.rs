@@ -236,14 +236,61 @@ async fn tools_handler() -> Response {
     Json(json!({ "count": tools.len(), "tools": tools })).into_response()
 }
 
-/// Returns the most recent JSON-RPC/tool calls for the activity feed.
+/// Returns the most recent JSON-RPC/tool calls for the activity feed,
+/// per-tool latency stats, and the timestamp of the last mutating call
+/// (agents can poll `latest_mutation_ms` instead of blind re-syncs).
 async fn activity_handler(State(state): State<ServerState>) -> Response {
-    let entries: Vec<CallLogEntry> = state
+    const MUTATING: &[&str] = &[
+        "store_context",
+        "delete_note",
+        "link_notes",
+        "sync_vault",
+        "create_project",
+        "store_code_snapshot",
+    ];
+    let (entries, stats, latest_mutation_ms) = state
         .call_log
         .lock()
-        .map(|l| l.iter().rev().take(60).cloned().collect())
+        .map(|l| {
+            let entries: Vec<CallLogEntry> = l.iter().rev().take(60).cloned().collect();
+            let mut by_tool: std::collections::HashMap<String, Vec<u128>> =
+                std::collections::HashMap::new();
+            for e in l.iter() {
+                if let Some(t) = &e.tool {
+                    by_tool.entry(t.clone()).or_default().push(e.duration_ms);
+                }
+            }
+            let stats: Vec<serde_json::Value> = by_tool
+                .into_iter()
+                .map(|(t, mut ds)| {
+                    ds.sort_unstable();
+                    let pct = |p: f64| {
+                        let idx = ((ds.len() as f64 - 1.0) * p).round() as usize;
+                        ds[idx.min(ds.len() - 1)]
+                    };
+                    json!({
+                        "tool": t,
+                        "calls": ds.len(),
+                        "avg_ms": ds.iter().sum::<u128>() / ds.len().max(1) as u128,
+                        "p50_ms": pct(0.5),
+                        "p95_ms": pct(0.95),
+                    })
+                })
+                .collect();
+            let latest_mutation_ms = l
+                .iter()
+                .rev()
+                .find(|e| e.tool.as_deref().map(|t| MUTATING.contains(&t)).unwrap_or(false))
+                .map(|e| e.ts_ms);
+            (entries, stats, latest_mutation_ms)
+        })
         .unwrap_or_default();
-    Json(json!({ "calls": entries })).into_response()
+    Json(json!({
+        "calls": entries,
+        "stats": stats,
+        "latest_mutation_ms": latest_mutation_ms,
+    }))
+    .into_response()
 }
 
 async fn info_handler(

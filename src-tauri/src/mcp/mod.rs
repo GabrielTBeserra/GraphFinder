@@ -18,7 +18,7 @@ use rmcp::{
         Role, ServerCapabilities, ServerConfig,
     },
     service::RequestContext,
-    tool, tool_handler, tool_router, ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
+    tool, tool_router, ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
 };
 
 use crate::engine::VaultManager;
@@ -1596,8 +1596,45 @@ impl GraphFinderMcpServer {
     }
 }
 
-#[tool_handler]
 impl ServerHandler for GraphFinderMcpServer {
+    async fn call_tool(
+        &self,
+        request: rmcp::model::CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::CallToolResponse, McpError> {
+        let tcc = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        self.tool_router.call(tcc).await
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListToolsResult, McpError> {
+        let mut tools = self.tool_router.list_all();
+        // GRAPHFINDER_MCP_PROFILE=core exposes only the essential toolset —
+        // cuts the schema token cost agents pay on every session init.
+        if std::env::var("GRAPHFINDER_MCP_PROFILE").ok().as_deref() == Some("core") {
+            const CORE: &[&str] = &[
+                "search_semantic",
+                "read_section",
+                "store_context",
+                "sync_vault",
+                "search_code",
+                "read_code_chunk",
+                "find_files",
+                "list_projects",
+                "get_compressed_context",
+                "suggest_links",
+            ];
+            tools.retain(|t| CORE.contains(&t.name.as_ref()));
+        }
+        Ok(rmcp::model::ListToolsResult {
+            tools,
+            ..Default::default()
+        })
+    }
+
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(
             ServerCapabilities::builder()
