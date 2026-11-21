@@ -22,8 +22,6 @@ jobs:
         include:
           - platform: 'windows-latest'
             os-name: 'Windows'
-          - platform: 'macos-latest'
-            os-name: 'macOS'
           - platform: 'ubuntu-22.04'
             os-name: 'Linux'
 
@@ -67,11 +65,10 @@ jobs:
           releaseBody: |
             ## GraphFinder ${{ github.event.inputs.tag || github.ref_name }}
 
-            Official installers and executables for Windows, macOS, and Linux.
+            Official installers and executables for Windows and Linux.
 
             ### Available Binaries:
             - **Windows**: `.exe` (NSIS) and `.msi` (WiX)
-            - **macOS**: `.dmg` (Apple Silicon)
             - **Linux**: `.deb` (Debian/Ubuntu) and `.AppImage`
 
             ---
