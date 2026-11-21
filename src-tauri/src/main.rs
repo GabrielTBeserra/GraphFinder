@@ -433,6 +433,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // 2. Headless MCP Stdio Mode
     if is_mcp {
+        // If a GraphFinder instance is already running, bridge stdio to its
+        // HTTP MCP endpoint instead of loading a second engine + model.
+        let base_dir = app_lib::engine::project::resolve_base_dir();
+        if let Some(port) = app_lib::instance::probe_gui(&base_dir) {
+            eprintln!(
+                "[GraphFinder MCP] Bridging stdio to running instance on port {}.",
+                port
+            );
+            app_lib::mcp::bridge::run_stdio_bridge(port)?;
+            return Ok(());
+        }
+
         eprintln!("[GraphFinder MCP] Headless stdio mode activated.");
         let embeddings = Arc::new(EmbeddingEngine::new_lazy());
         let manager = Arc::new(VaultManager::new(Arc::clone(&embeddings))?);

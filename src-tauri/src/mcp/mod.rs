@@ -5,6 +5,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tauri::Emitter;
 
+pub mod bridge;
+
 use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
