@@ -1,3 +1,15 @@
+//! ## MCP compact output grammar (v1)
+//! ```text
+//! search_hit := N. [[deep-link]] SCORE% ~TOKS
+//! code_hit   := N. [[file#sym]] LSTART-END SCORE% ~TOKS\n```lang\nbody\n```
+//! section    := [[Note#Sec]] ~TOKS\n<body>
+//! list       := a, b, c   ("-" when empty)
+//! pagination := +more: offset=N
+//! truncation := …truncated (narrow query / lower limit / offset=N)
+//! ```
+//! `[[…]]` deep links, `offset=` and `read_code_chunk(...)` hints are stable
+//! anchors for agents — keep them verbatim. Covered by tests in this module.
+
 pub mod server;
 
 use schemars::JsonSchema;
@@ -69,13 +81,44 @@ fn diversify<T>(
 /// then writes an explicit truncation marker so agents can narrow.
 fn push_budgeted(out: &mut String, block: &str, budget: usize) -> bool {
     if out.len() + block.len() > budget {
-        out.push_str("
-… truncated — narrow 'query', lower 'limit', or pass 'offset'.
-");
+        out.push_str("\n…truncated (narrow query / lower limit / offset=N)\n");
         return false;
     }
     out.push_str(block);
     true
+}
+
+/// `0.731` → `"73%"`. Relevance score in compact form.
+fn pct(score: f32) -> String {
+    format!("{:.0}%", score * 100.0)
+}
+
+/// Token estimate suffix: `139` → `"~139t"`.
+fn toks(tokens: usize) -> String {
+    format!("~{}t", tokens)
+}
+
+/// Comma-joined list or `-` when empty — replaces `{:?}` debug formatting.
+fn join_list(items: &[String]) -> String {
+    if items.is_empty() {
+        "-".to_string()
+    } else {
+        items.join(", ")
+    }
+}
+
+/// Pagination hint: `+more: offset=10`.
+fn more_marker(next_offset: usize) -> String {
+    format!("+more: offset={}\n", next_offset)
+}
+
+/// `21900` → `"21.9k"` for compact stat lines.
+fn human(n: usize) -> String {
+    if n >= 1000 {
+        format!("{:.1}k", n as f64 / 1000.0)
+    } else {
+        n.to_string()
+    }
 }
 
 fn truncate_str(s: &str, max_chars: usize) -> &str {
