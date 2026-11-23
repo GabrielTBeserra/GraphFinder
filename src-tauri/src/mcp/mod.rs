@@ -466,11 +466,11 @@ impl GraphFinderMcpServer {
     #[tool(description = "Lists all isolated projects/vaults, note counts, and active project indicator.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn list_projects(&self) -> Result<CallToolResult, McpError> {
         let projects = self.manager.list_projects().await;
-        let mut out = String::from("Projects and Vaults in GraphFinder:\n\n");
+        let mut out = format!("projects({}):\n", projects.len());
         for p in projects {
-            let status = if p.is_active { " (Active)" } else { "" };
+            let status = if p.is_active { ", active" } else { "" };
             out.push_str(&format!(
-                "- **{}** (ID: `{}`){} | {} notes, {} code files\n  Path: {}\n\n",
+                "- {} ({}{}) notes={} code={} → {}\n",
                 p.name, p.id, status, p.note_count, p.code_count, p.path
             ));
         }
@@ -492,7 +492,7 @@ impl GraphFinderMcpServer {
             let _ = app.emit("vault-sync-complete", 1);
         }
         let out = format!(
-            "Project '{}' (ID: '{}') created successfully!\nNote Vault: {}\nVector SQLite Database: {}",
+            "created {} ({}) | vault: {} | db: {}",
             project.name, project.id, project.path, project.db_path
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -513,7 +513,7 @@ impl GraphFinderMcpServer {
             let _ = app.emit("vault-sync-complete", project.note_count + project.code_count);
         }
         let out = format!(
-            "Active project successfully switched to: {} (ID: '{}') with {} notes and {} code files.",
+            "active → {} ({}) notes={} code={}",
             project.name, project.id, project.note_count, project.code_count
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -709,17 +709,12 @@ impl GraphFinderMcpServer {
             let _ = app.emit("vault-sync-complete", 1);
             let _ = app.emit("mcp-node-updated", &note.id);
         }
-        let autolinks_info = if !note.outgoing_links.is_empty() {
-            format!(
-                "\nAuto-links Created (≥65% affinity): {:?}",
-                note.outgoing_links
-            )
-        } else {
-            "\nAuto-links: No existing notes with ≥65% affinity found.".to_string()
-        };
         let out = format!(
-            "Note successfully saved, vectorized, and linked!\nTitle: [[{}]]\nFile: {}\nTags: {:?}{}",
-            note.title, note.path, note.tags, autolinks_info
+            "saved [[{}]] → {} | tags: {} | autolinks: {}",
+            note.title,
+            note.path,
+            join_list(&note.tags),
+            join_list(&note.outgoing_links)
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
@@ -763,8 +758,10 @@ impl GraphFinderMcpServer {
             let _ = app.emit("mcp-node-updated", &updated.id);
         }
         let out = format!(
-            "Link created successfully!\nSource: [[{}]] -> Target: [[{}]]\nUpdated Links: {:?}",
-            updated.title, args.to_note, updated.outgoing_links
+            "linked [[{}]] → [[{}]] | links: {}",
+            updated.title,
+            args.to_note,
+            join_list(&updated.outgoing_links)
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
@@ -784,15 +781,17 @@ impl GraphFinderMcpServer {
         let remaining = total.saturating_sub(offset + page.len());
         let display_notes = page.into_iter();
 
-        let mut out = String::from("Notes in Knowledge Vault:\n");
+        let mut out = String::new();
         for n in display_notes {
             out.push_str(&format!(
-                "- [[{}]] (Tags: {:?}) - \"{}\"\n",
-                n.title, n.tags, n.summary
+                "- [[{}]] tags: {} — {}\n",
+                n.title,
+                join_list(&n.tags),
+                n.summary
             ));
         }
         if remaining > 0 {
-            out.push_str(&format!("... {} more — pass 'offset': {}\n", remaining, offset + limit));
+            out.push_str(&more_marker(offset + limit));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
@@ -823,22 +822,18 @@ impl GraphFinderMcpServer {
         }
 
         let stats = engine.get_vault_stats().await.ok();
-        let status_desc = if is_new {
-            format!("New project '{}' registered and indexed", project_id)
-        } else {
-            format!("Project '{}' incrementally updated", project_id)
-        };
-
         let mut out = format!(
-            "Synchronization completed successfully!\n• Status: {}\n• Directory: {}\n• Items processed in this sync: {}\n",
-            status_desc,
-            engine.vault_path().display(),
-            count
+            "synced '{}' ({}) | processed={} | {}\n",
+            project_id,
+            if is_new { "new" } else { "updated" },
+            count,
+            engine.vault_path().display()
         );
         if let Some(s) = stats {
             out.push_str(&format!(
-                "• Total Notes: {} (with {} sections/chunks)\n• Total Code Files: {} (with {} AST symbols)\n• Graph Connections: {} wikilinks | {} code imports\n• Detected Languages: {:?}",
-                s.total_notes, s.total_chunks, s.total_code_files, s.total_code_chunks, s.total_links, s.total_code_links, s.languages
+                "notes={} code={} chunks={} symbols={} links={} imports={} langs={}",
+                s.total_notes, s.total_code_files, s.total_chunks, s.total_code_chunks,
+                s.total_links, s.total_code_links, join_list(&s.languages)
             ));
         }
 
@@ -897,7 +892,7 @@ impl GraphFinderMcpServer {
                     let _ = app.emit("vault-sync-complete", 1);
                 }
                 let out = format!(
-                    "Note renamed successfully!\nPrevious Title: {}\nNew Title: [[{}]]\nFile: {}\nAll vault wikilinks were refactored automatically.",
+                    "renamed {} → [[{}]] → {} | wikilinks refactored",
                     args.old_title, note.title, note.path
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -915,7 +910,7 @@ impl GraphFinderMcpServer {
                 if let Some(app) = &self.app_handle {
                     let _ = app.emit("vault-sync-complete", 1);
                 }
-                let out = format!("Note '{}' successfully deleted from vault and vector database.", args.target);
+                let out = format!("deleted '{}' (file + vectors)", args.target);
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to delete note: {}", e))])),
@@ -928,21 +923,16 @@ impl GraphFinderMcpServer {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine.get_vault_stats().await {
             Ok(stats) => {
-                let langs_str = if stats.languages.is_empty() {
-                    "None".to_string()
-                } else {
-                    stats.languages.join(", ")
-                };
                 let out = format!(
-                    "Project and Vault Statistics:\n\n- Markdown Notes: {}\n- Code Files: {}\n- Detected Languages: {}\n- Vectorized Chunks & Sections: {}\n- Graph Connections — Wikilinks: {} | Code Imports: {}\n- Unique Tags: {}\n- Total Estimated Tokens: {}",
+                    "notes={} code={} chunks={} links={} imports={} tags={} tokens={} langs={}",
                     stats.total_notes,
                     stats.total_code_files,
-                    langs_str,
                     stats.total_chunks + stats.total_code_chunks,
                     stats.total_links,
                     stats.total_code_links,
                     stats.total_tags,
-                    stats.total_tokens
+                    human(stats.total_tokens as usize),
+                    join_list(&stats.languages)
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
@@ -1051,19 +1041,19 @@ impl GraphFinderMcpServer {
             return Ok(CallToolResult::success(vec![ContentBlock::text("No files found matching the provided filters.")]));
         }
 
-        let mut out = format!("Files found in project (showing {}):\n\n", files.len());
+        let mut out = format!("files({}):\n", files.len());
         for f in files {
             if ids_only {
-                out.push_str(&format!("- `{}`\n", f.path));
+                out.push_str(&format!("- {}\n", f.path));
             } else {
                 out.push_str(&format!(
-                    "- `{}` ({}, {} bytes) | Internal imports: {} | External pkgs: {} | Dependents: {}\n  Summary: {}\n\n",
-                    f.path, f.language, f.size_bytes, f.imports_count, f.external_count, f.dependents_count, f.summary
+                    "- {} ({}, {}B) imports={} ext={} deps={} — {}\n",
+                    f.path, f.language, human(f.size_bytes as usize), f.imports_count, f.external_count, f.dependents_count, f.summary
                 ));
             }
         }
         if has_more {
-            out.push_str(&format!("... more — pass 'offset': {}\n", offset + limit));
+            out.push_str(&more_marker(offset + limit));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
@@ -1286,7 +1276,7 @@ impl GraphFinderMcpServer {
         match engine.export_artifacts(out_path).await {
             Ok(summary) => {
                 let out = format!(
-                    "Knowledge graph artifacts exported successfully to `{}`:\n\n- **Audit Report**: `{}`\n- **Graph Schema**: `{}`\n- **Offline Visual Canvas**: `{}`\n\nTotal Nodes: {} | Connections: {} | Communities: {} | God Nodes: {}",
+                    "exported → {} | report={} graph={} html={} | nodes={} edges={} communities={} god={}",
                     summary.output_dir, summary.report_markdown_path, summary.graph_json_path, summary.standalone_html_path,
                     summary.total_nodes, summary.total_edges, summary.communities_count, summary.god_nodes_count
                 );
@@ -1309,7 +1299,7 @@ impl GraphFinderMcpServer {
                     let _ = app.emit("mcp-node-updated", &note.id);
                 }
                 Ok(CallToolResult::success(vec![ContentBlock::text(format!(
-                    "Section '{}' updated in [[{}]]. File: {}",
+                    "updated '{}' in [[{}]] → {}",
                     args.heading, note.title, note.path
                 ))]))
             }
@@ -1508,25 +1498,13 @@ impl GraphFinderMcpServer {
             ))]));
         }
 
-        let mut out = format!(
-            "Vault Validation — {} note(s) checked\n\nErrors ({}):\n",
-            checked,
-            errors.len()
-        );
-        if errors.is_empty() {
-            out.push_str("- none\n");
-        } else {
-            for e in &errors {
-                out.push_str(&format!("- {}\n", e));
-            }
+        let mut out = format!("checked={} errors({}):\n", checked, errors.len());
+        for e in &errors {
+            out.push_str(&format!("- {}\n", e));
         }
-        out.push_str(&format!("\nWarnings ({}):\n", warnings.len()));
-        if warnings.is_empty() {
-            out.push_str("- none\n");
-        } else {
-            for w in &warnings {
-                out.push_str(&format!("- {}\n", w));
-            }
+        out.push_str(&format!("warnings({}):\n", warnings.len()));
+        for w in &warnings {
+            out.push_str(&format!("- {}\n", w));
         }
         let ok_count = checked
             .saturating_sub(
@@ -1539,7 +1517,7 @@ impl GraphFinderMcpServer {
             )
             .max(0);
         out.push_str(&format!(
-            "\nResult: {} error(s), {} warning(s). {} note(s) fully compliant.",
+            "result: {} errors, {} warnings — {} compliant",
             errors.len(),
             warnings.len(),
             ok_count
