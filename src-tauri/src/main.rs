@@ -608,14 +608,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let dir_refs: Vec<&Path> = target_dirs.iter().map(|p| p.as_path()).collect();
         let names = app_lib::mcp::export_all_schemas(&dir_refs);
         println!("======================================================================");
-        println!("  GraphFinder Universal MCP Tools & Schemas (All 24 Tools)");
+        println!("  GraphFinder Universal MCP Tools & Schemas");
         println!("======================================================================");
         println!("Exported {} universal MCP tool schemas:", names.len());
         for (i, name) in names.iter().enumerate() {
             println!("  {:2}. {}", i + 1, name);
         }
         println!("\nGenerated Universal Artifacts in '{}':", primary_dir.display());
-        println!("  • 24 Individual tool schemas: {}/<tool_name>.json", primary_dir.display());
+        println!("  • {} Individual tool schemas: {}/<tool_name>.json", names.len(), primary_dir.display());
         println!("  • Unified tools manifest:     {}/tools.json (OpenAI/LangChain format)", primary_dir.display());
         println!("  • Agent instructions:         {}/instructions.md", primary_dir.display());
         if target_dirs.len() > 1 {
