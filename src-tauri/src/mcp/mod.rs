@@ -614,13 +614,19 @@ impl GraphFinderMcpServer {
         match ctx {
             Some(c) => {
                 let mut out = format!(
-                    "Note Summary: [[{}]] (~{} total tokens)\nSummary: {}\nTags: {:?}\nGraph Connections: {:?}\n\nAvailable Sections:\n",
-                    c.title, c.token_estimate, c.summary, c.tags, c.connected_notes
+                    "[[{}]] {} | tags: {} | links: {}\n{}\n",
+                    c.title,
+                    toks(c.token_estimate),
+                    join_list(&c.tags),
+                    join_list(&c.connected_notes),
+                    c.summary
                 );
                 for s in c.sections {
                     out.push_str(&format!(
-                        "- #{} (~{} tokens): {}\n",
-                        s.heading, s.token_estimate, s.snippet
+                        "- {} ({}): {}\n",
+                        s.heading,
+                        toks(s.token_estimate),
+                        s.snippet
                     ));
                 }
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -839,10 +845,9 @@ impl GraphFinderMcpServer {
         match engine.read_section(&args.target, &args.section).await {
             Ok(Some(chunk)) => {
                 let out = format!(
-                    "Section: {} (~{} tokens)\nDeep Link: {}\n\n{}",
-                    chunk.heading.as_deref().unwrap_or("General"),
-                    chunk.token_estimate,
+                    "{} {}\n\n{}",
                     chunk.deep_link,
+                    toks(chunk.token_estimate),
                     chunk.content.trim()
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -1064,18 +1069,25 @@ impl GraphFinderMcpServer {
         match engine.get_file_context(&args.file_path).await {
             Ok(Some(ctx)) => {
                 let sym_list = if ctx.symbols.is_empty() {
-                    "No top-level symbols identified".to_string()
+                    "-".to_string()
                 } else {
                     ctx.symbols
                         .iter()
-                        .map(|s| format!("{} (L{}-L{}, ~{}t)", s.name, s.start_line, s.end_line, s.token_estimate))
+                        .map(|s| format!("{} L{}-{} {}", s.name, s.start_line, s.end_line, toks(s.token_estimate)))
                         .collect::<Vec<_>>()
                         .join(", ")
                 };
 
                 let out = format!(
-                    "File Structural Context:\n\n- File: `{}` ({}, ~{} tokens)\n- Summary: {}\n- Imported Files (Internal): {:?}\n- Dependent Files (Who imports this): {:?}\n- External Packages: {:?}\n- Symbols: {}",
-                    ctx.file_id, ctx.language, ctx.token_estimate, ctx.summary, ctx.imported_files, ctx.dependent_files, ctx.external_packages, sym_list
+                    "`{}` ({}, {})\n{}\nimports: {}\ndependents: {}\nexternal: {}\nsymbols: {}",
+                    ctx.file_id,
+                    ctx.language,
+                    toks(ctx.token_estimate),
+                    ctx.summary,
+                    join_list(&ctx.imported_files),
+                    join_list(&ctx.dependent_files),
+                    join_list(&ctx.external_packages),
+                    sym_list
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
@@ -1095,12 +1107,11 @@ impl GraphFinderMcpServer {
         match engine.read_code_chunk(&args.file_path, args.symbol_or_lines.as_deref()).await {
             Ok(Some(chunk)) => {
                 let out = format!(
-                    "Code Chunk: {} (Lines {}-{}, ~{} tokens)\nDeep Link: {}\n\n```{}\n{}\n```",
-                    chunk.symbol_name.as_deref().unwrap_or("block"),
+                    "{} L{}-{} {}\n\n```{}\n{}\n```",
+                    chunk.deep_link,
                     chunk.start_line,
                     chunk.end_line,
-                    chunk.token_estimate,
-                    chunk.deep_link,
+                    toks(chunk.token_estimate),
                     chunk.language,
                     chunk.content.trim()
                 );
