@@ -1,11 +1,21 @@
 {
-  "description": "Lists vault notes with 1-line summaries and token estimates.",
+  "description": "Lists vault notes with 1-line summaries and token estimates. Use to browse; search_semantic to query.",
   "name": "list_recent_notes",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
       "limit": {
-        "description": "Maximum number of notes to return (default: 10)",
+        "description": "Max notes (default: 10)",
+        "format": "uint",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "offset": {
+        "default": null,
+        "description": "Pagination offset (default: 0)",
         "format": "uint",
         "minimum": 0,
         "type": [
@@ -14,7 +24,7 @@
         ]
       },
       "project": {
-        "description": "Target project/vault ID (optional)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"

@@ -1,18 +1,46 @@
 {
-  "description": "Surgical section retrieval for maximum token conservation. Returns exact 2-4 line chunks with deep link [[Note#Section]] and relevance score.",
+  "description": "Atomic vector search over vault notes; returns ranked [[Note#Section]] excerpts. Use to answer questions; get_compressed_context for structure. fields='ids' for cheap 2-stage lookup.",
   "name": "search_semantic",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+      "fields": {
+        "default": null,
+        "description": "'ids': links + scores only",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
       "format": {
-        "description": "'dense_chunks' (default, surgical 60-80 token chunks) or 'summaries' (1-line overview)",
+        "description": "'dense_chunks' (default) or 'summaries'",
         "type": [
           "string",
           "null"
         ]
       },
       "limit": {
-        "description": "Maximum number of atomic chunks to return (default: 5)",
+        "description": "Max chunks (default: 5)",
+        "format": "uint",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "max_chars": {
+        "default": null,
+        "description": "Response budget in chars (default: 8000)",
+        "format": "uint",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "offset": {
+        "default": null,
+        "description": "Pagination offset (default: 0)",
         "format": "uint",
         "minimum": 0,
         "type": [
@@ -21,14 +49,25 @@
         ]
       },
       "project": {
-        "description": "Target project/vault ID (optional, defaults to active project)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"
         ]
       },
+      "queries": {
+        "default": null,
+        "description": "Batch: multiple queries in one call",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
       "query": {
-        "description": "Semantic search query or natural language question",
+        "description": "Search query",
         "type": "string"
       }
     },

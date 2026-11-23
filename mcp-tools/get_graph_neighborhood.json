@@ -1,11 +1,11 @@
 {
-  "description": "Returns associative subgraph around a note (1 or 2 hops) with concise neighbor summaries.",
+  "description": "Lists 1-2 hop wikilink neighbors of a note. For the global map use get_community_report.",
   "name": "get_graph_neighborhood",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
       "depth": {
-        "description": "Graph hops of separation (1 or 2, default: 1)",
+        "description": "Hops: 1 or 2 (default: 1)",
         "format": "uint",
         "minimum": 0,
         "type": [
@@ -14,7 +14,7 @@
         ]
       },
       "project": {
-        "description": "Target project/vault ID (optional)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"

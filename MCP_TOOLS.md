@@ -1,6 +1,6 @@
 # GraphFinder MCP Server Tools Specification
 
-All 24 tools described below are **fully implemented and active** using the official Model Context Protocol Rust SDK (`rmcp`).
+All 26 tools described below are **fully implemented and active** using the official Model Context Protocol Rust SDK (`rmcp`).
 They operate concurrently in two modes:
 1. **Desktop App Embedded Server**: Streamable HTTP/SSE at `http://127.0.0.1:45123/mcp` and `http://127.0.0.1:45123/sse` (with DNS rebinding protection and origin validation).
 2. **Headless CLI Stdio Mode**: `GraphFinder.exe --mcp` directly connecting to AI client standard IO (Claude Desktop, Cursor, Antigravity, etc.).
@@ -327,3 +327,30 @@ They operate concurrently in two modes:
   ```
 
 
+---
+
+## 25. `update_section` (Surgical Section Body Replacement)
+* **Purpose**: Replace the body of a single `##`/`###` section in a note while preserving the heading line, then re-index vectors.
+* **Mechanism**: Locates the section heading (case-insensitive), swaps the body content, rewrites the file, and re-embeds affected chunks. Preferred over `store_context` for edits to existing notes.
+* **Parameters**:
+  ```json
+  {
+    "target": "string (note title or id)",
+    "heading": "string (section heading to replace)",
+    "content": "string (new section body)",
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
+
+---
+
+## 26. `validate_vault` (Vault Schema Audit)
+* **Purpose**: Audit vault notes against the AGENTS.md schema — missing H1/executive summary, sections outside the 40-150 token band, broken wikilinks, orphan notes, and missing tags.
+* **Mechanism**: Reads each note, checks structure and wikilink targets against the note index, and reports `errors(N):` / `warnings(N):` lists. Accepts `target` to audit a single note.
+* **Parameters**:
+  ```json
+  {
+    "target": "string (optional, single note title or id)",
+    "project": "string (optional, target specific vault/project id)"
+  }
+  ```
