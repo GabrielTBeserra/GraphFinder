@@ -534,13 +534,13 @@ impl GraphFinderMcpServer {
             if hits.is_empty() {
                 return Ok(CallToolResult::success(vec![ContentBlock::text("No semantic results found in vault.")]));
             }
-            let mut out = String::from("Semantic Overview:\n");
+            let mut out = String::new();
             for (i, h) in hits.into_iter().enumerate() {
                 out.push_str(&format!(
-                    "{}. [[{}]] (Relevance: {:.0}%)\n   Summary: {}\n",
+                    "{}. [[{}]] {} — {}\n",
                     i + 1,
                     h.title,
-                    h.score * 100.0,
+                    pct(h.score),
                     h.snippet
                 ));
             }
@@ -557,7 +557,7 @@ impl GraphFinderMcpServer {
             .unwrap_or_else(|| vec![args.query.clone()]);
         let fetch_n = offset + limit + 1;
 
-        let mut out = String::from("High-Density Semantic Chunks (Token-Efficient):\n\n");
+        let mut out = String::new();
         let mut any = false;
         for q in &queries {
             if queries.len() > 1 {
@@ -578,14 +578,14 @@ impl GraphFinderMcpServer {
             for (i, c) in chunks.into_iter().skip(offset).take(limit).enumerate() {
                 any = true;
                 let block = if ids_only {
-                    format!("{}. {} | {:.0}%\n", idx + i + 1, c.deep_link, c.score * 100.0)
+                    format!("{}. {} {}\n", idx + i + 1, c.deep_link, pct(c.score))
                 } else {
                     format!(
-                        "{}. {} | Score: {:.0}% (~{} tokens)\n\"{}\"\n\n",
+                        "{}. {} {} {}\n{}\n\n",
                         idx + i + 1,
                         c.deep_link,
-                        c.score * 100.0,
-                        c.token_estimate,
+                        pct(c.score),
+                        toks(c.token_estimate),
                         c.content.trim()
                     )
                 };
@@ -594,7 +594,7 @@ impl GraphFinderMcpServer {
                 }
             }
             if has_more {
-                out.push_str(&format!("... more results — pass 'offset': {}\n", offset + limit));
+                out.push_str(&more_marker(offset + limit));
             }
         }
         if !any {
@@ -656,13 +656,13 @@ impl GraphFinderMcpServer {
             return Ok(CallToolResult::success(vec![ContentBlock::text("No strong link recommendations found for this text.")]));
         }
 
-        let mut out = String::from("Semantic Wikilink Suggestions for the Graph:\n\n");
+        let mut out = String::new();
         for (i, s) in suggestions.into_iter().enumerate() {
             out.push_str(&format!(
-                "{}. {} (Affinity: {:.0}%)\n   Context: \"{}\"\n",
+                "{}. {} {} — {}\n",
                 i + 1,
                 s.deep_link,
-                s.similarity_score * 100.0,
+                pct(s.similarity_score),
                 s.preview
             ));
         }
@@ -954,7 +954,7 @@ impl GraphFinderMcpServer {
             .unwrap_or_else(|| vec![args.query.clone()]);
         let fetch_n = offset + limit + 1;
 
-        let mut out = String::from("Relevant Code Chunks (Neural + FTS5 Hybrid Search):\n\n");
+        let mut out = String::new();
         let mut any = false;
         for q in &queries {
             if queries.len() > 1 {
@@ -976,8 +976,8 @@ impl GraphFinderMcpServer {
                 any = true;
                 let block = if ids_only {
                     format!(
-                        "{}. {} (L{}-{}, {:.0}%)\n",
-                        idx + i + 1, h.deep_link, h.start_line, h.end_line, h.score * 100.0
+                        "{}. {} L{}-{} {}\n",
+                        idx + i + 1, h.deep_link, h.start_line, h.end_line, pct(h.score)
                     )
                 } else {
                     let content = h.content.trim();
@@ -988,21 +988,20 @@ impl GraphFinderMcpServer {
                             .clone()
                             .unwrap_or_else(|| format!("L{}-L{}", h.start_line, h.end_line));
                         format!(
-                            "{}\n... [truncated — full chunk is ~{} tokens; use `read_code_chunk(\"{}\", \"{}\")` for the complete symbol]",
+                            "{}\n…truncated (~{}t total; read_code_chunk(\"{}\", \"{}\"))",
                             truncated, h.token_estimate, h.file_id, target
                         )
                     } else {
                         content.to_string()
                     };
                     format!(
-                        "{}. {} (Lines {}-{}, Relevance: {:.0}%, ~{} tokens)\n   Language: {}\n```{}\n{}\n```\n\n",
+                        "{}. {} L{}-{} {} {}\n```{}\n{}\n```\n\n",
                         idx + i + 1,
                         h.deep_link,
                         h.start_line,
                         h.end_line,
-                        h.score * 100.0,
-                        h.token_estimate,
-                        h.language,
+                        pct(h.score),
+                        toks(h.token_estimate),
                         h.language,
                         body
                     )
@@ -1012,7 +1011,7 @@ impl GraphFinderMcpServer {
                 }
             }
             if has_more {
-                out.push_str(&format!("... more results — pass 'offset': {}\n", offset + limit));
+                out.push_str(&more_marker(offset + limit));
             }
         }
         if !any {
