@@ -121,6 +121,58 @@ fn human(n: usize) -> String {
     }
 }
 
+/// Semantic hit block: `1. [[Note#Sec]] 73% ~60t\n<content>` (or id-line only).
+fn fmt_semantic_hit(idx: usize, c: &crate::engine::ChunkHit, ids_only: bool) -> String {
+    if ids_only {
+        format!("{}. {} {}\n", idx, c.deep_link, pct(c.score))
+    } else {
+        format!(
+            "{}. {} {} {}\n{}\n\n",
+            idx,
+            c.deep_link,
+            pct(c.score),
+            toks(c.token_estimate),
+            c.content.trim()
+        )
+    }
+}
+
+/// Code hit block: `1. [[file#sym]] L42-80 73% ~300t\n```lang\n<body>\n````
+/// (or id-line only). Oversized bodies get a `read_code_chunk` pointer.
+fn fmt_code_hit(idx: usize, h: &crate::engine::CodeChunkHit, ids_only: bool) -> String {
+    if ids_only {
+        return format!(
+            "{}. {} L{}-{} {}\n",
+            idx, h.deep_link, h.start_line, h.end_line, pct(h.score)
+        );
+    }
+    let content = h.content.trim();
+    let body = if h.token_estimate > MAX_SEARCH_CHUNK_TOKENS {
+        let truncated = truncate_str(content, MAX_SEARCH_CHUNK_TOKENS * 4);
+        let target = h
+            .symbol_name
+            .clone()
+            .unwrap_or_else(|| format!("L{}-L{}", h.start_line, h.end_line));
+        format!(
+            "{}\n…truncated (~{}t total; read_code_chunk(\"{}\", \"{}\"))",
+            truncated, h.token_estimate, h.file_id, target
+        )
+    } else {
+        content.to_string()
+    };
+    format!(
+        "{}. {} L{}-{} {} {}\n```{}\n{}\n```\n\n",
+        idx,
+        h.deep_link,
+        h.start_line,
+        h.end_line,
+        pct(h.score),
+        toks(h.token_estimate),
+        h.language,
+        body
+    )
+}
+
 fn truncate_str(s: &str, max_chars: usize) -> &str {
     if s.len() <= max_chars {
         return s;
@@ -577,18 +629,7 @@ impl GraphFinderMcpServer {
             let idx = offset;
             for (i, c) in chunks.into_iter().skip(offset).take(limit).enumerate() {
                 any = true;
-                let block = if ids_only {
-                    format!("{}. {} {}\n", idx + i + 1, c.deep_link, pct(c.score))
-                } else {
-                    format!(
-                        "{}. {} {} {}\n{}\n\n",
-                        idx + i + 1,
-                        c.deep_link,
-                        pct(c.score),
-                        toks(c.token_estimate),
-                        c.content.trim()
-                    )
-                };
+                let block = fmt_semantic_hit(idx + i + 1, &c, ids_only);
                 if !push_budgeted(&mut out, &block, budget) {
                     return Ok(CallToolResult::success(vec![ContentBlock::text(out)]));
                 }
@@ -976,38 +1017,7 @@ impl GraphFinderMcpServer {
             let idx = offset;
             for (i, h) in hits.into_iter().skip(offset).take(limit).enumerate() {
                 any = true;
-                let block = if ids_only {
-                    format!(
-                        "{}. {} L{}-{} {}\n",
-                        idx + i + 1, h.deep_link, h.start_line, h.end_line, pct(h.score)
-                    )
-                } else {
-                    let content = h.content.trim();
-                    let body = if h.token_estimate > MAX_SEARCH_CHUNK_TOKENS {
-                        let truncated = truncate_str(content, MAX_SEARCH_CHUNK_TOKENS * 4);
-                        let target = h
-                            .symbol_name
-                            .clone()
-                            .unwrap_or_else(|| format!("L{}-L{}", h.start_line, h.end_line));
-                        format!(
-                            "{}\n…truncated (~{}t total; read_code_chunk(\"{}\", \"{}\"))",
-                            truncated, h.token_estimate, h.file_id, target
-                        )
-                    } else {
-                        content.to_string()
-                    };
-                    format!(
-                        "{}. {} L{}-{} {} {}\n```{}\n{}\n```\n\n",
-                        idx + i + 1,
-                        h.deep_link,
-                        h.start_line,
-                        h.end_line,
-                        pct(h.score),
-                        toks(h.token_estimate),
-                        h.language,
-                        body
-                    )
-                };
+                let block = fmt_code_hit(idx + i + 1, &h, ids_only);
                 if !push_budgeted(&mut out, &block, budget) {
                     return Ok(CallToolResult::success(vec![ContentBlock::text(out)]));
                 }
@@ -1972,4 +1982,112 @@ fn similarity_score(a: &str, b: &str) -> f64 {
         0.0
     };
     (jaccard + prefix).min(1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::{ChunkHit, CodeChunkHit};
+
+    #[test]
+    fn test_pct() {
+        assert_eq!(pct(0.73), "73%");
+        assert_eq!(pct(0.0), "0%");
+        assert_eq!(pct(0.996), "100%");
+        assert_eq!(pct(0.05), "5%");
+    }
+
+    #[test]
+    fn test_toks() {
+        assert_eq!(toks(139), "~139t");
+        assert_eq!(toks(0), "~0t");
+    }
+
+    #[test]
+    fn test_join_list() {
+        assert_eq!(join_list(&[]), "-");
+        assert_eq!(join_list(&["a".to_string()]), "a");
+        assert_eq!(
+            join_list(&["a".to_string(), "b".to_string(), "c".to_string()]),
+            "a, b, c"
+        );
+    }
+
+    #[test]
+    fn test_human() {
+        assert_eq!(human(999), "999");
+        assert_eq!(human(1000), "1.0k");
+        assert_eq!(human(21900), "21.9k");
+    }
+
+    #[test]
+    fn test_more_marker() {
+        assert_eq!(more_marker(10), "+more: offset=10\n");
+    }
+
+    #[test]
+    fn test_push_budgeted() {
+        let mut out = String::new();
+        assert!(push_budgeted(&mut out, "block\n", 100));
+        assert_eq!(out, "block\n");
+        assert!(!push_budgeted(&mut out, &"y".repeat(100), 50));
+        assert!(out.ends_with("…truncated (narrow query / lower limit / offset=N)\n"));
+    }
+
+    fn chunk_hit() -> ChunkHit {
+        ChunkHit {
+            chunk_id: "c1".into(),
+            note_id: "n1".into(),
+            note_title: "Note".into(),
+            heading: Some("Sec".into()),
+            deep_link: "[[Note#Sec]]".into(),
+            content: "  the body  ".into(),
+            token_estimate: 60,
+            score: 0.73,
+        }
+    }
+
+    fn code_hit(tokens: usize) -> CodeChunkHit {
+        CodeChunkHit {
+            chunk_id: "k1".into(),
+            file_id: "src/lib.rs".into(),
+            file_name: "lib.rs".into(),
+            language: "rust".into(),
+            symbol_name: Some("sym".into()),
+            start_line: 42,
+            end_line: 80,
+            deep_link: "[[src/lib.rs#sym]]".into(),
+            content: "fn main() {}".into(),
+            token_estimate: tokens,
+            score: 0.73,
+        }
+    }
+
+    // Golden snapshots of the compact grammar — if these break, agents
+    // parsing the output break. Keep anchors: [[…]], L42-80, 73%, ~Nt.
+    #[test]
+    fn test_semantic_hit_golden() {
+        assert_eq!(
+            fmt_semantic_hit(1, &chunk_hit(), false),
+            "1. [[Note#Sec]] 73% ~60t\nthe body\n\n"
+        );
+        assert_eq!(
+            fmt_semantic_hit(2, &chunk_hit(), true),
+            "2. [[Note#Sec]] 73%\n"
+        );
+    }
+
+    #[test]
+    fn test_code_hit_golden() {
+        assert_eq!(
+            fmt_code_hit(1, &code_hit(300), false),
+            "1. [[src/lib.rs#sym]] L42-80 73% ~300t\n```rust\nfn main() {}\n```\n\n"
+        );
+        assert_eq!(
+            fmt_code_hit(1, &code_hit(300), true),
+            "1. [[src/lib.rs#sym]] L42-80 73%\n"
+        );
+        let big = fmt_code_hit(1, &code_hit(2000), false);
+        assert!(big.contains("…truncated (~2000t total; read_code_chunk(\"src/lib.rs\", \"sym\"))"));
+    }
 }
