@@ -733,11 +733,18 @@ impl GraphFinderMcpServer {
             Ok(res) => res,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to retrieve graph neighborhood: {}", e))])),
         };
-        let mut out = format!("Subgraph around [[{}]]:\n\nConnected Nodes:\n", args.target);
+        let mut out = format!(
+            "[[{}]] depth={} neighbors({}):\n",
+            args.target,
+            depth,
+            n.nodes.len()
+        );
         for node in n.nodes {
             out.push_str(&format!(
-                "- [[{}]] ({} links, tags: {:?})\n",
-                node.title, node.degree, node.tags
+                "- [[{}]] links={} tags: {}\n",
+                node.title,
+                node.degree,
+                join_list(&node.tags)
             ));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -1134,18 +1141,18 @@ impl GraphFinderMcpServer {
         match engine.get_code_dependencies(&args.file_path, direction).await {
             Ok(deps) => {
                 let out = format!(
-                    "Dependencies for `{}`:\n\n- Imported Files ({}):\n{}\n\n- Files Importing This File ({}):\n{}\n\n- External Modules/Packages ({}):\n{}\n\n- Outgoing Function Calls ({}):\n{}\n\n- Incoming Callers ({}):\n{}",
+                    "deps `{}`:\nimports({}): {}\nimported_by({}): {}\nexternal({}): {}\ncalls({}): {}\ncallers({}): {}",
                     deps.file_id,
                     deps.imports.len(),
-                    if deps.imports.is_empty() { "  (none)".to_string() } else { deps.imports.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                    join_list(&deps.imports),
                     deps.imported_by.len(),
-                    if deps.imported_by.is_empty() { "  (none)".to_string() } else { deps.imported_by.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                    join_list(&deps.imported_by),
                     deps.external.len(),
-                    if deps.external.is_empty() { "  (none)".to_string() } else { deps.external.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                    join_list(&deps.external),
                     deps.outgoing_calls.len(),
-                    if deps.outgoing_calls.is_empty() { "  (none)".to_string() } else { deps.outgoing_calls.iter().map(|c| format!("  - `{}`", c)).collect::<Vec<_>>().join("\n") },
+                    join_list(&deps.outgoing_calls),
                     deps.incoming_callers.len(),
-                    if deps.incoming_callers.is_empty() { "  (none)".to_string() } else { deps.incoming_callers.iter().map(|c| format!("  - `{}`", c)).collect::<Vec<_>>().join("\n") },
+                    join_list(&deps.incoming_callers),
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
@@ -1159,12 +1166,16 @@ impl GraphFinderMcpServer {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine.find_path(&args.source, &args.target).await {
             Ok(Some(path)) => {
-                let mut out = format!("### Path from `{}` to `{}` (Length: {} hops)\n\n", path.source, path.target, path.length);
+                let mut out = String::new();
                 for (i, step) in path.steps.iter().enumerate() {
-                    let dir = if i == 0 { "START" } else { &step.direction };
-                    let lbl = step.edge_label.as_deref().map(|l| format!(" [{}]", l)).unwrap_or_default();
-                    out.push_str(&format!("{}. {} **{}** (`{}`){}\n", i + 1, dir, step.title, step.node_type, lbl));
+                    if i == 0 {
+                        out.push_str(&format!("`{}`", step.title));
+                        continue;
+                    }
+                    let lbl = step.edge_label.as_deref().unwrap_or(step.direction.as_str());
+                    out.push_str(&format!(" -[{}]-> `{}`", lbl, step.title));
                 }
+                out.push_str(&format!(" ({} hops)", path.length));
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
             Ok(None) => Ok(CallToolResult::success(vec![ContentBlock::text(format!("No connection path found between `{}` and `{}`.", args.source, args.target))])),
@@ -1178,37 +1189,36 @@ impl GraphFinderMcpServer {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine.explain_node(&args.target).await {
             Ok(Some(e)) => {
-                let god_badge = if e.is_god_node { " 🌟 **[GOD NODE / ARCHITECTURAL HUB]**" } else { "" };
-                let mut out = format!("# Architectural Context: `{}`{}\n\n", e.title, god_badge);
-                out.push_str(&format!("- **Node Type**: `{}`\n", e.node_type));
+                let god = if e.is_god_node { " GOD-NODE" } else { "" };
+                let mut out = format!(
+                    "`{}` ({}){} | C{} {}\n",
+                    e.title, e.node_type, god, e.community_id, e.community_name
+                );
                 if let Some(p) = e.path {
-                    out.push_str(&format!("- **File Path**: `{}`\n", p));
+                    out.push_str(&format!("path: `{}`\n", p));
                 }
-                out.push_str(&format!("- **Community Cluster**: C{} - {}\n", e.community_id, e.community_name));
-                out.push_str(&format!("- **Centrality Rank**: #{} (Degree: {} | Inbound: {} | Outbound: {})\n", e.centrality_rank, e.degree, e.in_degree, e.out_degree));
+                out.push_str(&format!(
+                    "rank=#{} degree={} in={} out={}\n",
+                    e.centrality_rank, e.degree, e.in_degree, e.out_degree
+                ));
                 if let Some(s) = e.summary {
-                    out.push_str(&format!("- **Summary**: {}\n", s));
+                    out.push_str(&format!("{}\n", s));
                 }
-                out.push_str(&format!("\n### Inbound Dependents ({}):\n", e.incoming_dependents.len()));
-                if e.incoming_dependents.is_empty() {
-                    out.push_str("- *(None)*\n");
-                } else {
-                    for dep in e.incoming_dependents {
-                        out.push_str(&format!("- {}\n", dep));
-                    }
-                }
-                out.push_str(&format!("\n### Outbound Dependencies ({}):\n", e.outgoing_dependencies.len()));
-                if e.outgoing_dependencies.is_empty() {
-                    out.push_str("- *(None)*\n");
-                } else {
-                    for dep in e.outgoing_dependencies {
-                        out.push_str(&format!("- {}\n", dep));
-                    }
-                }
-                out.push_str(&format!("\n### Co-located Sibling Nodes in Community C{}:\n", e.community_id));
-                for sib in e.sibling_nodes {
-                    out.push_str(&format!("- `{}`\n", sib));
-                }
+                out.push_str(&format!(
+                    "in({}): {}\n",
+                    e.incoming_dependents.len(),
+                    join_list(&e.incoming_dependents)
+                ));
+                out.push_str(&format!(
+                    "out({}): {}\n",
+                    e.outgoing_dependencies.len(),
+                    join_list(&e.outgoing_dependencies)
+                ));
+                out.push_str(&format!(
+                    "siblings C{}: {}\n",
+                    e.community_id,
+                    join_list(&e.sibling_nodes)
+                ));
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
             Ok(None) => {
@@ -1238,24 +1248,26 @@ impl GraphFinderMcpServer {
                     let json = serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string());
                     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
                 } else {
-                    let mut out = String::from("# Architectural Community & Topology Report\n\n");
-                    out.push_str(&format!("- **Total Nodes**: {} | **Connections**: {} | **Density**: {:.4}\n", report.total_nodes, report.total_edges, report.density));
-                    out.push_str(&format!("- **Communities**: {} | **God Nodes**: {} | **Surprises**: {}\n\n", report.communities.len(), report.god_nodes.len(), report.surprises.len()));
-                    
-                    out.push_str("### 🌟 God Nodes (Architectural Hubs)\n");
+                    let mut out = format!(
+                        "# Community Report\nnodes={} edges={} density={:.4} | communities={} god_nodes={} surprises={}\n",
+                        report.total_nodes, report.total_edges, report.density,
+                        report.communities.len(), report.god_nodes.len(), report.surprises.len()
+                    );
+
+                    out.push_str("\nGod Nodes:\n");
                     for g in &report.god_nodes {
-                        out.push_str(&format!("- **`{}`** (`{}`) | Degree: {} (In: {}, Out: {}) | C{} ({})\n", g.title, g.node_type, g.degree, g.in_degree, g.out_degree, g.community_id, g.role));
+                        out.push_str(&format!("- `{}` ({}) degree={} in={} out={} | C{} {}\n", g.title, g.node_type, g.degree, g.in_degree, g.out_degree, g.community_id, g.role));
                     }
 
-                    out.push_str("\n### 🧩 Modular Subsystem Communities\n");
+                    out.push_str("\nCommunities:\n");
                     for c in &report.communities {
-                        out.push_str(&format!("- **C{}**: {} ({} nodes) - Key nodes: {}\n", c.id, c.name, c.node_count, c.key_nodes.join(", ")));
+                        out.push_str(&format!("- C{} {} ({} nodes): {}\n", c.id, c.name, c.node_count, c.key_nodes.join(", ")));
                     }
 
                     if !report.surprises.is_empty() {
-                        out.push_str("\n### ⚡ Architectural Surprises (Cross-Couplings)\n");
+                        out.push_str("\nSurprises:\n");
                         for (i, s) in report.surprises.iter().enumerate() {
-                            out.push_str(&format!("{}. `{}` (C{}) -> `{}` (C{}) [{}]\n   *{}*\n", i + 1, s.source_title, s.source_community, s.target_title, s.target_community, s.label, s.reason));
+                            out.push_str(&format!("{}. `{}` (C{}) -> `{}` (C{}) [{}] — {}\n", i + 1, s.source_title, s.source_community, s.target_title, s.target_community, s.label, s.reason));
                         }
                     }
 
