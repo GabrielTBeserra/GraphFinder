@@ -1,15 +1,15 @@
 {
-  "description": "Creates a new isolated project with dedicated Markdown vault and SQLite vector index.",
+  "description": "Creates an isolated project (markdown vault + vector index) at a path.",
   "name": "create_project",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
       "name": {
-        "description": "Name of the new project (e.g. 'HomeLab', 'Finances', 'Backend')",
+        "description": "Project name (e.g. 'Backend')",
         "type": "string"
       },
       "path": {
-        "description": "Optional absolute folder path on disk",
+        "description": "Absolute folder path (optional)",
         "type": [
           "string",
           "null"

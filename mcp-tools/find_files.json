@@ -1,12 +1,20 @@
 {
-  "description": "Quickly finds files in project codebase by name, glob pattern, or language, including connectivity degree in the dependency graph.",
+  "description": "Finds files by glob/name/language with import-degree stats. Use for paths; search_code for content.",
   "name": "find_files",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+      "fields": {
+        "default": null,
+        "description": "'ids': paths only",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
       "language": {
         "default": null,
-        "description": "Filter by programming language (e.g. 'rust', 'typescript', optional)",
+        "description": "Language filter (optional)",
         "type": [
           "string",
           "null"
@@ -14,7 +22,17 @@
       },
       "limit": {
         "default": null,
-        "description": "Maximum files to return (default: 20)",
+        "description": "Max files (default: 20)",
+        "format": "uint",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "offset": {
+        "default": null,
+        "description": "Pagination offset (default: 0)",
         "format": "uint",
         "minimum": 0,
         "type": [
@@ -24,7 +42,7 @@
       },
       "pattern": {
         "default": null,
-        "description": "Glob pattern or file path match (e.g. '*.tsx', 'db.rs', 'engine', optional)",
+        "description": "Glob/name match (e.g. '*.tsx', optional)",
         "type": [
           "string",
           "null"
@@ -32,7 +50,7 @@
       },
       "project": {
         "default": null,
-        "description": "Target project/vault ID (optional)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"

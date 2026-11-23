@@ -1,0 +1,35 @@
+{
+  "description": "Replaces the body of one ##/### section (heading preserved) and re-indexes. Prefer over store_context for edits.",
+  "name": "update_section",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "content": {
+        "description": "New section body (heading preserved)",
+        "type": "string"
+      },
+      "heading": {
+        "description": "Section heading to replace (## / ###)",
+        "type": "string"
+      },
+      "project": {
+        "default": null,
+        "description": "Project ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "target": {
+        "description": "Note title or ID",
+        "type": "string"
+      }
+    },
+    "required": [
+      "target",
+      "heading",
+      "content"
+    ],
+    "type": "object"
+  }
+}

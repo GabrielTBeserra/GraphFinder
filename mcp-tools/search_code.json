@@ -1,12 +1,20 @@
 {
-  "description": "Hybrid dense vector + BM25 search across project codebase. Returns function, class, or block excerpts with relevance scores and deep links [[file#symbol]].",
+  "description": "Hybrid BM25+vector code search; returns ranked [[file#symbol]] excerpts. Use to locate code; read full symbols with read_code_chunk. fields='ids' for cheap 2-stage lookup.",
   "name": "search_code",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+      "fields": {
+        "default": null,
+        "description": "'ids': [[file#symbol]] + scores only",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
       "language": {
         "default": null,
-        "description": "Filter by programming language (e.g. 'rust', 'typescript', 'python', optional)",
+        "description": "Language filter (optional)",
         "type": [
           "string",
           "null"
@@ -14,7 +22,27 @@
       },
       "limit": {
         "default": null,
-        "description": "Maximum code chunks to return (default: 5)",
+        "description": "Max chunks (default: 5)",
+        "format": "uint",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "max_chars": {
+        "default": null,
+        "description": "Response budget in chars (default: 8000)",
+        "format": "uint",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "offset": {
+        "default": null,
+        "description": "Pagination offset (default: 0)",
         "format": "uint",
         "minimum": 0,
         "type": [
@@ -24,14 +52,25 @@
       },
       "project": {
         "default": null,
-        "description": "Target project/vault ID (optional)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"
         ]
       },
+      "queries": {
+        "default": null,
+        "description": "Batch: multiple queries in one call",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
       "query": {
-        "description": "Semantic or exact search query for code symbols, functions, or concepts",
+        "description": "Code search query",
         "type": "string"
       }
     },

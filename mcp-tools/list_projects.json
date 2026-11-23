@@ -1,5 +1,5 @@
 {
-  "description": "Lists all isolated projects/vaults, note counts, and active project indicator.",
+  "description": "Lists vault projects with note/code counts and the active flag. Use to discover project IDs for the 'project' param.",
   "name": "list_projects",
   "parameters": {
     "properties": {},

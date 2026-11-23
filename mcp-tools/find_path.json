@@ -1,23 +1,23 @@
 {
-  "description": "Discovers shortest multi-hop dependency path connecting any two symbols, files, or notes.",
+  "description": "BFS shortest path between two nodes across imports and wikilinks.",
   "name": "find_path",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
       "project": {
         "default": null,
-        "description": "Target project/vault ID (optional)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"
         ]
       },
       "source": {
-        "description": "Origin node title, file path, or symbol (e.g. 'App.tsx' or 'Note Title')",
+        "description": "Origin node (file, symbol, note)",
         "type": "string"
       },
       "target": {
-        "description": "Destination node title, file path, or symbol (e.g. 'db.rs')",
+        "description": "Destination node",
         "type": "string"
       }
     },

@@ -1,3 +1,15 @@
+//! ## MCP compact output grammar (v1)
+//! ```text
+//! search_hit := N. [[deep-link]] SCORE% ~TOKS
+//! code_hit   := N. [[file#sym]] LSTART-END SCORE% ~TOKS\n```lang\nbody\n```
+//! section    := [[Note#Sec]] ~TOKS\n<body>
+//! list       := a, b, c   ("-" when empty)
+//! pagination := +more: offset=N
+//! truncation := …truncated (narrow query / lower limit / offset=N)
+//! ```
+//! `[[…]]` deep links, `offset=` and `read_code_chunk(...)` hints are stable
+//! anchors for agents — keep them verbatim. Covered by tests in this module.
+
 pub mod server;
 
 use schemars::JsonSchema;
@@ -69,13 +81,96 @@ fn diversify<T>(
 /// then writes an explicit truncation marker so agents can narrow.
 fn push_budgeted(out: &mut String, block: &str, budget: usize) -> bool {
     if out.len() + block.len() > budget {
-        out.push_str("
-… truncated — narrow 'query', lower 'limit', or pass 'offset'.
-");
+        out.push_str("\n…truncated (narrow query / lower limit / offset=N)\n");
         return false;
     }
     out.push_str(block);
     true
+}
+
+/// `0.731` → `"73%"`. Relevance score in compact form.
+fn pct(score: f32) -> String {
+    format!("{:.0}%", score * 100.0)
+}
+
+/// Token estimate suffix: `139` → `"~139t"`.
+fn toks(tokens: usize) -> String {
+    format!("~{}t", tokens)
+}
+
+/// Comma-joined list or `-` when empty — replaces `{:?}` debug formatting.
+fn join_list(items: &[String]) -> String {
+    if items.is_empty() {
+        "-".to_string()
+    } else {
+        items.join(", ")
+    }
+}
+
+/// Pagination hint: `+more: offset=10`.
+fn more_marker(next_offset: usize) -> String {
+    format!("+more: offset={}\n", next_offset)
+}
+
+/// `21900` → `"21.9k"` for compact stat lines.
+fn human(n: usize) -> String {
+    if n >= 1000 {
+        format!("{:.1}k", n as f64 / 1000.0)
+    } else {
+        n.to_string()
+    }
+}
+
+/// Semantic hit block: `1. [[Note#Sec]] 73% ~60t\n<content>` (or id-line only).
+fn fmt_semantic_hit(idx: usize, c: &crate::engine::ChunkHit, ids_only: bool) -> String {
+    if ids_only {
+        format!("{}. {} {}\n", idx, c.deep_link, pct(c.score))
+    } else {
+        format!(
+            "{}. {} {} {}\n{}\n\n",
+            idx,
+            c.deep_link,
+            pct(c.score),
+            toks(c.token_estimate),
+            c.content.trim()
+        )
+    }
+}
+
+/// Code hit block: `1. [[file#sym]] L42-80 73% ~300t\n```lang\n<body>\n````
+/// (or id-line only). Oversized bodies get a `read_code_chunk` pointer.
+fn fmt_code_hit(idx: usize, h: &crate::engine::CodeChunkHit, ids_only: bool) -> String {
+    if ids_only {
+        return format!(
+            "{}. {} L{}-{} {}\n",
+            idx, h.deep_link, h.start_line, h.end_line, pct(h.score)
+        );
+    }
+    let content = h.content.trim();
+    let body = if h.token_estimate > MAX_SEARCH_CHUNK_TOKENS {
+        let truncated = truncate_str(content, MAX_SEARCH_CHUNK_TOKENS * 4);
+        let target = h
+            .symbol_name
+            .clone()
+            .unwrap_or_else(|| format!("L{}-L{}", h.start_line, h.end_line));
+        format!(
+            "{}\n…truncated (~{}t total; read_code_chunk(\"{}\", \"{}\"))",
+            truncated, h.token_estimate, h.file_id, target
+        )
+    } else {
+        content.to_string()
+    };
+    format!(
+        "{}. {} L{}-{} {} {}\n```{}\n{}\n```\n\n",
+        idx,
+        h.deep_link,
+        h.start_line,
+        h.end_line,
+        pct(h.score),
+        toks(h.token_estimate),
+        h.language,
+        body
+    )
 }
 
 fn truncate_str(s: &str, max_chars: usize) -> &str {
@@ -99,38 +194,38 @@ pub struct GraphFinderMcpServer {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateProjectArgs {
-    /// Name of the new project (e.g. 'HomeLab', 'Finances', 'Backend')
+    /// Project name (e.g. 'Backend')
     pub name: String,
-    /// Optional absolute folder path on disk
+    /// Absolute folder path (optional)
     pub path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SwitchProjectArgs {
-    /// Target project ID or slug to switch to
+    /// Project ID or slug
     pub project_id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchSemanticArgs {
-    /// Semantic search query or natural language question
+    /// Search query
     pub query: String,
-    /// Maximum number of atomic chunks to return (default: 5)
+    /// Max chunks (default: 5)
     pub limit: Option<usize>,
-    /// Target project/vault ID (optional, defaults to active project)
+    /// Project ID (optional)
     pub project: Option<String>,
-    /// 'dense_chunks' (default, surgical 60-80 token chunks) or 'summaries' (1-line overview)
+    /// 'dense_chunks' (default) or 'summaries'
     pub format: Option<String>,
-    /// Result offset for cursor-style pagination (default: 0)
+    /// Pagination offset (default: 0)
     #[serde(default)]
     pub offset: Option<usize>,
-    /// 'ids' returns only deep links + scores for 2-stage retrieval (cheap exploration)
+    /// 'ids': links + scores only
     #[serde(default)]
     pub fields: Option<String>,
-    /// Batch mode: run multiple queries in a single call
+    /// Batch: multiple queries in one call
     #[serde(default)]
     pub queries: Option<Vec<String>>,
-    /// Soft response-size budget in characters (default: 8000)
+    /// Response budget in chars (default: 8000)
     #[serde(default)]
     pub max_chars: Option<usize>,
 }
@@ -140,20 +235,20 @@ pub struct GetCompressedContextArgs {
     /// Note title or ID
     #[serde(alias = "note", alias = "title")]
     pub target: String,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SuggestLinksArgs {
-    /// Draft text or paragraph being authored
+    /// Draft text to link
     pub text: String,
-    /// Current note title or ID to exclude self-referencing (optional)
+    /// Note to exclude (optional)
     pub current_note: Option<String>,
-    /// Minimum cosine similarity threshold (0.0 to 1.0, default: 0.65)
+    /// Min similarity 0-1 (default: 0.65)
     pub threshold: Option<f32>,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     pub project: Option<String>,
 }
 
@@ -162,36 +257,36 @@ pub struct UpdateSectionArgs {
     /// Note title or ID
     #[serde(alias = "note", alias = "title")]
     pub target: String,
-    /// Section heading (## or ### text) to replace — matched case-insensitively
+    /// Section heading to replace (## / ###)
     pub heading: String,
-    /// New body content for the section (the heading line itself is preserved)
+    /// New section body (heading preserved)
     pub content: String,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ValidateVaultArgs {
-    /// Validate a single note title/ID instead of the whole vault (optional)
+    /// Single note title/ID (optional)
     #[serde(default)]
     pub target: Option<String>,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct StoreContextArgs {
-    /// Main concept or note title
+    /// Note title
     pub title: String,
-    /// Markdown body content of the note
+    /// Markdown body
     pub content: String,
-    /// List of context tags (optional)
+    /// Context tags (optional)
     pub tags: Option<Vec<String>>,
-    /// List of notes to connect with explicit wikilinks (optional)
+    /// Wikilink targets (optional)
     pub links: Option<Vec<String>>,
-    /// Target project/vault ID to save into (optional)
+    /// Project ID (optional)
     pub project: Option<String>,
 }
 
@@ -199,9 +294,9 @@ pub struct StoreContextArgs {
 pub struct GetGraphNeighborhoodArgs {
     /// Note title or ID
     pub target: String,
-    /// Graph hops of separation (1 or 2, default: 1)
+    /// Hops: 1 or 2 (default: 1)
     pub depth: Option<usize>,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     pub project: Option<String>,
 }
 
@@ -211,27 +306,27 @@ pub struct LinkNotesArgs {
     pub from_note: String,
     /// Destination note title
     pub to_note: String,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListRecentNotesArgs {
-    /// Maximum number of notes to return (default: 10)
+    /// Max notes (default: 10)
     pub limit: Option<usize>,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     pub project: Option<String>,
-    /// Result offset for pagination (default: 0)
+    /// Pagination offset (default: 0)
     #[serde(default)]
     pub offset: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct SyncVaultArgs {
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
-    /// Local directory path to sync/index (optional). Auto-detects if already indexed or creates a new project.
+    /// Local dir to index (optional)
     #[serde(default, alias = "directory", alias = "dir", alias = "vault_path")]
     pub path: Option<String>,
 }
@@ -241,23 +336,23 @@ pub struct ReadSectionArgs {
     /// Note title or ID
     #[serde(alias = "note", alias = "title")]
     pub target: String,
-    /// Section heading (H2/H3) or deep link fragment (e.g. '2. SQLite WAL Configuration')
+    /// H2/H3 heading or deep-link fragment
     #[serde(alias = "heading")]
     pub section: String,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct RenameNoteArgs {
-    /// Current title or ID of the note
+    /// Current title or ID
     #[serde(alias = "old", alias = "source")]
     pub old_title: String,
-    /// Desired new title for the note
+    /// New title
     #[serde(alias = "new", alias = "target")]
     pub new_title: String,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
@@ -267,142 +362,142 @@ pub struct DeleteNoteArgs {
     /// Note title or ID to delete
     #[serde(alias = "note", alias = "title")]
     pub target: String,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct GetVaultStatsArgs {
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchCodeArgs {
-    /// Semantic or exact search query for code symbols, functions, or concepts
+    /// Code search query
     pub query: String,
-    /// Maximum code chunks to return (default: 5)
+    /// Max chunks (default: 5)
     #[serde(default)]
     pub limit: Option<usize>,
-    /// Filter by programming language (e.g. 'rust', 'typescript', 'python', optional)
+    /// Language filter (optional)
     #[serde(default, alias = "lang")]
     pub language: Option<String>,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
-    /// Result offset for pagination (default: 0)
+    /// Pagination offset (default: 0)
     #[serde(default)]
     pub offset: Option<usize>,
-    /// 'ids' returns only [[file#symbol]] links + scores
+    /// 'ids': [[file#symbol]] + scores only
     #[serde(default)]
     pub fields: Option<String>,
-    /// Batch mode: multiple queries in one call
+    /// Batch: multiple queries in one call
     #[serde(default)]
     pub queries: Option<Vec<String>>,
-    /// Soft response-size budget in characters (default: 8000)
+    /// Response budget in chars (default: 8000)
     #[serde(default)]
     pub max_chars: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct FindFilesArgs {
-    /// Glob pattern or file path match (e.g. '*.tsx', 'db.rs', 'engine', optional)
+    /// Glob/name match (e.g. '*.tsx', optional)
     #[serde(default, alias = "query", alias = "file", alias = "name")]
     pub pattern: Option<String>,
-    /// Filter by programming language (e.g. 'rust', 'typescript', optional)
+    /// Language filter (optional)
     #[serde(default, alias = "lang")]
     pub language: Option<String>,
-    /// Maximum files to return (default: 20)
+    /// Max files (default: 20)
     #[serde(default)]
     pub limit: Option<usize>,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
-    /// Result offset for pagination (default: 0)
+    /// Pagination offset (default: 0)
     #[serde(default)]
     pub offset: Option<usize>,
-    /// 'ids' returns only file paths
+    /// 'ids': paths only
     #[serde(default)]
     pub fields: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetFileContextArgs {
-    /// Relative path or file name in codebase (e.g. 'src/App.tsx', 'main.rs')
+    /// File path or name
     #[serde(alias = "file", alias = "path", alias = "target")]
     pub file_path: String,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReadCodeChunkArgs {
-    /// Relative path or file name in codebase
+    /// File path or name
     #[serde(alias = "file", alias = "path", alias = "target")]
     pub file_path: String,
-    /// Target symbol name (function/class/struct) or line range (optional)
+    /// Symbol name or line range (optional)
     #[serde(default, alias = "symbol", alias = "lines", alias = "range")]
     pub symbol_or_lines: Option<String>,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetCodeDependenciesArgs {
-    /// Relative path of code file (e.g. 'src/App.tsx')
+    /// File path
     #[serde(alias = "file", alias = "path", alias = "target")]
     pub file_path: String,
-    /// Dependency direction: 'imports' (what it imports), 'imported_by' (who imports it), or 'both' (default)
+    /// 'imports' | 'imported_by' | 'both' (default)
     #[serde(default)]
     pub direction: Option<String>,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct FindPathArgs {
-    /// Origin node title, file path, or symbol (e.g. 'App.tsx' or 'Note Title')
+    /// Origin node (file, symbol, note)
     #[serde(alias = "from", alias = "start")]
     pub source: String,
-    /// Destination node title, file path, or symbol (e.g. 'db.rs')
+    /// Destination node
     #[serde(alias = "to", alias = "end")]
     pub target: String,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ExplainNodeArgs {
-    /// Target node title, file path, or symbol
+    /// Node (file, symbol, note)
     #[serde(alias = "node", alias = "symbol", alias = "file")]
     pub target: String,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct GetCommunityReportArgs {
-    /// 'markdown' (default human-readable audit) or 'json'
+    /// 'markdown' (default) or 'json'
     #[serde(default)]
     pub format: Option<String>,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct ExportGraphArgs {
-    /// Custom output directory (optional, defaults to './graphfinder-out')
+    /// Output dir (default: './graphfinder-out')
     #[serde(default)]
     pub out_dir: Option<String>,
-    /// Target project/vault ID (optional)
+    /// Project ID (optional)
     #[serde(default)]
     pub project: Option<String>,
 }
@@ -419,23 +514,23 @@ impl GraphFinderMcpServer {
 
 #[tool_router]
 impl GraphFinderMcpServer {
-    /// Lists all isolated projects/vaults, note counts, and active project indicator.
-    #[tool(description = "Lists all isolated projects/vaults, note counts, and active project indicator.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Lists vault projects with note/code counts and the active flag. Use to discover project IDs for the 'project' param.
+    #[tool(description = "Lists vault projects with note/code counts and the active flag. Use to discover project IDs for the 'project' param.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn list_projects(&self) -> Result<CallToolResult, McpError> {
         let projects = self.manager.list_projects().await;
-        let mut out = String::from("Projects and Vaults in GraphFinder:\n\n");
+        let mut out = format!("projects({}):\n", projects.len());
         for p in projects {
-            let status = if p.is_active { " (Active)" } else { "" };
+            let status = if p.is_active { ", active" } else { "" };
             out.push_str(&format!(
-                "- **{}** (ID: `{}`){} | {} notes, {} code files\n  Path: {}\n\n",
+                "- {} ({}{}) notes={} code={} → {}\n",
                 p.name, p.id, status, p.note_count, p.code_count, p.path
             ));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Creates a new isolated project with dedicated Markdown vault and SQLite vector index.
-    #[tool(description = "Creates a new isolated project with dedicated Markdown vault and SQLite vector index.", annotations(open_world_hint = false))]
+    /// Creates an isolated project (markdown vault + vector index) at a path.
+    #[tool(description = "Creates an isolated project (markdown vault + vector index) at a path.", annotations(open_world_hint = false))]
     async fn create_project(&self, Parameters(args): Parameters<CreateProjectArgs>) -> Result<CallToolResult, McpError> {
         let project = match self
             .manager
@@ -449,14 +544,14 @@ impl GraphFinderMcpServer {
             let _ = app.emit("vault-sync-complete", 1);
         }
         let out = format!(
-            "Project '{}' (ID: '{}') created successfully!\nNote Vault: {}\nVector SQLite Database: {}",
+            "created {} ({}) | vault: {} | db: {}",
             project.name, project.id, project.path, project.db_path
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Switches the active default vault for subsequent GraphFinder operations.
-    #[tool(description = "Switches the active default vault for subsequent GraphFinder operations.", annotations(idempotent_hint = true, open_world_hint = false))]
+    /// Switches the active default vault. Most tools also accept project='<id>' per call.
+    #[tool(description = "Switches the active default vault. Most tools also accept project='<id>' per call.", annotations(idempotent_hint = true, open_world_hint = false))]
     async fn switch_project(&self, Parameters(args): Parameters<SwitchProjectArgs>) -> Result<CallToolResult, McpError> {
         let project = match self
             .manager
@@ -470,14 +565,14 @@ impl GraphFinderMcpServer {
             let _ = app.emit("vault-sync-complete", project.note_count + project.code_count);
         }
         let out = format!(
-            "Active project successfully switched to: {} (ID: '{}') with {} notes and {} code files.",
+            "active → {} ({}) notes={} code={}",
             project.name, project.id, project.note_count, project.code_count
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Surgical section retrieval for maximum token conservation. Returns exact 2-4 line chunks with deep link [[Note#Section]] and relevance score.
-    #[tool(description = "Surgical section retrieval for maximum token conservation. Returns exact 2-4 line chunks with deep link [[Note#Section]] and relevance score.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Atomic vector search over vault notes; returns ranked [[Note#Section]] excerpts. Use to answer questions; get_compressed_context for structure. fields='ids' for cheap 2-stage lookup.
+    #[tool(description = "Atomic vector search over vault notes; returns ranked [[Note#Section]] excerpts. Use to answer questions; get_compressed_context for structure. fields='ids' for cheap 2-stage lookup.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn search_semantic(&self, Parameters(args): Parameters<SearchSemanticArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let limit = args.limit.unwrap_or(5);
@@ -491,13 +586,13 @@ impl GraphFinderMcpServer {
             if hits.is_empty() {
                 return Ok(CallToolResult::success(vec![ContentBlock::text("No semantic results found in vault.")]));
             }
-            let mut out = String::from("Semantic Overview:\n");
+            let mut out = String::new();
             for (i, h) in hits.into_iter().enumerate() {
                 out.push_str(&format!(
-                    "{}. [[{}]] (Relevance: {:.0}%)\n   Summary: {}\n",
+                    "{}. [[{}]] {} — {}\n",
                     i + 1,
                     h.title,
-                    h.score * 100.0,
+                    pct(h.score),
                     h.snippet
                 ));
             }
@@ -514,7 +609,7 @@ impl GraphFinderMcpServer {
             .unwrap_or_else(|| vec![args.query.clone()]);
         let fetch_n = offset + limit + 1;
 
-        let mut out = String::from("High-Density Semantic Chunks (Token-Efficient):\n\n");
+        let mut out = String::new();
         let mut any = false;
         for q in &queries {
             if queries.len() > 1 {
@@ -534,24 +629,13 @@ impl GraphFinderMcpServer {
             let idx = offset;
             for (i, c) in chunks.into_iter().skip(offset).take(limit).enumerate() {
                 any = true;
-                let block = if ids_only {
-                    format!("{}. {} | {:.0}%\n", idx + i + 1, c.deep_link, c.score * 100.0)
-                } else {
-                    format!(
-                        "{}. {} | Score: {:.0}% (~{} tokens)\n\"{}\"\n\n",
-                        idx + i + 1,
-                        c.deep_link,
-                        c.score * 100.0,
-                        c.token_estimate,
-                        c.content.trim()
-                    )
-                };
+                let block = fmt_semantic_hit(idx + i + 1, &c, ids_only);
                 if !push_budgeted(&mut out, &block, budget) {
                     return Ok(CallToolResult::success(vec![ContentBlock::text(out)]));
                 }
             }
             if has_more {
-                out.push_str(&format!("... more results — pass 'offset': {}\n", offset + limit));
+                out.push_str(&more_marker(offset + limit));
             }
         }
         if !any {
@@ -560,8 +644,8 @@ impl GraphFinderMcpServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Returns ultracompact summary (<80 tokens) of a note: executive summary, headings map, token estimates, and connected graph neighbors.
-    #[tool(description = "Returns ultracompact summary (<80 tokens) of a note: executive summary, headings map, token estimates, and connected graph neighbors.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Returns a note's summary, section map with token estimates, tags and graph links. Use to pick a section, then read_section.
+    #[tool(description = "Returns a note's summary, section map with token estimates, tags and graph links. Use to pick a section, then read_section.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn get_compressed_context(&self, Parameters(args): Parameters<GetCompressedContextArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let ctx = match engine.get_compressed_context(&args.target).await {
@@ -571,13 +655,19 @@ impl GraphFinderMcpServer {
         match ctx {
             Some(c) => {
                 let mut out = format!(
-                    "Note Summary: [[{}]] (~{} total tokens)\nSummary: {}\nTags: {:?}\nGraph Connections: {:?}\n\nAvailable Sections:\n",
-                    c.title, c.token_estimate, c.summary, c.tags, c.connected_notes
+                    "[[{}]] {} | tags: {} | links: {}\n{}\n",
+                    c.title,
+                    toks(c.token_estimate),
+                    join_list(&c.tags),
+                    join_list(&c.connected_notes),
+                    c.summary
                 );
                 for s in c.sections {
                     out.push_str(&format!(
-                        "- #{} (~{} tokens): {}\n",
-                        s.heading, s.token_estimate, s.snippet
+                        "- {} ({}): {}\n",
+                        s.heading,
+                        toks(s.token_estimate),
+                        s.snippet
                     ));
                 }
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -598,8 +688,8 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Auto-Linker: analyzes draft text and recommends conceptual wikilinks with high semantic affinity.
-    #[tool(description = "Auto-Linker: analyzes draft text and recommends conceptual wikilinks with high semantic affinity.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Scores draft text and suggests wikilinks to existing notes. Run before store_context.
+    #[tool(description = "Scores draft text and suggests wikilinks to existing notes. Run before store_context.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn suggest_links(&self, Parameters(args): Parameters<SuggestLinksArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let current_note = args.current_note.as_deref().unwrap_or("");
@@ -613,21 +703,21 @@ impl GraphFinderMcpServer {
             return Ok(CallToolResult::success(vec![ContentBlock::text("No strong link recommendations found for this text.")]));
         }
 
-        let mut out = String::from("Semantic Wikilink Suggestions for the Graph:\n\n");
+        let mut out = String::new();
         for (i, s) in suggestions.into_iter().enumerate() {
             out.push_str(&format!(
-                "{}. {} (Affinity: {:.0}%)\n   Context: \"{}\"\n",
+                "{}. {} {} — {}\n",
                 i + 1,
                 s.deep_link,
-                s.similarity_score * 100.0,
+                pct(s.similarity_score),
                 s.preview
             ));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Saves or updates a Markdown note in the vault with CommonMark AST chunking, dense summary, and FastEmbed vectorization.
-    #[tool(description = "Saves or updates a Markdown note in the vault with CommonMark AST chunking, dense summary, and FastEmbed vectorization.", annotations(idempotent_hint = true, open_world_hint = false))]
+    /// Saves or updates a vault note (chunking, tags, vectors). For edits to an existing section prefer update_section.
+    #[tool(description = "Saves or updates a vault note (chunking, tags, vectors). For edits to an existing section prefer update_section.", annotations(idempotent_hint = true, open_world_hint = false))]
     async fn store_context(&self, Parameters(args): Parameters<StoreContextArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let mut content = args.content;
@@ -660,23 +750,18 @@ impl GraphFinderMcpServer {
             let _ = app.emit("vault-sync-complete", 1);
             let _ = app.emit("mcp-node-updated", &note.id);
         }
-        let autolinks_info = if !note.outgoing_links.is_empty() {
-            format!(
-                "\nAuto-links Created (≥65% affinity): {:?}",
-                note.outgoing_links
-            )
-        } else {
-            "\nAuto-links: No existing notes with ≥65% affinity found.".to_string()
-        };
         let out = format!(
-            "Note successfully saved, vectorized, and linked!\nTitle: [[{}]]\nFile: {}\nTags: {:?}{}",
-            note.title, note.path, note.tags, autolinks_info
+            "saved [[{}]] → {} | tags: {} | autolinks: {}",
+            note.title,
+            note.path,
+            join_list(&note.tags),
+            join_list(&note.outgoing_links)
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Returns associative subgraph around a note (1 or 2 hops) with concise neighbor summaries.
-    #[tool(description = "Returns associative subgraph around a note (1 or 2 hops) with concise neighbor summaries.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Lists 1-2 hop wikilink neighbors of a note. For the global map use get_community_report.
+    #[tool(description = "Lists 1-2 hop wikilink neighbors of a note. For the global map use get_community_report.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn get_graph_neighborhood(&self, Parameters(args): Parameters<GetGraphNeighborhoodArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let depth = args.depth.unwrap_or(1);
@@ -684,18 +769,25 @@ impl GraphFinderMcpServer {
             Ok(res) => res,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to retrieve graph neighborhood: {}", e))])),
         };
-        let mut out = format!("Subgraph around [[{}]]:\n\nConnected Nodes:\n", args.target);
+        let mut out = format!(
+            "[[{}]] depth={} neighbors({}):\n",
+            args.target,
+            depth,
+            n.nodes.len()
+        );
         for node in n.nodes {
             out.push_str(&format!(
-                "- [[{}]] ({} links, tags: {:?})\n",
-                node.title, node.degree, node.tags
+                "- [[{}]] links={} tags: {}\n",
+                node.title,
+                node.degree,
+                join_list(&node.tags)
             ));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Creates an explicit bidirectional wikilink between two notes or concepts.
-    #[tool(description = "Creates an explicit bidirectional wikilink between two notes or concepts.", annotations(idempotent_hint = true, open_world_hint = false))]
+    /// Creates a bidirectional wikilink between two notes.
+    #[tool(description = "Creates a bidirectional wikilink between two notes.", annotations(idempotent_hint = true, open_world_hint = false))]
     async fn link_notes(&self, Parameters(args): Parameters<LinkNotesArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let updated = match engine.link_notes(&args.from_note, &args.to_note).await {
@@ -707,14 +799,16 @@ impl GraphFinderMcpServer {
             let _ = app.emit("mcp-node-updated", &updated.id);
         }
         let out = format!(
-            "Link created successfully!\nSource: [[{}]] -> Target: [[{}]]\nUpdated Links: {:?}",
-            updated.title, args.to_note, updated.outgoing_links
+            "linked [[{}]] → [[{}]] | links: {}",
+            updated.title,
+            args.to_note,
+            join_list(&updated.outgoing_links)
         );
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Lists vault notes with 1-line summaries and token estimates.
-    #[tool(description = "Lists vault notes with 1-line summaries and token estimates.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Lists vault notes with 1-line summaries and token estimates. Use to browse; search_semantic to query.
+    #[tool(description = "Lists vault notes with 1-line summaries and token estimates. Use to browse; search_semantic to query.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn list_recent_notes(&self, Parameters(args): Parameters<ListRecentNotesArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let limit = args.limit.unwrap_or(10);
@@ -728,21 +822,23 @@ impl GraphFinderMcpServer {
         let remaining = total.saturating_sub(offset + page.len());
         let display_notes = page.into_iter();
 
-        let mut out = String::from("Notes in Knowledge Vault:\n");
+        let mut out = String::new();
         for n in display_notes {
             out.push_str(&format!(
-                "- [[{}]] (Tags: {:?}) - \"{}\"\n",
-                n.title, n.tags, n.summary
+                "- [[{}]] tags: {} — {}\n",
+                n.title,
+                join_list(&n.tags),
+                n.summary
             ));
         }
         if remaining > 0 {
-            out.push_str(&format!("... {} more — pass 'offset': {}\n", remaining, offset + limit));
+            out.push_str(&more_marker(offset + limit));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Synchronizes Markdown notes and code files with local SQLite vector index, re-embedding modified files and updating AST import graph. Accepts optional 'path'.
-    #[tool(description = "Synchronizes Markdown notes and code files with local SQLite vector index, re-embedding modified files and updating AST import graph. Accepts optional 'path' to index any local folder.", annotations(idempotent_hint = true, open_world_hint = false))]
+    /// Incrementally re-indexes notes and code (SHA-256 diff) and rebuilds the import graph. 'path' indexes a new folder.
+    #[tool(description = "Incrementally re-indexes notes and code (SHA-256 diff) and rebuilds the import graph. 'path' indexes a new folder.", annotations(idempotent_hint = true, open_world_hint = false))]
     async fn sync_vault(&self, Parameters(args): Parameters<SyncVaultArgs>) -> Result<CallToolResult, McpError> {
         let (project_id, engine, is_new) = if let Some(p) = &args.path {
             match self.manager.get_or_register_project_by_path(std::path::Path::new(p)).await {
@@ -767,39 +863,34 @@ impl GraphFinderMcpServer {
         }
 
         let stats = engine.get_vault_stats().await.ok();
-        let status_desc = if is_new {
-            format!("New project '{}' registered and indexed", project_id)
-        } else {
-            format!("Project '{}' incrementally updated", project_id)
-        };
-
         let mut out = format!(
-            "Synchronization completed successfully!\n• Status: {}\n• Directory: {}\n• Items processed in this sync: {}\n",
-            status_desc,
-            engine.vault_path().display(),
-            count
+            "synced '{}' ({}) | processed={} | {}\n",
+            project_id,
+            if is_new { "new" } else { "updated" },
+            count,
+            engine.vault_path().display()
         );
         if let Some(s) = stats {
             out.push_str(&format!(
-                "• Total Notes: {} (with {} sections/chunks)\n• Total Code Files: {} (with {} AST symbols)\n• Graph Connections: {} wikilinks | {} code imports\n• Detected Languages: {:?}",
-                s.total_notes, s.total_chunks, s.total_code_files, s.total_code_chunks, s.total_links, s.total_code_links, s.languages
+                "notes={} code={} chunks={} symbols={} links={} imports={} langs={}",
+                s.total_notes, s.total_code_files, s.total_chunks, s.total_code_chunks,
+                s.total_links, s.total_code_links, join_list(&s.languages)
             ));
         }
 
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Surgically reads a single section (heading H2/H3) of a note, guaranteeing maximum token economy for LLMs.
-    #[tool(description = "Surgically reads a single section (heading H2/H3) of a note, guaranteeing maximum token economy for LLMs.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Reads one ##/### section of a note. Use after get_compressed_context maps the headings.
+    #[tool(description = "Reads one ##/### section of a note. Use after get_compressed_context maps the headings.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn read_section(&self, Parameters(args): Parameters<ReadSectionArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine.read_section(&args.target, &args.section).await {
             Ok(Some(chunk)) => {
                 let out = format!(
-                    "Section: {} (~{} tokens)\nDeep Link: {}\n\n{}",
-                    chunk.heading.as_deref().unwrap_or("General"),
-                    chunk.token_estimate,
+                    "{} {}\n\n{}",
                     chunk.deep_link,
+                    toks(chunk.token_estimate),
                     chunk.content.trim()
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -832,8 +923,8 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Renames a note and its file on disk, refactoring all incoming wikilinks [[Old Title]] across the entire vault to prevent broken links.
-    #[tool(description = "Renames a note and its file on disk, refactoring all incoming wikilinks [[Old Title]] across the entire vault to prevent broken links.", annotations(open_world_hint = false))]
+    /// Renames a note and rewrites all incoming [[wikilinks]] vault-wide.
+    #[tool(description = "Renames a note and rewrites all incoming [[wikilinks]] vault-wide.", annotations(open_world_hint = false))]
     async fn rename_note(&self, Parameters(args): Parameters<RenameNoteArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine.rename_note(&args.old_title, &args.new_title).await {
@@ -842,7 +933,7 @@ impl GraphFinderMcpServer {
                     let _ = app.emit("vault-sync-complete", 1);
                 }
                 let out = format!(
-                    "Note renamed successfully!\nPrevious Title: {}\nNew Title: [[{}]]\nFile: {}\nAll vault wikilinks were refactored automatically.",
+                    "renamed {} → [[{}]] → {} | wikilinks refactored",
                     args.old_title, note.title, note.path
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
@@ -851,8 +942,8 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Deletes a note from the vault (removes .md file and purges vector records from SQLite).
-    #[tool(description = "Deletes a note from the vault (removes .md file and purges vector records from SQLite).", annotations(destructive_hint = true, open_world_hint = false))]
+    /// Deletes a note file and purges its vectors. Destructive.
+    #[tool(description = "Deletes a note file and purges its vectors. Destructive.", annotations(destructive_hint = true, open_world_hint = false))]
     async fn delete_note(&self, Parameters(args): Parameters<DeleteNoteArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine.delete_note(&args.target).await {
@@ -860,34 +951,29 @@ impl GraphFinderMcpServer {
                 if let Some(app) = &self.app_handle {
                     let _ = app.emit("vault-sync-complete", 1);
                 }
-                let out = format!("Note '{}' successfully deleted from vault and vector database.", args.target);
+                let out = format!("deleted '{}' (file + vectors)", args.target);
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Failed to delete note: {}", e))])),
         }
     }
 
-    /// Returns health and graph statistics: total notes, code files, vectorized chunks, graph connections, tags, and estimated tokens.
-    #[tool(description = "Returns health and graph statistics: total notes, code files, vectorized chunks, graph connections, tags, and estimated tokens.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Returns counts: notes, code files, chunks, links, tags, tokens.
+    #[tool(description = "Returns counts: notes, code files, chunks, links, tags, tokens.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn get_vault_stats(&self, Parameters(args): Parameters<GetVaultStatsArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine.get_vault_stats().await {
             Ok(stats) => {
-                let langs_str = if stats.languages.is_empty() {
-                    "None".to_string()
-                } else {
-                    stats.languages.join(", ")
-                };
                 let out = format!(
-                    "Project and Vault Statistics:\n\n- Markdown Notes: {}\n- Code Files: {}\n- Detected Languages: {}\n- Vectorized Chunks & Sections: {}\n- Graph Connections — Wikilinks: {} | Code Imports: {}\n- Unique Tags: {}\n- Total Estimated Tokens: {}",
+                    "notes={} code={} chunks={} links={} imports={} tags={} tokens={} langs={}",
                     stats.total_notes,
                     stats.total_code_files,
-                    langs_str,
                     stats.total_chunks + stats.total_code_chunks,
                     stats.total_links,
                     stats.total_code_links,
                     stats.total_tags,
-                    stats.total_tokens
+                    human(stats.total_tokens as usize),
+                    join_list(&stats.languages)
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
@@ -895,8 +981,8 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Hybrid dense vector + BM25 search across project codebase. Returns function, class, or block excerpts with relevance scores and deep links [[file#symbol]].
-    #[tool(description = "Hybrid dense vector + BM25 search across project codebase. Returns function, class, or block excerpts with relevance scores and deep links [[file#symbol]].", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Hybrid BM25+vector code search; returns ranked [[file#symbol]] excerpts. Use to locate code; read full symbols with read_code_chunk. fields='ids' for cheap 2-stage lookup.
+    #[tool(description = "Hybrid BM25+vector code search; returns ranked [[file#symbol]] excerpts. Use to locate code; read full symbols with read_code_chunk. fields='ids' for cheap 2-stage lookup.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn search_code(&self, Parameters(args): Parameters<SearchCodeArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let limit = args.limit.unwrap_or(5);
@@ -911,7 +997,7 @@ impl GraphFinderMcpServer {
             .unwrap_or_else(|| vec![args.query.clone()]);
         let fetch_n = offset + limit + 1;
 
-        let mut out = String::from("Relevant Code Chunks (Neural + FTS5 Hybrid Search):\n\n");
+        let mut out = String::new();
         let mut any = false;
         for q in &queries {
             if queries.len() > 1 {
@@ -931,45 +1017,13 @@ impl GraphFinderMcpServer {
             let idx = offset;
             for (i, h) in hits.into_iter().skip(offset).take(limit).enumerate() {
                 any = true;
-                let block = if ids_only {
-                    format!(
-                        "{}. {} (L{}-{}, {:.0}%)\n",
-                        idx + i + 1, h.deep_link, h.start_line, h.end_line, h.score * 100.0
-                    )
-                } else {
-                    let content = h.content.trim();
-                    let body = if h.token_estimate > MAX_SEARCH_CHUNK_TOKENS {
-                        let truncated = truncate_str(content, MAX_SEARCH_CHUNK_TOKENS * 4);
-                        let target = h
-                            .symbol_name
-                            .clone()
-                            .unwrap_or_else(|| format!("L{}-L{}", h.start_line, h.end_line));
-                        format!(
-                            "{}\n... [truncated — full chunk is ~{} tokens; use `read_code_chunk(\"{}\", \"{}\")` for the complete symbol]",
-                            truncated, h.token_estimate, h.file_id, target
-                        )
-                    } else {
-                        content.to_string()
-                    };
-                    format!(
-                        "{}. {} (Lines {}-{}, Relevance: {:.0}%, ~{} tokens)\n   Language: {}\n```{}\n{}\n```\n\n",
-                        idx + i + 1,
-                        h.deep_link,
-                        h.start_line,
-                        h.end_line,
-                        h.score * 100.0,
-                        h.token_estimate,
-                        h.language,
-                        h.language,
-                        body
-                    )
-                };
+                let block = fmt_code_hit(idx + i + 1, &h, ids_only);
                 if !push_budgeted(&mut out, &block, budget) {
                     return Ok(CallToolResult::success(vec![ContentBlock::text(out)]));
                 }
             }
             if has_more {
-                out.push_str(&format!("... more results — pass 'offset': {}\n", offset + limit));
+                out.push_str(&more_marker(offset + limit));
             }
         }
         if !any {
@@ -978,8 +1032,8 @@ impl GraphFinderMcpServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Quickly finds files in project codebase by name, glob pattern, or language, including connectivity degree in the dependency graph.
-    #[tool(description = "Quickly finds files in project codebase by name, glob pattern, or language, including connectivity degree in the dependency graph.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Finds files by glob/name/language with import-degree stats. Use for paths; search_code for content.
+    #[tool(description = "Finds files by glob/name/language with import-degree stats. Use for paths; search_code for content.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn find_files(&self, Parameters(args): Parameters<FindFilesArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let limit = args.limit.unwrap_or(20);
@@ -997,43 +1051,50 @@ impl GraphFinderMcpServer {
             return Ok(CallToolResult::success(vec![ContentBlock::text("No files found matching the provided filters.")]));
         }
 
-        let mut out = format!("Files found in project (showing {}):\n\n", files.len());
+        let mut out = format!("files({}):\n", files.len());
         for f in files {
             if ids_only {
-                out.push_str(&format!("- `{}`\n", f.path));
+                out.push_str(&format!("- {}\n", f.path));
             } else {
                 out.push_str(&format!(
-                    "- `{}` ({}, {} bytes) | Internal imports: {} | External pkgs: {} | Dependents: {}\n  Summary: {}\n\n",
-                    f.path, f.language, f.size_bytes, f.imports_count, f.external_count, f.dependents_count, f.summary
+                    "- {} ({}, {}B) imports={} ext={} deps={} — {}\n",
+                    f.path, f.language, human(f.size_bytes as usize), f.imports_count, f.external_count, f.dependents_count, f.summary
                 ));
             }
         }
         if has_more {
-            out.push_str(&format!("... more — pass 'offset': {}\n", offset + limit));
+            out.push_str(&more_marker(offset + limit));
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
     }
 
-    /// Returns compact structural summary of a code file (<80 tokens): imported files, dependents, external packages, and symbol catalog.
-    #[tool(description = "Returns compact structural summary of a code file (<80 tokens): imported files, dependents, external packages, and symbol catalog.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Structural map of one file: imports, dependents, external pkgs, symbols. Use before reading code; then read_code_chunk.
+    #[tool(description = "Structural map of one file: imports, dependents, external pkgs, symbols. Use before reading code; then read_code_chunk.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn get_file_context(&self, Parameters(args): Parameters<GetFileContextArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
 
         match engine.get_file_context(&args.file_path).await {
             Ok(Some(ctx)) => {
                 let sym_list = if ctx.symbols.is_empty() {
-                    "No top-level symbols identified".to_string()
+                    "-".to_string()
                 } else {
                     ctx.symbols
                         .iter()
-                        .map(|s| format!("{} (L{}-L{}, ~{}t)", s.name, s.start_line, s.end_line, s.token_estimate))
+                        .map(|s| format!("{} L{}-{} {}", s.name, s.start_line, s.end_line, toks(s.token_estimate)))
                         .collect::<Vec<_>>()
                         .join(", ")
                 };
 
                 let out = format!(
-                    "File Structural Context:\n\n- File: `{}` ({}, ~{} tokens)\n- Summary: {}\n- Imported Files (Internal): {:?}\n- Dependent Files (Who imports this): {:?}\n- External Packages: {:?}\n- Symbols: {}",
-                    ctx.file_id, ctx.language, ctx.token_estimate, ctx.summary, ctx.imported_files, ctx.dependent_files, ctx.external_packages, sym_list
+                    "`{}` ({}, {})\n{}\nimports: {}\ndependents: {}\nexternal: {}\nsymbols: {}",
+                    ctx.file_id,
+                    ctx.language,
+                    toks(ctx.token_estimate),
+                    ctx.summary,
+                    join_list(&ctx.imported_files),
+                    join_list(&ctx.dependent_files),
+                    join_list(&ctx.external_packages),
+                    sym_list
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
@@ -1045,20 +1106,19 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Surgically reads a function, class, struct, or line range from a code file without loading the entire file into context.
-    #[tool(description = "Surgically reads a function, class, struct, or line range from a code file without loading the entire file into context.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Reads one symbol or line range from a file. Use after search_code/get_file_context locate the target.
+    #[tool(description = "Reads one symbol or line range from a file. Use after search_code/get_file_context locate the target.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn read_code_chunk(&self, Parameters(args): Parameters<ReadCodeChunkArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
 
         match engine.read_code_chunk(&args.file_path, args.symbol_or_lines.as_deref()).await {
             Ok(Some(chunk)) => {
                 let out = format!(
-                    "Code Chunk: {} (Lines {}-{}, ~{} tokens)\nDeep Link: {}\n\n```{}\n{}\n```",
-                    chunk.symbol_name.as_deref().unwrap_or("block"),
+                    "{} L{}-{} {}\n\n```{}\n{}\n```",
+                    chunk.deep_link,
                     chunk.start_line,
                     chunk.end_line,
-                    chunk.token_estimate,
-                    chunk.deep_link,
+                    toks(chunk.token_estimate),
                     chunk.language,
                     chunk.content.trim()
                 );
@@ -1072,8 +1132,8 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Explores imports, dependents, external modules, and resolved semantic code relations.
-    #[tool(description = "Explores imports, dependents, external modules, and resolved semantic code relations such as dependency injection.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Forward/reverse dependency report for a file: imports, importers, external pkgs, calls. Use for blast-radius analysis.
+    #[tool(description = "Forward/reverse dependency report for a file: imports, importers, external pkgs, calls. Use for blast-radius analysis.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn get_code_dependencies(&self, Parameters(args): Parameters<GetCodeDependenciesArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let direction = args.direction.as_deref().unwrap_or("both");
@@ -1081,18 +1141,18 @@ impl GraphFinderMcpServer {
         match engine.get_code_dependencies(&args.file_path, direction).await {
             Ok(deps) => {
                 let out = format!(
-                    "Dependencies for `{}`:\n\n- Imported Files ({}):\n{}\n\n- Files Importing This File ({}):\n{}\n\n- External Modules/Packages ({}):\n{}\n\n- Outgoing Function Calls ({}):\n{}\n\n- Incoming Callers ({}):\n{}",
+                    "deps `{}`:\nimports({}): {}\nimported_by({}): {}\nexternal({}): {}\ncalls({}): {}\ncallers({}): {}",
                     deps.file_id,
                     deps.imports.len(),
-                    if deps.imports.is_empty() { "  (none)".to_string() } else { deps.imports.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                    join_list(&deps.imports),
                     deps.imported_by.len(),
-                    if deps.imported_by.is_empty() { "  (none)".to_string() } else { deps.imported_by.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                    join_list(&deps.imported_by),
                     deps.external.len(),
-                    if deps.external.is_empty() { "  (none)".to_string() } else { deps.external.iter().map(|i| format!("  - `{}`", i)).collect::<Vec<_>>().join("\n") },
+                    join_list(&deps.external),
                     deps.outgoing_calls.len(),
-                    if deps.outgoing_calls.is_empty() { "  (none)".to_string() } else { deps.outgoing_calls.iter().map(|c| format!("  - `{}`", c)).collect::<Vec<_>>().join("\n") },
+                    join_list(&deps.outgoing_calls),
                     deps.incoming_callers.len(),
-                    if deps.incoming_callers.is_empty() { "  (none)".to_string() } else { deps.incoming_callers.iter().map(|c| format!("  - `{}`", c)).collect::<Vec<_>>().join("\n") },
+                    join_list(&deps.incoming_callers),
                 );
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
@@ -1100,18 +1160,22 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Discovers shortest multi-hop dependency path connecting any two symbols, files, or notes.
-    #[tool(description = "Discovers shortest multi-hop dependency path connecting any two symbols, files, or notes.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// BFS shortest path between two nodes across imports and wikilinks.
+    #[tool(description = "BFS shortest path between two nodes across imports and wikilinks.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn find_path(&self, Parameters(args): Parameters<FindPathArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine.find_path(&args.source, &args.target).await {
             Ok(Some(path)) => {
-                let mut out = format!("### Path from `{}` to `{}` (Length: {} hops)\n\n", path.source, path.target, path.length);
+                let mut out = String::new();
                 for (i, step) in path.steps.iter().enumerate() {
-                    let dir = if i == 0 { "START" } else { &step.direction };
-                    let lbl = step.edge_label.as_deref().map(|l| format!(" [{}]", l)).unwrap_or_default();
-                    out.push_str(&format!("{}. {} **{}** (`{}`){}\n", i + 1, dir, step.title, step.node_type, lbl));
+                    if i == 0 {
+                        out.push_str(&format!("`{}`", step.title));
+                        continue;
+                    }
+                    let lbl = step.edge_label.as_deref().unwrap_or(step.direction.as_str());
+                    out.push_str(&format!(" -[{}]-> `{}`", lbl, step.title));
                 }
+                out.push_str(&format!(" ({} hops)", path.length));
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
             Ok(None) => Ok(CallToolResult::success(vec![ContentBlock::text(format!("No connection path found between `{}` and `{}`.", args.source, args.target))])),
@@ -1119,43 +1183,42 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Generates a comprehensive 360° architectural context card for any symbol, file, or note.
-    #[tool(description = "Generates a comprehensive 360° architectural context card for any symbol, file, or note.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// 360-degree context card: centrality, community, in/out edges, siblings. For the global map use get_community_report.
+    #[tool(description = "360-degree context card: centrality, community, in/out edges, siblings. For the global map use get_community_report.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn explain_node(&self, Parameters(args): Parameters<ExplainNodeArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine.explain_node(&args.target).await {
             Ok(Some(e)) => {
-                let god_badge = if e.is_god_node { " 🌟 **[GOD NODE / ARCHITECTURAL HUB]**" } else { "" };
-                let mut out = format!("# Architectural Context: `{}`{}\n\n", e.title, god_badge);
-                out.push_str(&format!("- **Node Type**: `{}`\n", e.node_type));
+                let god = if e.is_god_node { " GOD-NODE" } else { "" };
+                let mut out = format!(
+                    "`{}` ({}){} | C{} {}\n",
+                    e.title, e.node_type, god, e.community_id, e.community_name
+                );
                 if let Some(p) = e.path {
-                    out.push_str(&format!("- **File Path**: `{}`\n", p));
+                    out.push_str(&format!("path: `{}`\n", p));
                 }
-                out.push_str(&format!("- **Community Cluster**: C{} - {}\n", e.community_id, e.community_name));
-                out.push_str(&format!("- **Centrality Rank**: #{} (Degree: {} | Inbound: {} | Outbound: {})\n", e.centrality_rank, e.degree, e.in_degree, e.out_degree));
+                out.push_str(&format!(
+                    "rank=#{} degree={} in={} out={}\n",
+                    e.centrality_rank, e.degree, e.in_degree, e.out_degree
+                ));
                 if let Some(s) = e.summary {
-                    out.push_str(&format!("- **Summary**: {}\n", s));
+                    out.push_str(&format!("{}\n", s));
                 }
-                out.push_str(&format!("\n### Inbound Dependents ({}):\n", e.incoming_dependents.len()));
-                if e.incoming_dependents.is_empty() {
-                    out.push_str("- *(None)*\n");
-                } else {
-                    for dep in e.incoming_dependents {
-                        out.push_str(&format!("- {}\n", dep));
-                    }
-                }
-                out.push_str(&format!("\n### Outbound Dependencies ({}):\n", e.outgoing_dependencies.len()));
-                if e.outgoing_dependencies.is_empty() {
-                    out.push_str("- *(None)*\n");
-                } else {
-                    for dep in e.outgoing_dependencies {
-                        out.push_str(&format!("- {}\n", dep));
-                    }
-                }
-                out.push_str(&format!("\n### Co-located Sibling Nodes in Community C{}:\n", e.community_id));
-                for sib in e.sibling_nodes {
-                    out.push_str(&format!("- `{}`\n", sib));
-                }
+                out.push_str(&format!(
+                    "in({}): {}\n",
+                    e.incoming_dependents.len(),
+                    join_list(&e.incoming_dependents)
+                ));
+                out.push_str(&format!(
+                    "out({}): {}\n",
+                    e.outgoing_dependencies.len(),
+                    join_list(&e.outgoing_dependencies)
+                ));
+                out.push_str(&format!(
+                    "siblings C{}: {}\n",
+                    e.community_id,
+                    join_list(&e.sibling_nodes)
+                ));
                 Ok(CallToolResult::success(vec![ContentBlock::text(out)]))
             }
             Ok(None) => {
@@ -1175,8 +1238,8 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Returns high-density architectural audit of communities, god nodes, and surprises.
-    #[tool(description = "Returns high-density architectural audit of communities, god nodes, and surprises.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Topological audit: communities, God Nodes, cross-coupling surprises. Start here for architecture questions.
+    #[tool(description = "Topological audit: communities, God Nodes, cross-coupling surprises. Start here for architecture questions.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn get_community_report(&self, Parameters(args): Parameters<GetCommunityReportArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine.analyze_graph().await {
@@ -1185,24 +1248,26 @@ impl GraphFinderMcpServer {
                     let json = serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string());
                     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
                 } else {
-                    let mut out = String::from("# Architectural Community & Topology Report\n\n");
-                    out.push_str(&format!("- **Total Nodes**: {} | **Connections**: {} | **Density**: {:.4}\n", report.total_nodes, report.total_edges, report.density));
-                    out.push_str(&format!("- **Communities**: {} | **God Nodes**: {} | **Surprises**: {}\n\n", report.communities.len(), report.god_nodes.len(), report.surprises.len()));
-                    
-                    out.push_str("### 🌟 God Nodes (Architectural Hubs)\n");
+                    let mut out = format!(
+                        "# Community Report\nnodes={} edges={} density={:.4} | communities={} god_nodes={} surprises={}\n",
+                        report.total_nodes, report.total_edges, report.density,
+                        report.communities.len(), report.god_nodes.len(), report.surprises.len()
+                    );
+
+                    out.push_str("\nGod Nodes:\n");
                     for g in &report.god_nodes {
-                        out.push_str(&format!("- **`{}`** (`{}`) | Degree: {} (In: {}, Out: {}) | C{} ({})\n", g.title, g.node_type, g.degree, g.in_degree, g.out_degree, g.community_id, g.role));
+                        out.push_str(&format!("- `{}` ({}) degree={} in={} out={} | C{} {}\n", g.title, g.node_type, g.degree, g.in_degree, g.out_degree, g.community_id, g.role));
                     }
 
-                    out.push_str("\n### 🧩 Modular Subsystem Communities\n");
+                    out.push_str("\nCommunities:\n");
                     for c in &report.communities {
-                        out.push_str(&format!("- **C{}**: {} ({} nodes) - Key nodes: {}\n", c.id, c.name, c.node_count, c.key_nodes.join(", ")));
+                        out.push_str(&format!("- C{} {} ({} nodes): {}\n", c.id, c.name, c.node_count, c.key_nodes.join(", ")));
                     }
 
                     if !report.surprises.is_empty() {
-                        out.push_str("\n### ⚡ Architectural Surprises (Cross-Couplings)\n");
+                        out.push_str("\nSurprises:\n");
                         for (i, s) in report.surprises.iter().enumerate() {
-                            out.push_str(&format!("{}. `{}` (C{}) -> `{}` (C{}) [{}]\n   *{}*\n", i + 1, s.source_title, s.source_community, s.target_title, s.target_community, s.label, s.reason));
+                            out.push_str(&format!("{}. `{}` (C{}) -> `{}` (C{}) [{}] — {}\n", i + 1, s.source_title, s.source_community, s.target_title, s.target_community, s.label, s.reason));
                         }
                     }
 
@@ -1213,15 +1278,15 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Exports graph.json, GRAPH_REPORT.md, and standalone graph.html to disk.
-    #[tool(description = "Exports graph.json, GRAPH_REPORT.md, and standalone graph.html to disk.", annotations(idempotent_hint = true, open_world_hint = false))]
+    /// Exports graph.json, GRAPH_REPORT.md and standalone graph.html to disk.
+    #[tool(description = "Exports graph.json, GRAPH_REPORT.md and standalone graph.html to disk.", annotations(idempotent_hint = true, open_world_hint = false))]
     async fn export_graph(&self, Parameters(args): Parameters<ExportGraphArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let out_path = args.out_dir.as_ref().map(std::path::Path::new);
         match engine.export_artifacts(out_path).await {
             Ok(summary) => {
                 let out = format!(
-                    "Knowledge graph artifacts exported successfully to `{}`:\n\n- **Audit Report**: `{}`\n- **Graph Schema**: `{}`\n- **Offline Visual Canvas**: `{}`\n\nTotal Nodes: {} | Connections: {} | Communities: {} | God Nodes: {}",
+                    "exported → {} | report={} graph={} html={} | nodes={} edges={} communities={} god={}",
                     summary.output_dir, summary.report_markdown_path, summary.graph_json_path, summary.standalone_html_path,
                     summary.total_nodes, summary.total_edges, summary.communities_count, summary.god_nodes_count
                 );
@@ -1230,8 +1295,8 @@ impl GraphFinderMcpServer {
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!("Error exporting graph: {}", e))])),
         }
     }
-    /// Surgically replaces the body of a `##`/`###` section, keeping the heading and re-indexing the note.
-    #[tool(description = "Surgically replaces the body of a ## or ### section in a note (heading line preserved), re-indexing vectors. Prefer over store_context for edits to existing notes.", annotations(idempotent_hint = true, open_world_hint = false))]
+    /// Replaces the body of one ##/### section (heading preserved) and re-indexes. Prefer over store_context for edits.
+    #[tool(description = "Replaces the body of one ##/### section (heading preserved) and re-indexes. Prefer over store_context for edits.", annotations(idempotent_hint = true, open_world_hint = false))]
     async fn update_section(&self, Parameters(args): Parameters<UpdateSectionArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         match engine
@@ -1244,7 +1309,7 @@ impl GraphFinderMcpServer {
                     let _ = app.emit("mcp-node-updated", &note.id);
                 }
                 Ok(CallToolResult::success(vec![ContentBlock::text(format!(
-                    "Section '{}' updated in [[{}]]. File: {}",
+                    "updated '{}' in [[{}]] → {}",
                     args.heading, note.title, note.path
                 ))]))
             }
@@ -1268,8 +1333,8 @@ impl GraphFinderMcpServer {
         }
     }
 
-    /// Audits vault notes against the AGENTS.md schema (summary, 40-150 token sections, wikilinks, tags, orphans).
-    #[tool(description = "Audits vault notes against the GraphFinder schema: missing H1/executive summary, sections outside the 40-150 token band, broken wikilinks, orphan notes, and missing tags. Accepts optional 'target' for a single note.", annotations(read_only_hint = true, open_world_hint = false))]
+    /// Audits notes against the vault schema: missing H1/summary, section size, broken wikilinks, orphans, tags. 'target' checks one note.
+    #[tool(description = "Audits notes against the vault schema: missing H1/summary, section size, broken wikilinks, orphans, tags. 'target' checks one note.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn validate_vault(&self, Parameters(args): Parameters<ValidateVaultArgs>) -> Result<CallToolResult, McpError> {
         let engine = self.manager.get_engine(args.project.as_deref()).await;
         let summaries = match engine.list_notes().await {
@@ -1443,25 +1508,13 @@ impl GraphFinderMcpServer {
             ))]));
         }
 
-        let mut out = format!(
-            "Vault Validation — {} note(s) checked\n\nErrors ({}):\n",
-            checked,
-            errors.len()
-        );
-        if errors.is_empty() {
-            out.push_str("- none\n");
-        } else {
-            for e in &errors {
-                out.push_str(&format!("- {}\n", e));
-            }
+        let mut out = format!("checked={} errors({}):\n", checked, errors.len());
+        for e in &errors {
+            out.push_str(&format!("- {}\n", e));
         }
-        out.push_str(&format!("\nWarnings ({}):\n", warnings.len()));
-        if warnings.is_empty() {
-            out.push_str("- none\n");
-        } else {
-            for w in &warnings {
-                out.push_str(&format!("- {}\n", w));
-            }
+        out.push_str(&format!("warnings({}):\n", warnings.len()));
+        for w in &warnings {
+            out.push_str(&format!("- {}\n", w));
         }
         let ok_count = checked
             .saturating_sub(
@@ -1474,7 +1527,7 @@ impl GraphFinderMcpServer {
             )
             .max(0);
         out.push_str(&format!(
-            "\nResult: {} error(s), {} warning(s). {} note(s) fully compliant.",
+            "result: {} errors, {} warnings — {} compliant",
             errors.len(),
             warnings.len(),
             ok_count
@@ -1644,7 +1697,7 @@ impl ServerHandler for GraphFinderMcpServer {
                 .build(),
         )
         .with_server_info(Implementation::new("graphfinder", env!("CARGO_PKG_VERSION")))
-        .with_instructions("GraphFinder Neural Knowledge Graph & Local Semantic Vault MCP Server. Atomic semantic search, topological communities, God Nodes, pathfinding, structural compression, local-first persistence. Resources: graphfinder://instructions, graphfinder://stats, graphfinder://note/{id}, graphfinder://code/{path}. Prompts: onboard_project, answer_question, investigate_code, write_note.".to_string())
+        .with_instructions("GraphFinder: semantic vault + code intelligence. Pipeline: search_semantic/search_code (fields='ids' for cheap scans) -> get_compressed_context/get_file_context -> read_section/read_code_chunk; suggest_links before store_context; get_community_report for architecture. Most tools accept project='<id>'. Resources: graphfinder://instructions,://stats,://note/{id},://code/{path}. Prompts: onboard_project, answer_question, investigate_code, write_note, audit_vault.".to_string())
     }
 
     async fn list_prompts(
@@ -1859,42 +1912,45 @@ pub fn export_all_schemas(dirs: &[&std::path::Path]) -> Vec<String> {
         let _ = std::fs::write(&manifest_path, &manifest_str);
 
         let instr_path = dir.join("instructions.md");
-        let instructions_content = r#"# GraphFinder Universal MCP Agent Instructions
+        let instructions_content = r#"# GraphFinder MCP Agent Instructions
 
-GraphFinder is a neural knowledge graph and universal codebase intelligence engine. It provides 24 atomic tools across 4 categories:
+Neural knowledge graph + universal code intelligence: 26 tools in 4 groups.
 
-## 1. Architectural & Topological Audit
-- `get_community_report`: Global map of modular subsystems, architectural God Nodes (central hubs), and unexpected cross-couplings.
-- `explain_node`: 360-degree context card for a file/symbol (centrality, callers, callees, community).
-- `find_path`: BFS shortest dependency path connecting any two files, symbols, or notes.
-- `export_graph`: Exports standalone `graph.json`, `GRAPH_REPORT.md`, and visual `graph.html`.
+## 1. Architecture & Topology
+- `get_community_report`: LPA communities, God Nodes, cross-coupling surprises — start here for architecture questions.
+- `explain_node`: 360-degree card for a file/symbol/note (centrality, community, edges).
+- `find_path`: BFS shortest dependency path between two nodes.
+- `export_graph`: graph.json + GRAPH_REPORT.md + standalone graph.html.
 
-## 2. Multi-Language Codebase Intelligence
-- `search_code`: Hybrid semantic (BM25 + neural) search for symbols, functions, and logic across code repositories. Chunks over ~1500 tokens are truncated with a pointer to `read_code_chunk`.
-- `find_files`: Fast glob and regex pattern matching across project files.
-- `get_file_context`: High-density structural overview of a file (imports, dependents, exported symbols) without reading the entire file.
-- `read_code_chunk`: Surgical extraction of a specific function, class, or line range. Target accepts a symbol name or a line range (`L10-40`, `10-40`, `L10`). Unknown symbols return an error listing available symbols instead of silently returning the wrong chunk.
-- `get_code_dependencies`: Forward and reverse dependency analysis for any file.
+## 2. Code Intelligence
+- `search_code`: hybrid BM25+vector search returning [[file#symbol]] excerpts; `read_code_chunk` for full symbols; `fields='ids'` for cheap scans.
+- `find_files`: glob/name/language lookup.
+- `get_file_context`: imports, dependents, external pkgs, symbol map.
+- `read_code_chunk`: one symbol or line range (`L10-40`, `10-40`, `L10`); unknown symbols error with the available list.
+- `get_code_dependencies`: forward/reverse dependency report for a file.
 
-## 3. Semantic Vault & Knowledge Search
-- `search_semantic`: Atomic vector search over knowledge notes with deep links (`[[Note#Section]]`).
-- `get_compressed_context`: Compressed structural map and token estimates for a note.
-- `read_section`: Targeted reading of a single H2/H3 section.
-- `get_vault_stats`: Metrics on indexed notes, chunks, and embeddings.
-- `get_graph_neighborhood`: 1-hop or 2-hop graph adjacency.
+## 3. Vault & Knowledge
+- `search_semantic`: vector search returning [[Note#Section]] excerpts; `fields='ids'` for cheap scans.
+- `get_compressed_context`: note summary + section map with token estimates.
+- `read_section`: one ##/### section.
+- `get_graph_neighborhood`: 1-2 hop wikilink neighbors.
+- `get_vault_stats`: index counts.
+- `validate_vault`: schema audit (H1, summary, section size, wikilinks, orphans, tags).
+- `list_recent_notes`: browse notes with summaries.
 
-## 4. Vault Synchronization & Mutation
-- `sync_vault`: Incrementally re-indexes notes and codebases via SHA-256 change detection.
-- `store_context`: Saves a new markdown note with automatic semantic chunking and tag taxonomy.
-- `suggest_links`: Evaluates draft text and suggests semantic wikilinks to existing vault notes.
-- `link_notes`: Creates bidirectional relationships between notes.
-- `rename_note`, `delete_note`: Knowledge maintenance operations.
-- `list_projects`, `switch_project`, `create_project`: Multi-workspace management.
+## 4. Mutation & Projects
+- `store_context`: save/update a note — run `suggest_links` on the draft first.
+- `update_section`: replace one section body (heading preserved).
+- `suggest_links`: wikilink suggestions for draft text.
+- `link_notes`, `rename_note`, `delete_note`: graph maintenance.
+- `sync_vault`: incremental re-index; `path` registers a new folder.
+- `list_projects`, `create_project`, `switch_project`: multi-vault management.
 
-## Golden Rules for AI Agents:
-1. Prefer atomic excerpts: Use `search_semantic` or `read_code_chunk` rather than reading entire files into context.
-2. Verify connections: Use `suggest_links` before saving new knowledge with `store_context`.
-3. Audit architecture first: Use `get_community_report()` when onboarding or inspecting unfamiliar systems.
+## Golden Rules
+1. Prefer atomic excerpts over whole files: search -> surgical read -> cite deep links [[Note#Section]] / [[file#symbol]].
+2. Run `suggest_links` before `store_context`.
+3. Run `get_community_report` first when onboarding unfamiliar systems.
+4. Most tools accept `project: "<id>"`.
 "#;
         let _ = std::fs::write(&instr_path, instructions_content);
     }
@@ -1926,4 +1982,112 @@ fn similarity_score(a: &str, b: &str) -> f64 {
         0.0
     };
     (jaccard + prefix).min(1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::{ChunkHit, CodeChunkHit};
+
+    #[test]
+    fn test_pct() {
+        assert_eq!(pct(0.73), "73%");
+        assert_eq!(pct(0.0), "0%");
+        assert_eq!(pct(0.996), "100%");
+        assert_eq!(pct(0.05), "5%");
+    }
+
+    #[test]
+    fn test_toks() {
+        assert_eq!(toks(139), "~139t");
+        assert_eq!(toks(0), "~0t");
+    }
+
+    #[test]
+    fn test_join_list() {
+        assert_eq!(join_list(&[]), "-");
+        assert_eq!(join_list(&["a".to_string()]), "a");
+        assert_eq!(
+            join_list(&["a".to_string(), "b".to_string(), "c".to_string()]),
+            "a, b, c"
+        );
+    }
+
+    #[test]
+    fn test_human() {
+        assert_eq!(human(999), "999");
+        assert_eq!(human(1000), "1.0k");
+        assert_eq!(human(21900), "21.9k");
+    }
+
+    #[test]
+    fn test_more_marker() {
+        assert_eq!(more_marker(10), "+more: offset=10\n");
+    }
+
+    #[test]
+    fn test_push_budgeted() {
+        let mut out = String::new();
+        assert!(push_budgeted(&mut out, "block\n", 100));
+        assert_eq!(out, "block\n");
+        assert!(!push_budgeted(&mut out, &"y".repeat(100), 50));
+        assert!(out.ends_with("…truncated (narrow query / lower limit / offset=N)\n"));
+    }
+
+    fn chunk_hit() -> ChunkHit {
+        ChunkHit {
+            chunk_id: "c1".into(),
+            note_id: "n1".into(),
+            note_title: "Note".into(),
+            heading: Some("Sec".into()),
+            deep_link: "[[Note#Sec]]".into(),
+            content: "  the body  ".into(),
+            token_estimate: 60,
+            score: 0.73,
+        }
+    }
+
+    fn code_hit(tokens: usize) -> CodeChunkHit {
+        CodeChunkHit {
+            chunk_id: "k1".into(),
+            file_id: "src/lib.rs".into(),
+            file_name: "lib.rs".into(),
+            language: "rust".into(),
+            symbol_name: Some("sym".into()),
+            start_line: 42,
+            end_line: 80,
+            deep_link: "[[src/lib.rs#sym]]".into(),
+            content: "fn main() {}".into(),
+            token_estimate: tokens,
+            score: 0.73,
+        }
+    }
+
+    // Golden snapshots of the compact grammar — if these break, agents
+    // parsing the output break. Keep anchors: [[…]], L42-80, 73%, ~Nt.
+    #[test]
+    fn test_semantic_hit_golden() {
+        assert_eq!(
+            fmt_semantic_hit(1, &chunk_hit(), false),
+            "1. [[Note#Sec]] 73% ~60t\nthe body\n\n"
+        );
+        assert_eq!(
+            fmt_semantic_hit(2, &chunk_hit(), true),
+            "2. [[Note#Sec]] 73%\n"
+        );
+    }
+
+    #[test]
+    fn test_code_hit_golden() {
+        assert_eq!(
+            fmt_code_hit(1, &code_hit(300), false),
+            "1. [[src/lib.rs#sym]] L42-80 73% ~300t\n```rust\nfn main() {}\n```\n\n"
+        );
+        assert_eq!(
+            fmt_code_hit(1, &code_hit(300), true),
+            "1. [[src/lib.rs#sym]] L42-80 73%\n"
+        );
+        let big = fmt_code_hit(1, &code_hit(2000), false);
+        assert!(big.contains("…truncated (~2000t total; read_code_chunk(\"src/lib.rs\", \"sym\"))"));
+    }
 }

@@ -1,16 +1,16 @@
 {
-  "description": "Returns compact structural summary of a code file (<80 tokens): imported files, dependents, external packages, and symbol catalog.",
+  "description": "Structural map of one file: imports, dependents, external pkgs, symbols. Use before reading code; then read_code_chunk.",
   "name": "get_file_context",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
       "file_path": {
-        "description": "Relative path or file name in codebase (e.g. 'src/App.tsx', 'main.rs')",
+        "description": "File path or name",
         "type": "string"
       },
       "project": {
         "default": null,
-        "description": "Target project/vault ID (optional)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"

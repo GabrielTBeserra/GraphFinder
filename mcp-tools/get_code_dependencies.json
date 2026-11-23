@@ -1,24 +1,24 @@
 {
-  "description": "Explores imports, dependents, external modules, and resolved semantic code relations such as dependency injection.",
+  "description": "Forward/reverse dependency report for a file: imports, importers, external pkgs, calls. Use for blast-radius analysis.",
   "name": "get_code_dependencies",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
       "direction": {
         "default": null,
-        "description": "Dependency direction: 'imports' (what it imports), 'imported_by' (who imports it), or 'both' (default)",
+        "description": "'imports' | 'imported_by' | 'both' (default)",
         "type": [
           "string",
           "null"
         ]
       },
       "file_path": {
-        "description": "Relative path of code file (e.g. 'src/App.tsx')",
+        "description": "File path",
         "type": "string"
       },
       "project": {
         "default": null,
-        "description": "Target project/vault ID (optional)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"

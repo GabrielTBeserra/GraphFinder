@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-21
+
+### Changed
+* **Compact MCP output (~26% fewer response tokens)**: all 26 tools now emit a uniform compact grammar — `N. [[link]] 73% ~60t` search hits, `L42-80` line ranges, comma-joined lists, `+more: offset=N` pagination, one-line confirmations for mutations, and `errors(N):`/`warnings(N):` audit reports. Deep links, `offset=`, `fields='ids'` and `read_code_chunk` hints are preserved as stable anchors.
+* **Shorter tool/field descriptions**: descriptions rewritten in a "returns X; use when Y; prefer Z" pattern (field schema descriptions -37%), and server `instructions` became a compact decision pipeline. `mcp-tools/` artifacts regenerated — now including `update_section` and `validate_vault`, which were missing from the exported JSONs.
+* **Compact output grammar documented + golden tests**: the format is now spec'd at the top of `mcp/mod.rs` and covered by 8 unit tests (`fmt_semantic_hit`, `fmt_code_hit` snapshots) so future refactors cannot silently break agents that parse it.
+
 ## [0.21.0] - 2026-11-21
 
 ### Fixed

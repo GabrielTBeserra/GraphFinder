@@ -1,19 +1,19 @@
 {
-  "description": "Generates a comprehensive 360° architectural context card for any symbol, file, or note.",
+  "description": "360-degree context card: centrality, community, in/out edges, siblings. For the global map use get_community_report.",
   "name": "explain_node",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
       "project": {
         "default": null,
-        "description": "Target project/vault ID (optional)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"
         ]
       },
       "target": {
-        "description": "Target node title, file path, or symbol",
+        "description": "Node (file, symbol, note)",
         "type": "string"
       }
     },

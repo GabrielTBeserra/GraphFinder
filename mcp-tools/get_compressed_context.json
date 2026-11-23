@@ -1,12 +1,12 @@
 {
-  "description": "Returns ultracompact summary (<80 tokens) of a note: executive summary, headings map, token estimates, and connected graph neighbors.",
+  "description": "Returns a note's summary, section map with token estimates, tags and graph links. Use to pick a section, then read_section.",
   "name": "get_compressed_context",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
       "project": {
         "default": null,
-        "description": "Target project/vault ID (optional)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"

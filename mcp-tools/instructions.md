@@ -1,36 +1,39 @@
-# GraphFinder Universal MCP Agent Instructions
+# GraphFinder MCP Agent Instructions
 
-GraphFinder is a neural knowledge graph and universal codebase intelligence engine. It provides 24 atomic tools across 4 categories:
+Neural knowledge graph + universal code intelligence: 26 tools in 4 groups.
 
-## 1. Architectural & Topological Audit
-- `get_community_report`: Global map of modular subsystems, architectural God Nodes (central hubs), and unexpected cross-couplings.
-- `explain_node`: 360-degree context card for a file/symbol (centrality, callers, callees, community).
-- `find_path`: BFS shortest dependency path connecting any two files, symbols, or notes.
-- `export_graph`: Exports standalone `graph.json`, `GRAPH_REPORT.md`, and visual `graph.html`.
+## 1. Architecture & Topology
+- `get_community_report`: LPA communities, God Nodes, cross-coupling surprises — start here for architecture questions.
+- `explain_node`: 360-degree card for a file/symbol/note (centrality, community, edges).
+- `find_path`: BFS shortest dependency path between two nodes.
+- `export_graph`: graph.json + GRAPH_REPORT.md + standalone graph.html.
 
-## 2. Multi-Language Codebase Intelligence
-- `search_code`: Hybrid semantic (BM25 + neural) search for symbols, functions, and logic across code repositories.
-- `find_files`: Fast glob and regex pattern matching across project files.
-- `get_file_context`: High-density structural overview of a file (imports, dependents, exported symbols) without reading the entire file.
-- `read_code_chunk`: Surgical extraction of a specific function, class, or line range.
-- `get_code_dependencies`: Forward and reverse dependency analysis for any file.
+## 2. Code Intelligence
+- `search_code`: hybrid BM25+vector search returning [[file#symbol]] excerpts; `read_code_chunk` for full symbols; `fields='ids'` for cheap scans.
+- `find_files`: glob/name/language lookup.
+- `get_file_context`: imports, dependents, external pkgs, symbol map.
+- `read_code_chunk`: one symbol or line range (`L10-40`, `10-40`, `L10`); unknown symbols error with the available list.
+- `get_code_dependencies`: forward/reverse dependency report for a file.
 
-## 3. Semantic Vault & Knowledge Search
-- `search_semantic`: Atomic vector search over knowledge notes with deep links (`[[Note#Section]]`).
-- `get_compressed_context`: Compressed structural map and token estimates for a note.
-- `read_section`: Targeted reading of a single H2/H3 section.
-- `get_vault_stats`: Metrics on indexed notes, chunks, and embeddings.
-- `get_graph_neighborhood`: 1-hop or 2-hop graph adjacency.
+## 3. Vault & Knowledge
+- `search_semantic`: vector search returning [[Note#Section]] excerpts; `fields='ids'` for cheap scans.
+- `get_compressed_context`: note summary + section map with token estimates.
+- `read_section`: one ##/### section.
+- `get_graph_neighborhood`: 1-2 hop wikilink neighbors.
+- `get_vault_stats`: index counts.
+- `validate_vault`: schema audit (H1, summary, section size, wikilinks, orphans, tags).
+- `list_recent_notes`: browse notes with summaries.
 
-## 4. Vault Synchronization & Mutation
-- `sync_vault`: Incrementally re-indexes notes and codebases via SHA-256 change detection.
-- `store_context`: Saves a new markdown note with automatic semantic chunking and tag taxonomy.
-- `suggest_links`: Evaluates draft text and suggests semantic wikilinks to existing vault notes.
-- `link_notes`: Creates bidirectional relationships between notes.
-- `rename_note`, `delete_note`: Knowledge maintenance operations.
-- `list_projects`, `switch_project`, `create_project`: Multi-workspace management.
+## 4. Mutation & Projects
+- `store_context`: save/update a note — run `suggest_links` on the draft first.
+- `update_section`: replace one section body (heading preserved).
+- `suggest_links`: wikilink suggestions for draft text.
+- `link_notes`, `rename_note`, `delete_note`: graph maintenance.
+- `sync_vault`: incremental re-index; `path` registers a new folder.
+- `list_projects`, `create_project`, `switch_project`: multi-vault management.
 
-## Golden Rules for AI Agents:
-1. Prefer atomic excerpts: Use `search_semantic` or `read_code_chunk` rather than reading entire files into context.
-2. Verify connections: Use `suggest_links` before saving new knowledge with `store_context`.
-3. Audit architecture first: Use `get_community_report()` when onboarding or inspecting unfamiliar systems.
+## Golden Rules
+1. Prefer atomic excerpts over whole files: search -> surgical read -> cite deep links [[Note#Section]] / [[file#symbol]].
+2. Run `suggest_links` before `store_context`.
+3. Run `get_community_report` first when onboarding unfamiliar systems.
+4. Most tools accept `project: "<id>"`.

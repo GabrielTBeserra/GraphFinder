@@ -3,21 +3,21 @@
   "server": {
     "description": "GraphFinder Neural Knowledge Graph & Universal Code Intelligence MCP Server",
     "name": "graphfinder",
-    "version": "0.0.1"
+    "version": "0.21.0"
   },
   "tools": [
     {
-      "description": "Creates a new isolated project with dedicated Markdown vault and SQLite vector index.",
+      "description": "Creates an isolated project (markdown vault + vector index) at a path.",
       "name": "create_project",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "name": {
-            "description": "Name of the new project (e.g. 'HomeLab', 'Finances', 'Backend')",
+            "description": "Project name (e.g. 'Backend')",
             "type": "string"
           },
           "path": {
-            "description": "Optional absolute folder path on disk",
+            "description": "Absolute folder path (optional)",
             "type": [
               "string",
               "null"
@@ -31,14 +31,14 @@
       }
     },
     {
-      "description": "Deletes a note from the vault (removes .md file and purges vector records from SQLite).",
+      "description": "Deletes a note file and purges its vectors. Destructive.",
       "name": "delete_note",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -56,21 +56,21 @@
       }
     },
     {
-      "description": "Generates a comprehensive 360° architectural context card for any symbol, file, or note.",
+      "description": "360-degree context card: centrality, community, in/out edges, siblings. For the global map use get_community_report.",
       "name": "explain_node",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
             ]
           },
           "target": {
-            "description": "Target node title, file path, or symbol",
+            "description": "Node (file, symbol, note)",
             "type": "string"
           }
         },
@@ -81,14 +81,14 @@
       }
     },
     {
-      "description": "Exports graph.json, GRAPH_REPORT.md, and standalone graph.html to disk.",
+      "description": "Exports graph.json, GRAPH_REPORT.md and standalone graph.html to disk.",
       "name": "export_graph",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "out_dir": {
             "default": null,
-            "description": "Custom output directory (optional, defaults to './graphfinder-out')",
+            "description": "Output dir (default: './graphfinder-out')",
             "type": [
               "string",
               "null"
@@ -96,7 +96,7 @@
           },
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -107,14 +107,22 @@
       }
     },
     {
-      "description": "Quickly finds files in project codebase by name, glob pattern, or language, including connectivity degree in the dependency graph.",
+      "description": "Finds files by glob/name/language with import-degree stats. Use for paths; search_code for content.",
       "name": "find_files",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
+          "fields": {
+            "default": null,
+            "description": "'ids': paths only",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "language": {
             "default": null,
-            "description": "Filter by programming language (e.g. 'rust', 'typescript', optional)",
+            "description": "Language filter (optional)",
             "type": [
               "string",
               "null"
@@ -122,7 +130,17 @@
           },
           "limit": {
             "default": null,
-            "description": "Maximum files to return (default: 20)",
+            "description": "Max files (default: 20)",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "default": null,
+            "description": "Pagination offset (default: 0)",
             "format": "uint",
             "minimum": 0,
             "type": [
@@ -132,7 +150,7 @@
           },
           "pattern": {
             "default": null,
-            "description": "Glob pattern or file path match (e.g. '*.tsx', 'db.rs', 'engine', optional)",
+            "description": "Glob/name match (e.g. '*.tsx', optional)",
             "type": [
               "string",
               "null"
@@ -140,7 +158,7 @@
           },
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -151,25 +169,25 @@
       }
     },
     {
-      "description": "Discovers shortest multi-hop dependency path connecting any two symbols, files, or notes.",
+      "description": "BFS shortest path between two nodes across imports and wikilinks.",
       "name": "find_path",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
             ]
           },
           "source": {
-            "description": "Origin node title, file path, or symbol (e.g. 'App.tsx' or 'Note Title')",
+            "description": "Origin node (file, symbol, note)",
             "type": "string"
           },
           "target": {
-            "description": "Destination node title, file path, or symbol (e.g. 'db.rs')",
+            "description": "Destination node",
             "type": "string"
           }
         },
@@ -181,26 +199,26 @@
       }
     },
     {
-      "description": "Explores dependency and import graph of a code file (imports, dependents, external modules).",
+      "description": "Forward/reverse dependency report for a file: imports, importers, external pkgs, calls. Use for blast-radius analysis.",
       "name": "get_code_dependencies",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "direction": {
             "default": null,
-            "description": "Dependency direction: 'imports' (what it imports), 'imported_by' (who imports it), or 'both' (default)",
+            "description": "'imports' | 'imported_by' | 'both' (default)",
             "type": [
               "string",
               "null"
             ]
           },
           "file_path": {
-            "description": "Relative path of code file (e.g. 'src/App.tsx')",
+            "description": "File path",
             "type": "string"
           },
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -214,14 +232,14 @@
       }
     },
     {
-      "description": "Returns high-density architectural audit of communities, god nodes, and surprises.",
+      "description": "Topological audit: communities, God Nodes, cross-coupling surprises. Start here for architecture questions.",
       "name": "get_community_report",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "format": {
             "default": null,
-            "description": "'markdown' (default human-readable audit) or 'json'",
+            "description": "'markdown' (default) or 'json'",
             "type": [
               "string",
               "null"
@@ -229,7 +247,7 @@
           },
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -240,14 +258,14 @@
       }
     },
     {
-      "description": "Returns ultracompact summary (<80 tokens) of a note: executive summary, headings map, token estimates, and connected graph neighbors.",
+      "description": "Returns a note's summary, section map with token estimates, tags and graph links. Use to pick a section, then read_section.",
       "name": "get_compressed_context",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -265,18 +283,18 @@
       }
     },
     {
-      "description": "Returns compact structural summary of a code file (<80 tokens): imported files, dependents, external packages, and symbol catalog.",
+      "description": "Structural map of one file: imports, dependents, external pkgs, symbols. Use before reading code; then read_code_chunk.",
       "name": "get_file_context",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "file_path": {
-            "description": "Relative path or file name in codebase (e.g. 'src/App.tsx', 'main.rs')",
+            "description": "File path or name",
             "type": "string"
           },
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -290,13 +308,13 @@
       }
     },
     {
-      "description": "Returns associative subgraph around a note (1 or 2 hops) with concise neighbor summaries.",
+      "description": "Lists 1-2 hop wikilink neighbors of a note. For the global map use get_community_report.",
       "name": "get_graph_neighborhood",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "depth": {
-            "description": "Graph hops of separation (1 or 2, default: 1)",
+            "description": "Hops: 1 or 2 (default: 1)",
             "format": "uint",
             "minimum": 0,
             "type": [
@@ -305,7 +323,7 @@
             ]
           },
           "project": {
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -323,14 +341,14 @@
       }
     },
     {
-      "description": "Returns health and graph statistics: total notes, code files, vectorized chunks, graph connections, tags, and estimated tokens.",
+      "description": "Returns counts: notes, code files, chunks, links, tags, tokens.",
       "name": "get_vault_stats",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -341,7 +359,7 @@
       }
     },
     {
-      "description": "Creates an explicit bidirectional wikilink between two notes or concepts.",
+      "description": "Creates a bidirectional wikilink between two notes.",
       "name": "link_notes",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -351,7 +369,7 @@
             "type": "string"
           },
           "project": {
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -370,7 +388,7 @@
       }
     },
     {
-      "description": "Lists all isolated projects/vaults, note counts, and active project indicator.",
+      "description": "Lists vault projects with note/code counts and the active flag. Use to discover project IDs for the 'project' param.",
       "name": "list_projects",
       "parameters": {
         "properties": {},
@@ -378,13 +396,23 @@
       }
     },
     {
-      "description": "Lists vault notes with 1-line summaries and token estimates.",
+      "description": "Lists vault notes with 1-line summaries and token estimates. Use to browse; search_semantic to query.",
       "name": "list_recent_notes",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "limit": {
-            "description": "Maximum number of notes to return (default: 10)",
+            "description": "Max notes (default: 10)",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "default": null,
+            "description": "Pagination offset (default: 0)",
             "format": "uint",
             "minimum": 0,
             "type": [
@@ -393,7 +421,7 @@
             ]
           },
           "project": {
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -404,18 +432,18 @@
       }
     },
     {
-      "description": "Surgically reads a function, class, struct, or line range from a code file without loading the entire file into context.",
+      "description": "Reads one symbol or line range from a file. Use after search_code/get_file_context locate the target.",
       "name": "read_code_chunk",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "file_path": {
-            "description": "Relative path or file name in codebase",
+            "description": "File path or name",
             "type": "string"
           },
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -423,7 +451,7 @@
           },
           "symbol_or_lines": {
             "default": null,
-            "description": "Target symbol name (function/class/struct) or line range (optional)",
+            "description": "Symbol name or line range (optional)",
             "type": [
               "string",
               "null"
@@ -437,21 +465,21 @@
       }
     },
     {
-      "description": "Surgically reads a single section (heading H2/H3) of a note, guaranteeing maximum token economy for LLMs.",
+      "description": "Reads one ##/### section of a note. Use after get_compressed_context maps the headings.",
       "name": "read_section",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
             ]
           },
           "section": {
-            "description": "Section heading (H2/H3) or deep link fragment (e.g. '2. SQLite WAL Configuration')",
+            "description": "H2/H3 heading or deep-link fragment",
             "type": "string"
           },
           "target": {
@@ -467,22 +495,22 @@
       }
     },
     {
-      "description": "Renames a note and its file on disk, refactoring all incoming wikilinks [[Old Title]] across the entire vault to prevent broken links.",
+      "description": "Renames a note and rewrites all incoming [[wikilinks]] vault-wide.",
       "name": "rename_note",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "new_title": {
-            "description": "Desired new title for the note",
+            "description": "New title",
             "type": "string"
           },
           "old_title": {
-            "description": "Current title or ID of the note",
+            "description": "Current title or ID",
             "type": "string"
           },
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
@@ -497,14 +525,22 @@
       }
     },
     {
-      "description": "Hybrid dense vector + BM25 search across project codebase. Returns function, class, or block excerpts with relevance scores and deep links [[file#symbol]].",
+      "description": "Hybrid BM25+vector code search; returns ranked [[file#symbol]] excerpts. Use to locate code; read full symbols with read_code_chunk. fields='ids' for cheap 2-stage lookup.",
       "name": "search_code",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
+          "fields": {
+            "default": null,
+            "description": "'ids': [[file#symbol]] + scores only",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "language": {
             "default": null,
-            "description": "Filter by programming language (e.g. 'rust', 'typescript', 'python', optional)",
+            "description": "Language filter (optional)",
             "type": [
               "string",
               "null"
@@ -512,7 +548,27 @@
           },
           "limit": {
             "default": null,
-            "description": "Maximum code chunks to return (default: 5)",
+            "description": "Max chunks (default: 5)",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_chars": {
+            "default": null,
+            "description": "Response budget in chars (default: 8000)",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "default": null,
+            "description": "Pagination offset (default: 0)",
             "format": "uint",
             "minimum": 0,
             "type": [
@@ -522,14 +578,25 @@
           },
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
             ]
           },
+          "queries": {
+            "default": null,
+            "description": "Batch: multiple queries in one call",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "query": {
-            "description": "Semantic or exact search query for code symbols, functions, or concepts",
+            "description": "Code search query",
             "type": "string"
           }
         },
@@ -540,20 +607,48 @@
       }
     },
     {
-      "description": "Surgical section retrieval for maximum token conservation. Returns exact 2-4 line chunks with deep link [[Note#Section]] and relevance score.",
+      "description": "Atomic vector search over vault notes; returns ranked [[Note#Section]] excerpts. Use to answer questions; get_compressed_context for structure. fields='ids' for cheap 2-stage lookup.",
       "name": "search_semantic",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
+          "fields": {
+            "default": null,
+            "description": "'ids': links + scores only",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "format": {
-            "description": "'dense_chunks' (default, surgical 60-80 token chunks) or 'summaries' (1-line overview)",
+            "description": "'dense_chunks' (default) or 'summaries'",
             "type": [
               "string",
               "null"
             ]
           },
           "limit": {
-            "description": "Maximum number of atomic chunks to return (default: 5)",
+            "description": "Max chunks (default: 5)",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_chars": {
+            "default": null,
+            "description": "Response budget in chars (default: 8000)",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "default": null,
+            "description": "Pagination offset (default: 0)",
             "format": "uint",
             "minimum": 0,
             "type": [
@@ -562,14 +657,25 @@
             ]
           },
           "project": {
-            "description": "Target project/vault ID (optional, defaults to active project)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
             ]
           },
+          "queries": {
+            "default": null,
+            "description": "Batch: multiple queries in one call",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "query": {
-            "description": "Semantic search query or natural language question",
+            "description": "Search query",
             "type": "string"
           }
         },
@@ -580,17 +686,17 @@
       }
     },
     {
-      "description": "Saves or updates a Markdown note in the vault with CommonMark AST chunking, dense summary, and FastEmbed vectorization.",
+      "description": "Saves or updates a vault note (chunking, tags, vectors). For edits to an existing section prefer update_section.",
       "name": "store_context",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "content": {
-            "description": "Markdown body content of the note",
+            "description": "Markdown body",
             "type": "string"
           },
           "links": {
-            "description": "List of notes to connect with explicit wikilinks (optional)",
+            "description": "Wikilink targets (optional)",
             "items": {
               "type": "string"
             },
@@ -600,14 +706,14 @@
             ]
           },
           "project": {
-            "description": "Target project/vault ID to save into (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
             ]
           },
           "tags": {
-            "description": "List of context tags (optional)",
+            "description": "Context tags (optional)",
             "items": {
               "type": "string"
             },
@@ -617,7 +723,7 @@
             ]
           },
           "title": {
-            "description": "Main concept or note title",
+            "description": "Note title",
             "type": "string"
           }
         },
@@ -629,31 +735,31 @@
       }
     },
     {
-      "description": "Auto-Linker: analyzes draft text and recommends conceptual wikilinks with high semantic affinity.",
+      "description": "Scores draft text and suggests wikilinks to existing notes. Run before store_context.",
       "name": "suggest_links",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "current_note": {
-            "description": "Current note title or ID to exclude self-referencing (optional)",
+            "description": "Note to exclude (optional)",
             "type": [
               "string",
               "null"
             ]
           },
           "project": {
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
             "type": [
               "string",
               "null"
             ]
           },
           "text": {
-            "description": "Draft text or paragraph being authored",
+            "description": "Draft text to link",
             "type": "string"
           },
           "threshold": {
-            "description": "Minimum cosine similarity threshold (0.0 to 1.0, default: 0.60)",
+            "description": "Min similarity 0-1 (default: 0.65)",
             "format": "float",
             "type": [
               "number",
@@ -668,13 +774,13 @@
       }
     },
     {
-      "description": "Switches the active default vault for subsequent GraphFinder operations.",
+      "description": "Switches the active default vault. Most tools also accept project='<id>' per call.",
       "name": "switch_project",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "project_id": {
-            "description": "Target project ID or slug to switch to",
+            "description": "Project ID or slug",
             "type": "string"
           }
         },
@@ -685,14 +791,14 @@
       }
     },
     {
-      "description": "Synchronizes Markdown notes and code files with local SQLite vector index, re-embedding modified files and updating AST import graph. Accepts optional 'path' to index any local folder.",
+      "description": "Incrementally re-indexes notes and code (SHA-256 diff) and rebuilds the import graph. 'path' indexes a new folder.",
       "name": "sync_vault",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "path": {
             "default": null,
-            "description": "Local directory path to sync/index (optional). Auto-detects if already indexed or creates a new project.",
+            "description": "Local dir to index (optional)",
             "type": [
               "string",
               "null"
@@ -700,7 +806,68 @@
           },
           "project": {
             "default": null,
-            "description": "Target project/vault ID (optional)",
+            "description": "Project ID (optional)",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "description": "Replaces the body of one ##/### section (heading preserved) and re-indexes. Prefer over store_context for edits.",
+      "name": "update_section",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "content": {
+            "description": "New section body (heading preserved)",
+            "type": "string"
+          },
+          "heading": {
+            "description": "Section heading to replace (## / ###)",
+            "type": "string"
+          },
+          "project": {
+            "default": null,
+            "description": "Project ID (optional)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "description": "Note title or ID",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "heading",
+          "content"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Audits notes against the vault schema: missing H1/summary, section size, broken wikilinks, orphans, tags. 'target' checks one note.",
+      "name": "validate_vault",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "project": {
+            "default": null,
+            "description": "Project ID (optional)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "default": null,
+            "description": "Single note title/ID (optional)",
             "type": [
               "string",
               "null"
@@ -711,5 +878,5 @@
       }
     }
   ],
-  "tools_count": 24
+  "tools_count": 26
 }

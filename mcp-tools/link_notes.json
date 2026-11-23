@@ -1,5 +1,5 @@
 {
-  "description": "Creates an explicit bidirectional wikilink between two notes or concepts.",
+  "description": "Creates a bidirectional wikilink between two notes.",
   "name": "link_notes",
   "parameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9,7 +9,7 @@
         "type": "string"
       },
       "project": {
-        "description": "Target project/vault ID (optional)",
+        "description": "Project ID (optional)",
         "type": [
           "string",
           "null"

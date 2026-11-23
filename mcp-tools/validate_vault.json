@@ -1,0 +1,26 @@
+{
+  "description": "Audits notes against the vault schema: missing H1/summary, section size, broken wikilinks, orphans, tags. 'target' checks one note.",
+  "name": "validate_vault",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "project": {
+        "default": null,
+        "description": "Project ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "target": {
+        "default": null,
+        "description": "Single note title/ID (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}
