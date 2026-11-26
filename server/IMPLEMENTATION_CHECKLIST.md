@@ -457,20 +457,20 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 25 — ferramentas readonly principais
 
-- [ ] Implementar `list_projects`.
-- [ ] Implementar `search_semantic`.
-- [ ] Implementar `search_code`.
-- [ ] Implementar `find_files`.
-- [ ] Implementar `get_file_context`.
-- [ ] Implementar `read_code_chunk`.
+- [x] Implementar `list_projects`.
+- [x] Implementar `search_semantic`.
+- [x] Implementar `search_code`.
+- [x] Implementar `find_files`.
+- [x] Implementar `get_file_context`.
+- [x] Implementar `read_code_chunk`.
 - [ ] Commit sugerido:
   ```text
   feat(server-mcp): add readonly project and code tools
   ```
 
 **Critério de aceite**
-- [ ] Ferramentas retornam apenas projetos autorizados.
-- [ ] Resultados seguem formato compacto orientado a agentes.
+- [x] Ferramentas retornam apenas projetos autorizados.
+- [x] Resultados seguem formato compacto orientado a agentes.
 
 #### Commit 26 — ferramentas de contexto e grafo
 

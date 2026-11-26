@@ -767,14 +767,37 @@ async fn cancel_index_job(
 
 async fn mcp(
     State(pool): State<PgPool>,
+    Extension(embedder): Extension<Arc<LazyEmbedder>>,
     headers: axum::http::HeaderMap,
     axum::Json(request): axum::Json<serde_json::Value>,
 ) -> Result<Response, (StatusCode, &'static str)> {
     let principal = require_principal(&pool, &headers).await?;
+    let is_tool_call = request.get("method").and_then(|v| v.as_str()) == Some("tools/call");
+    let embedder_ref: Option<&dyn EmbeddingProvider> = if is_tool_call {
+        let warm = embedder.clone();
+        tokio::task::spawn_blocking(move || warm.get().map(|_| ()).map_err(|e| e.to_string()))
+            .await
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "embedding task failed"))?
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "embedding initialization failed",
+                )
+            })?;
+        let provider: &dyn EmbeddingProvider = embedder.get().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "embedding initialization failed",
+            )
+        })?;
+        Some(provider)
+    } else {
+        None
+    };
     let context = gf_mcp::McpContext {
         pool: &pool,
         principal: &principal,
-        embedder: None,
+        embedder: embedder_ref,
     };
     let Some(response_value) = gf_mcp::handle_rpc(&context, request).await else {
         return Ok(StatusCode::ACCEPTED.into_response());
