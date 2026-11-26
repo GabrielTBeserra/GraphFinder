@@ -118,6 +118,26 @@ pub fn tool_definitions() -> Value {
             "name": "explain_node",
             "description": "Explain a document graph node with degree, dependencies, dependents, and architectural role.",
             "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"target":{"type":"string"}},"required":["project","target"],"additionalProperties":false}
+        },
+        {
+            "name": "create_project",
+            "description": "Create a project when the principal has project:write tenant scope.",
+            "inputSchema": {"type":"object","properties":{"slug":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"}},"required":["slug","name"],"additionalProperties":false}
+        },
+        {
+            "name": "trigger_index",
+            "description": "Enqueue an indexing job for a project or source with index:trigger scope.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"source_id":{"type":"string"},"priority":{"type":"integer"}},"required":["project"],"additionalProperties":false}
+        },
+        {
+            "name": "sync_vault",
+            "description": "Compatibility alias for trigger_index.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"source_id":{"type":"string"},"priority":{"type":"integer"}},"required":["project"],"additionalProperties":false}
+        },
+        {
+            "name": "get_index_status",
+            "description": "Return recent indexing jobs or one job status for an authorized project.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"job_id":{"type":"string"}},"required":["project"],"additionalProperties":false}
         }
     ])
 }
@@ -463,6 +483,9 @@ async fn call_tool(
         "get_graph_neighborhood" => tool_get_graph_neighborhood(context, arguments).await,
         "find_path" => tool_find_path(context, arguments).await,
         "explain_node" => tool_explain_node(context, arguments).await,
+        "create_project" => tool_create_project(context, arguments).await,
+        "trigger_index" | "sync_vault" => trigger_index_impl(context, arguments).await,
+        "get_index_status" => tool_get_index_status(context, arguments).await,
         _ => Err("unknown tool".into()),
     }
 }
@@ -873,5 +896,137 @@ async fn tool_explain_node(context: &McpContext<'_>, arguments: &Value) -> Resul
             incoming.len(),
             outgoing.len()
         )
+    }))
+}
+
+fn optional_argument<'a>(arguments: &'a Value, name: &str) -> Option<&'a str> {
+    arguments.get(name).and_then(Value::as_str)
+}
+
+fn job_json(job: &gf_storage::IndexJob) -> Value {
+    json!({
+        "id": job.id,
+        "project_id": job.project_id,
+        "source_id": job.source_id,
+        "generation": job.generation,
+        "status": job.status,
+        "priority": job.priority,
+        "attempts": job.attempts,
+        "max_attempts": job.max_attempts,
+        "progress_percent": job.progress_percent,
+        "current_stage": job.current_stage,
+        "error": job.error,
+        "created_at": job.created_at.to_rfc3339(),
+        "started_at": job.started_at.map(|value| value.to_rfc3339()),
+        "finished_at": job.finished_at.map(|value| value.to_rfc3339())
+    })
+}
+
+async fn tool_create_project(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let allowed = gf_storage::authorize_tenant_scope(
+        context.pool,
+        context.principal,
+        gf_storage::SCOPE_PROJECT_WRITE,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if !allowed {
+        return Err("insufficient tenant scope".into());
+    }
+    let project = gf_storage::create_project(
+        context.pool,
+        gf_storage::models::NewProject {
+            tenant_id: context.principal.tenant_id,
+            slug: argument(arguments, "slug")?.to_string(),
+            name: argument(arguments, "name")?.to_string(),
+            description: optional_argument(arguments, "description").map(str::to_string),
+            created_by: context.principal.user_id,
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if let Some(user_id) = context.principal.user_id {
+        let _ =
+            gf_storage::ensure_project_membership(context.pool, project.id, user_id, "maintainer")
+                .await;
+    }
+    Ok(json!({
+        "id": project.id,
+        "slug": project.slug,
+        "name": project.name,
+        "active_generation": project.active_generation
+    }))
+}
+
+async fn trigger_index_impl(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_INDEX_TRIGGER,
+    )
+    .await?;
+    let source_id = optional_argument(arguments, "source_id")
+        .map(|value| uuid::Uuid::parse_str(value).map_err(|_| "invalid source_id".to_string()))
+        .transpose()?;
+    if let Some(source_id) = source_id {
+        let source = gf_storage::get_source(context.pool, source_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "source not found".to_string())?;
+        if source.project_id != project.id {
+            return Err("source does not belong to project".into());
+        }
+    }
+    let priority = arguments
+        .get("priority")
+        .and_then(Value::as_i64)
+        .unwrap_or(0)
+        .clamp(-100, 100) as i32;
+    let job = gf_storage::enqueue_index_job(
+        context.pool,
+        gf_storage::NewIndexJob {
+            project_id: project.id,
+            source_id,
+            priority,
+            max_attempts: 3,
+            payload: json!({"trigger":"mcp"}),
+            created_by: context.principal.user_id,
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "project": project.slug,
+        "job": job_json(&job),
+        "message": "indexing job enqueued"
+    }))
+}
+
+async fn tool_get_index_status(
+    context: &McpContext<'_>,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    if let Some(job_id) = optional_argument(arguments, "job_id") {
+        let job_id = uuid::Uuid::parse_str(job_id).map_err(|_| "invalid job_id".to_string())?;
+        let job = gf_storage::get_index_job(context.pool, job_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .filter(|job| job.project_id == project.id)
+            .ok_or_else(|| "job not found".to_string())?;
+        return Ok(json!({"project": project.slug, "job": job_json(&job)}));
+    }
+    let jobs = gf_storage::list_index_jobs(context.pool, project.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "project": project.slug,
+        "jobs": jobs.iter().take(20).map(job_json).collect::<Vec<_>>(),
+        "count": jobs.len().min(20)
     }))
 }

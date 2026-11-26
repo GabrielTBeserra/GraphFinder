@@ -489,17 +489,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 27 — ferramentas administrativas MCP
 
-- [ ] Implementar `trigger_index`.
-- [ ] Implementar `get_index_status`.
-- [ ] Implementar `create_project` apenas com scope adequado.
-- [ ] Definir compatibilidade ou alias para `sync_vault` como trigger de indexação.
+- [x] Implementar `trigger_index`.
+- [x] Implementar `get_index_status`.
+- [x] Implementar `create_project` apenas com scope adequado.
+- [x] Definir compatibilidade ou alias para `sync_vault` como trigger de indexação.
 - [ ] Commit sugerido:
   ```text
   feat(server-mcp): add administrative indexing tools
   ```
 
 **Critério de aceite**
-- [ ] Agentes autorizados podem disparar reindexação sem acesso administrativo completo.
+- [x] Agentes autorizados podem disparar reindexação sem acesso administrativo completo.
 
 ---
 
