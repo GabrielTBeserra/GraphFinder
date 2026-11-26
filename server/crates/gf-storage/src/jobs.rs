@@ -182,3 +182,21 @@ pub async fn update_index_job_progress(
     .await?;
     Ok(())
 }
+
+pub async fn list_index_jobs(pool: &PgPool, project_id: Uuid) -> StorageResult<Vec<IndexJob>> {
+    Ok(sqlx::query_as::<_, IndexJob>(
+        "SELECT * FROM index_jobs WHERE project_id=$1 ORDER BY created_at DESC LIMIT 100",
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn get_index_job(pool: &PgPool, id: Uuid) -> StorageResult<Option<IndexJob>> {
+    Ok(
+        sqlx::query_as::<_, IndexJob>("SELECT * FROM index_jobs WHERE id=$1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?,
+    )
+}

@@ -1,3 +1,5 @@
+use std::sync::{Arc, OnceLock};
+
 use axum::extract::Request;
 use axum::extract::State;
 use axum::http::{HeaderValue, StatusCode};
@@ -5,12 +7,39 @@ use axum::middleware::{self, Next};
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::{get, post};
-use axum::Router;
+use axum::{Extension, Router};
+use gf_core::EmbeddingProvider;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
 
-pub fn router(pool: PgPool) -> Router {
+pub struct LazyEmbedder {
+    cache_dir: String,
+    inner: OnceLock<gf_core::FastEmbedProvider>,
+}
+
+impl LazyEmbedder {
+    pub fn new(cache_dir: String) -> Self {
+        Self {
+            cache_dir,
+            inner: OnceLock::new(),
+        }
+    }
+
+    pub fn get(&self) -> Result<&gf_core::FastEmbedProvider, String> {
+        if let Some(provider) = self.inner.get() {
+            return Ok(provider);
+        }
+        let provider = gf_core::FastEmbedProvider::multilingual_e5_small(self.cache_dir.clone())
+            .map_err(|e| e.to_string())?;
+        let _ = self.inner.set(provider);
+        self.inner
+            .get()
+            .ok_or_else(|| "embedding provider initialization failed".to_string())
+    }
+}
+
+pub fn router(pool: PgPool, embedder: Arc<LazyEmbedder>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
@@ -34,6 +63,14 @@ pub fn router(pool: PgPool) -> Router {
             "/api/v1/sources/{id}",
             get(get_source).patch(update_source).delete(delete_source),
         )
+        .route(
+            "/api/v1/projects/{id}/index-jobs",
+            post(create_index_job).get(list_index_jobs),
+        )
+        .route("/api/v1/index-jobs/{id}", get(get_index_job))
+        .route("/api/v1/index-jobs/{id}/cancel", post(cancel_index_job))
+        .route("/api/v1/search", post(search))
+        .layer(Extension(embedder))
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())
         .with_state(pool)
@@ -575,4 +612,246 @@ async fn ready(State(pool): State<PgPool>) -> Result<&'static str, impl IntoResp
 
 async fn metrics() -> &'static str {
     "# HELP graphfinder_server_up Whether the API process is running.\n# TYPE graphfinder_server_up gauge\ngraphfinder_server_up 1\n"
+}
+
+#[derive(Debug, Serialize)]
+struct IndexJobResponse {
+    id: uuid::Uuid,
+    project_id: uuid::Uuid,
+    source_id: Option<uuid::Uuid>,
+    generation: Option<i64>,
+    status: String,
+    priority: i32,
+    attempts: i32,
+    max_attempts: i32,
+    payload: serde_json::Value,
+    error: Option<String>,
+    progress_percent: i32,
+    current_stage: Option<String>,
+    run_at: String,
+    started_at: Option<String>,
+    finished_at: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+impl From<gf_storage::IndexJob> for IndexJobResponse {
+    fn from(job: gf_storage::IndexJob) -> Self {
+        Self {
+            id: job.id,
+            project_id: job.project_id,
+            source_id: job.source_id,
+            generation: job.generation,
+            status: job.status,
+            priority: job.priority,
+            attempts: job.attempts,
+            max_attempts: job.max_attempts,
+            payload: job.payload,
+            error: job.error,
+            progress_percent: job.progress_percent,
+            current_stage: job.current_stage,
+            run_at: job.run_at.to_rfc3339(),
+            started_at: job.started_at.map(|v| v.to_rfc3339()),
+            finished_at: job.finished_at.map(|v| v.to_rfc3339()),
+            created_at: job.created_at.to_rfc3339(),
+            updated_at: job.updated_at.to_rfc3339(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateIndexJobRequest {
+    source_id: Option<uuid::Uuid>,
+    priority: Option<i32>,
+    max_attempts: Option<i32>,
+    payload: Option<serde_json::Value>,
+}
+
+async fn create_index_job(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(project_id): axum::extract::Path<uuid::Uuid>,
+    axum::Json(request): axum::Json<CreateIndexJobRequest>,
+) -> Result<axum::Json<IndexJobResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_project_or_error(
+        &pool,
+        &principal,
+        project_id,
+        gf_storage::SCOPE_INDEX_TRIGGER,
+    )
+    .await?;
+    if let Some(source_id) = request.source_id {
+        let source = gf_storage::get_source(&pool, source_id)
+            .await
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source lookup failed"))?
+            .ok_or((StatusCode::NOT_FOUND, "source not found"))?;
+        if source.project_id != project_id {
+            return Err((StatusCode::BAD_REQUEST, "source does not belong to project"));
+        }
+    }
+    let job = gf_storage::enqueue_index_job(
+        &pool,
+        gf_storage::NewIndexJob {
+            project_id,
+            source_id: request.source_id,
+            priority: request.priority.unwrap_or(0),
+            max_attempts: request.max_attempts.unwrap_or(3),
+            payload: request.payload.unwrap_or_else(|| serde_json::json!({})),
+            created_by: principal.user_id,
+        },
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job creation failed"))?;
+    Ok(axum::Json(job.into()))
+}
+
+async fn list_index_jobs(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(project_id): axum::extract::Path<uuid::Uuid>,
+) -> Result<axum::Json<Vec<IndexJobResponse>>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_project_or_error(&pool, &principal, project_id, gf_storage::SCOPE_SEARCH_READ)
+        .await?;
+    let jobs = gf_storage::list_index_jobs(&pool, project_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job lookup failed"))?
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    Ok(axum::Json(jobs))
+}
+
+async fn authorize_job_or_error(
+    pool: &PgPool,
+    principal: &gf_storage::Principal,
+    job_id: uuid::Uuid,
+    scope: &str,
+) -> Result<gf_storage::IndexJob, (StatusCode, &'static str)> {
+    let job = gf_storage::get_index_job(pool, job_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job lookup failed"))?
+        .ok_or((StatusCode::NOT_FOUND, "job not found"))?;
+    authorize_project_or_error(pool, principal, job.project_id, scope).await?;
+    Ok(job)
+}
+
+async fn get_index_job(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> Result<axum::Json<IndexJobResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let job = authorize_job_or_error(&pool, &principal, id, gf_storage::SCOPE_SEARCH_READ).await?;
+    Ok(axum::Json(job.into()))
+}
+
+async fn cancel_index_job(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> Result<StatusCode, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_job_or_error(&pool, &principal, id, gf_storage::SCOPE_INDEX_TRIGGER).await?;
+    let cancelled = gf_storage::cancel_index_job(&pool, id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job cancellation failed"))?;
+    if cancelled {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::CONFLICT, "job is not cancellable"))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchRequest {
+    project_id: uuid::Uuid,
+    query: String,
+    mode: Option<String>,
+    language: Option<String>,
+    document_type: Option<String>,
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchHitResponse {
+    chunk_id: uuid::Uuid,
+    document_id: uuid::Uuid,
+    path: String,
+    heading_path: Vec<String>,
+    content: String,
+    score: f32,
+}
+
+impl From<gf_storage::SearchHit> for SearchHitResponse {
+    fn from(hit: gf_storage::SearchHit) -> Self {
+        Self {
+            chunk_id: hit.chunk_id,
+            document_id: hit.document_id,
+            path: hit.path,
+            heading_path: hit.heading_path,
+            content: hit.content,
+            score: hit.score,
+        }
+    }
+}
+
+async fn search(
+    State(pool): State<PgPool>,
+    Extension(embedder): Extension<Arc<LazyEmbedder>>,
+    headers: axum::http::HeaderMap,
+    axum::Json(request): axum::Json<SearchRequest>,
+) -> Result<axum::Json<Vec<SearchHitResponse>>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_project_or_error(
+        &pool,
+        &principal,
+        request.project_id,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    let filters = gf_storage::SearchFilters {
+        language: request.language,
+        document_type: request.document_type,
+    };
+    let limit = request.limit.unwrap_or(10).clamp(1, 100);
+    let mode = request.mode.as_deref().unwrap_or("hybrid");
+    let hits = if mode == "lexical" {
+        gf_storage::lexical_search(&pool, request.project_id, &request.query, &filters, limit).await
+    } else {
+        let query = request.query.clone();
+        let embedding = tokio::task::spawn_blocking(move || {
+            embedder
+                .get()
+                .map_err(|e| e.to_string())?
+                .embed_query(&query)
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "embedding task failed"))?
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "embedding generation failed",
+            )
+        })?;
+        if mode == "vector" {
+            gf_storage::vector_search(&pool, request.project_id, &embedding, &filters, limit).await
+        } else {
+            gf_storage::hybrid_search(
+                &pool,
+                request.project_id,
+                &request.query,
+                &embedding,
+                &filters,
+                limit,
+            )
+            .await
+        }
+    }
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "search failed"))?;
+    Ok(axum::Json(
+        hits.into_iter().map(Into::into).collect::<Vec<_>>(),
+    ))
 }

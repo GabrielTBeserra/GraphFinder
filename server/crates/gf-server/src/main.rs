@@ -109,7 +109,10 @@ async fn run_api(database_url: Option<String>, bind: String) -> Result<()> {
     let pool = gf_storage::connect(&database_url).await?;
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!(%bind, "graphfinder api listening");
-    axum::serve(listener, api::router(pool)).await?;
+    let model_cache = std::env::var("GF_MODEL_CACHE_DIR")
+        .unwrap_or_else(|_| "/var/lib/graphfinder/models".into());
+    let embedder = std::sync::Arc::new(api::LazyEmbedder::new(model_cache));
+    axum::serve(listener, api::router(pool, embedder)).await?;
     Ok(())
 }
 

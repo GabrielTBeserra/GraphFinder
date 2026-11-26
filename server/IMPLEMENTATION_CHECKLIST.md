@@ -425,18 +425,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 23 — endpoints REST de jobs e busca
 
-- [ ] `POST /api/v1/projects/{id}/index-jobs`
-- [ ] `GET /api/v1/projects/{id}/index-jobs`
-- [ ] `GET /api/v1/index-jobs/{id}`
-- [ ] `POST /api/v1/index-jobs/{id}/cancel`
-- [ ] `POST /api/v1/search`
+- [x] `POST /api/v1/projects/{id}/index-jobs`
+- [x] `GET /api/v1/projects/{id}/index-jobs`
+- [x] `GET /api/v1/index-jobs/{id}`
+- [x] `POST /api/v1/index-jobs/{id}/cancel`
+- [x] `POST /api/v1/search`
 - [ ] Commit sugerido:
   ```text
   feat(server-api): add indexing and search endpoints
   ```
 
 **Critério de aceite**
-- [ ] É possível cadastrar fonte, disparar indexação e consultar resultados via REST.
+- [x] É possível cadastrar fonte, disparar indexação e consultar resultados via REST.
 
 ---
 
