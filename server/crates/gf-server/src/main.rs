@@ -97,6 +97,7 @@ async fn bootstrap_admin(
     let tenant_id = gf_storage::ensure_tenant(&pool, &tenant_slug, &tenant_slug).await?;
     let hash = gf_storage::hash_password(&password)?;
     let user_id = gf_storage::upsert_user(&pool, tenant_id, &email, &display_name, &hash).await?;
+    gf_storage::ensure_tenant_membership(&pool, tenant_id, user_id, "owner").await?;
     println!("bootstrap admin upserted: tenant={tenant_slug} email={email} user_id={user_id}");
     Ok(())
 }

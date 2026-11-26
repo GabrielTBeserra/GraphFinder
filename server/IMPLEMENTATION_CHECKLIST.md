@@ -396,18 +396,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 21 — RBAC e autorização
 
-- [ ] Implementar roles de tenant e projeto.
-- [ ] Implementar middleware de autorização.
-- [ ] Validar acesso por projeto em todas as rotas.
-- [ ] Implementar escopo `search:read`, `code:read`, `project:write`, `index:trigger`, `tokens:manage`.
+- [x] Implementar roles de tenant e projeto.
+- [x] Implementar middleware de autorização.
+- [x] Validar acesso por projeto em todas as rotas.
+- [x] Implementar escopo `search:read`, `code:read`, `project:write`, `index:trigger`, `tokens:manage`.
 - [ ] Commit sugerido:
   ```text
   feat(server-auth): enforce rbac and project acl
   ```
 
 **Critério de aceite**
-- [ ] Usuário sem acesso ao projeto recebe 403/404 consistente.
-- [ ] Token com escopo restrito não executa operação fora do escopo.
+- [x] Usuário sem acesso ao projeto recebe 403/404 consistente.
+- [x] Token com escopo restrito não executa operação fora do escopo.
 
 #### Commit 22 — endpoints REST de projetos e fontes
 

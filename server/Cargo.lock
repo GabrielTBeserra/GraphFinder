@@ -1162,11 +1162,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "chrono",
  "clap",
  "gf-core",
  "gf-indexer",
  "gf-mcp",
  "gf-storage",
+ "serde",
  "sqlx",
  "tokio",
  "tower-http",
@@ -3845,6 +3847,7 @@ checksum = "3c14b15dffa2f4bd712103e857140aa04a4f2ff6e955c77d7eb8e53ee02a3b64"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 

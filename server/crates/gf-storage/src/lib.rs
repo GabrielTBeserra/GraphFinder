@@ -5,6 +5,7 @@ pub mod embeddings;
 pub mod generations;
 pub mod jobs;
 pub mod models;
+pub mod rbac;
 pub mod repositories;
 pub mod search;
 
@@ -15,6 +16,7 @@ pub use auth::*;
 pub use embeddings::*;
 pub use generations::*;
 pub use jobs::*;
+pub use rbac::*;
 pub use repositories::*;
 pub use search::*;
 

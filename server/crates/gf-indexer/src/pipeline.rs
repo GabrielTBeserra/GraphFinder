@@ -93,6 +93,7 @@ pub fn dry_run_checkout(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn index_generation_contents(
     pool: &PgPool,
     checkout_path: &Path,

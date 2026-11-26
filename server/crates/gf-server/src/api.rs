@@ -19,6 +19,13 @@ pub fn router(pool: PgPool) -> Router {
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/tokens", post(create_token))
         .route("/api/v1/tokens/{id}", axum::routing::delete(revoke_token))
+        .route("/api/v1/projects", get(list_projects).post(create_project))
+        .route(
+            "/api/v1/projects/{id}",
+            get(get_project)
+                .patch(update_project)
+                .delete(delete_project),
+        )
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())
         .with_state(pool)
@@ -124,6 +131,12 @@ async fn create_token(
     if principal.kind != "session" {
         return Err((StatusCode::FORBIDDEN, "session authentication required"));
     }
+    if !gf_storage::authorize_tenant_scope(&pool, &principal, gf_storage::SCOPE_TOKENS_MANAGE)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authorization failed"))?
+    {
+        return Err((StatusCode::FORBIDDEN, "insufficient tenant scope"));
+    }
     let created = gf_storage::create_api_token(
         &pool,
         principal.tenant_id,
@@ -151,6 +164,12 @@ async fn revoke_token(
     if principal.kind != "session" {
         return Err((StatusCode::FORBIDDEN, "session authentication required"));
     }
+    if !gf_storage::authorize_tenant_scope(&pool, &principal, gf_storage::SCOPE_TOKENS_MANAGE)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authorization failed"))?
+    {
+        return Err((StatusCode::FORBIDDEN, "insufficient tenant scope"));
+    }
     let revoked = gf_storage::revoke_api_token(&pool, principal.tenant_id, id)
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "token revocation failed"))?;
@@ -158,6 +177,174 @@ async fn revoke_token(
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, "token not found"))
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ProjectResponse {
+    id: uuid::Uuid,
+    slug: String,
+    name: String,
+    description: Option<String>,
+    active_generation: i64,
+    created_at: String,
+    updated_at: String,
+}
+
+impl From<gf_storage::models::Project> for ProjectResponse {
+    fn from(project: gf_storage::models::Project) -> Self {
+        Self {
+            id: project.id,
+            slug: project.slug,
+            name: project.name,
+            description: project.description,
+            active_generation: project.active_generation,
+            created_at: project.created_at.to_rfc3339(),
+            updated_at: project.updated_at.to_rfc3339(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateProjectRequest {
+    slug: String,
+    name: String,
+    description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateProjectRequest {
+    name: Option<String>,
+    description: Option<String>,
+}
+
+async fn authorize_project_or_error(
+    pool: &PgPool,
+    principal: &gf_storage::Principal,
+    project_id: uuid::Uuid,
+    scope: &str,
+) -> Result<gf_storage::models::Project, (StatusCode, &'static str)> {
+    let project = gf_storage::get_project(pool, project_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "project lookup failed"))?
+        .filter(|project| project.tenant_id == principal.tenant_id)
+        .ok_or((StatusCode::NOT_FOUND, "project not found"))?;
+    if !principal.token_project_allowed(project_id) {
+        return Err((StatusCode::NOT_FOUND, "project not found"));
+    }
+    let allowed = gf_storage::authorize_project_scope(pool, principal, project_id, scope)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authorization failed"))?;
+    if !allowed {
+        return Err((StatusCode::FORBIDDEN, "insufficient project scope"));
+    }
+    Ok(project)
+}
+
+async fn list_projects(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::Json<Vec<ProjectResponse>>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let projects = gf_storage::list_projects(&pool, principal.tenant_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "project lookup failed"))?;
+    let mut visible = Vec::new();
+    for project in projects {
+        if gf_storage::authorize_project_scope(
+            &pool,
+            &principal,
+            project.id,
+            gf_storage::SCOPE_SEARCH_READ,
+        )
+        .await
+        .unwrap_or(false)
+        {
+            visible.push(project.into());
+        }
+    }
+    Ok(axum::Json(visible))
+}
+
+async fn create_project(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::Json(request): axum::Json<CreateProjectRequest>,
+) -> Result<axum::Json<ProjectResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let allowed =
+        gf_storage::authorize_tenant_scope(&pool, &principal, gf_storage::SCOPE_PROJECT_WRITE)
+            .await
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authorization failed"))?;
+    if !allowed {
+        return Err((StatusCode::FORBIDDEN, "insufficient tenant scope"));
+    }
+    let project = gf_storage::create_project(
+        &pool,
+        gf_storage::models::NewProject {
+            tenant_id: principal.tenant_id,
+            slug: request.slug,
+            name: request.name,
+            description: request.description,
+            created_by: principal.user_id,
+        },
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "project creation failed"))?;
+    if let Some(user_id) = principal.user_id {
+        let _ =
+            gf_storage::ensure_project_membership(&pool, project.id, user_id, "maintainer").await;
+    }
+    Ok(axum::Json(project.into()))
+}
+
+async fn get_project(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> Result<axum::Json<ProjectResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let project =
+        authorize_project_or_error(&pool, &principal, id, gf_storage::SCOPE_SEARCH_READ).await?;
+    Ok(axum::Json(project.into()))
+}
+
+async fn update_project(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+    axum::Json(request): axum::Json<UpdateProjectRequest>,
+) -> Result<axum::Json<ProjectResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_project_or_error(&pool, &principal, id, gf_storage::SCOPE_PROJECT_WRITE).await?;
+    let project = gf_storage::update_project(
+        &pool,
+        id,
+        gf_storage::models::ProjectUpdate {
+            name: request.name,
+            description: request.description,
+        },
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "project update failed"))?
+    .ok_or((StatusCode::NOT_FOUND, "project not found"))?;
+    Ok(axum::Json(project.into()))
+}
+
+async fn delete_project(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> Result<StatusCode, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_project_or_error(&pool, &principal, id, gf_storage::SCOPE_PROJECT_WRITE).await?;
+    let deleted = gf_storage::delete_project(&pool, id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "project deletion failed"))?;
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "project not found"))
     }
 }
 
