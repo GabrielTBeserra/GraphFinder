@@ -1214,7 +1214,7 @@ async fn upsert_vault_document(
         title: note.title,
         content_hash: gf_core::content_hash(&request.content),
         size_bytes: request.content.len() as i64,
-        metadata: serde_json::json!({"summary":note.summary,"links":note.links,"tags":note.tags,"aliases":note.aliases}),
+        metadata: serde_json::json!({"summary":note.summary,"links":note.links,"tags":note.tags,"aliases":note.aliases,"content":request.content}),
         chunks,
     };
     let document = gf_storage::upsert_vault_document(&pool, write, request.expected_revision)

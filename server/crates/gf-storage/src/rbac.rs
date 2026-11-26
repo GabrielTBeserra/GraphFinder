@@ -8,6 +8,8 @@ pub const SCOPE_CODE_READ: &str = "code:read";
 pub const SCOPE_PROJECT_WRITE: &str = "project:write";
 pub const SCOPE_INDEX_TRIGGER: &str = "index:trigger";
 pub const SCOPE_TOKENS_MANAGE: &str = "tokens:manage";
+pub const SCOPE_VAULT_WRITE: &str = "vault:write";
+pub const SCOPE_VAULT_DELETE: &str = "vault:delete";
 
 impl Principal {
     pub fn token_project_allowed(&self, project_id: Uuid) -> bool {
@@ -94,7 +96,11 @@ fn project_role_allows(role: &str, scope: &str) -> bool {
         "maintainer" | "owner" | "admin" => true,
         "editor" => matches!(
             scope,
-            SCOPE_SEARCH_READ | SCOPE_CODE_READ | SCOPE_PROJECT_WRITE | SCOPE_INDEX_TRIGGER
+            SCOPE_SEARCH_READ
+                | SCOPE_CODE_READ
+                | SCOPE_PROJECT_WRITE
+                | SCOPE_INDEX_TRIGGER
+                | SCOPE_VAULT_WRITE
         ),
         "viewer" => matches!(scope, SCOPE_SEARCH_READ | SCOPE_CODE_READ),
         _ => false,

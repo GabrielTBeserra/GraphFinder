@@ -694,18 +694,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 41 — ferramentas MCP de escrita
 
-- [ ] Implementar `store_context`.
-- [ ] Implementar `update_section`.
-- [ ] Implementar `link_notes`.
-- [ ] Implementar `delete_note` com scope específico.
+- [x] Implementar `store_context`.
+- [x] Implementar `update_section`.
+- [x] Implementar `link_notes`.
+- [x] Implementar `delete_note` com scope específico.
 - [ ] Commit sugerido:
   ```text
   feat(server-mcp): add managed vault write tools
   ```
 
 **Critério de aceite**
-- [ ] Escrita exige scope explícito.
-- [ ] Repositórios Git readonly não podem ser modificados por essas ferramentas.
+- [x] Escrita exige scope explícito.
+- [x] Repositórios Git readonly não podem ser modificados por essas ferramentas.
 
 #### Commit 42 — auditoria de mutações
 

@@ -135,6 +135,26 @@ pub fn tool_definitions() -> Value {
             "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"source_id":{"type":"string"},"priority":{"type":"integer"}},"required":["project"],"additionalProperties":false}
         },
         {
+            "name": "store_context",
+            "description": "Create or replace a managed vault note with explicit vault:write scope.",
+            "inputSchema":{"type":"object","properties":{"project":{"type":"string"},"title":{"type":"string"},"content":{"type":"string"},"path":{"type":"string"},"source_id":{"type":"string"},"expected_revision":{"type":"integer"}},"required":["project","title","content"],"additionalProperties":false}
+        },
+        {
+            "name": "update_section",
+            "description": "Replace one markdown section in a managed vault note using optimistic concurrency.",
+            "inputSchema":{"type":"object","properties":{"project":{"type":"string"},"path":{"type":"string"},"heading":{"type":"string"},"content":{"type":"string"},"expected_revision":{"type":"integer"}},"required":["project","path","heading","content","expected_revision"],"additionalProperties":false}
+        },
+        {
+            "name": "link_notes",
+            "description": "Append a wikilink from one managed vault note to another note or indexed document.",
+            "inputSchema":{"type":"object","properties":{"project":{"type":"string"},"source_path":{"type":"string"},"target":{"type":"string"},"expected_revision":{"type":"integer"}},"required":["project","source_path","target","expected_revision"],"additionalProperties":false}
+        },
+        {
+            "name": "delete_note",
+            "description": "Delete a managed vault note with explicit vault:delete scope.",
+            "inputSchema":{"type":"object","properties":{"project":{"type":"string"},"path":{"type":"string"},"expected_revision":{"type":"integer"}},"required":["project","path"],"additionalProperties":false}
+        },
+        {
             "name": "get_index_status",
             "description": "Return recent indexing jobs or one job status for an authorized project.",
             "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"job_id":{"type":"string"}},"required":["project"],"additionalProperties":false}
@@ -430,6 +450,313 @@ async fn tool_read_code_chunk(
     }))
 }
 
+fn slugify(value: &str) -> String {
+    let slug = value
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if slug.is_empty() {
+        "note".into()
+    } else {
+        slug
+    }
+}
+
+async fn managed_vault_source(
+    context: &McpContext<'_>,
+    project: &gf_storage::models::Project,
+    source_id: Option<uuid::Uuid>,
+) -> Result<gf_storage::models::Source, String> {
+    if let Some(source_id) = source_id {
+        let source = gf_storage::get_source(context.pool, source_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "source not found".to_string())?;
+        if source.project_id != project.id {
+            return Err("source does not belong to project".into());
+        }
+        if source.kind != "managed_vault" {
+            return Err("source is readonly or is not a managed vault".into());
+        }
+        return Ok(source);
+    }
+    if let Some(source) = gf_storage::list_sources(context.pool, project.id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|source| source.kind == "managed_vault")
+    {
+        return Ok(source);
+    }
+    gf_storage::create_source(
+        context.pool,
+        gf_storage::models::NewSource {
+            project_id: project.id,
+            kind: "managed_vault".into(),
+            uri: "vault://default".into(),
+            branch: None,
+            credential_ref: None,
+            include_patterns: vec![],
+            exclude_patterns: vec![],
+            config: json!({}),
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+async fn write_vault_note(
+    context: &McpContext<'_>,
+    project: &gf_storage::models::Project,
+    source_id: Option<uuid::Uuid>,
+    path: String,
+    content: String,
+    expected_revision: Option<i64>,
+) -> Result<Value, String> {
+    let source = managed_vault_source(context, project, source_id).await?;
+    let embedder = context
+        .embedder
+        .ok_or_else(|| "embedding provider unavailable".to_string())?;
+    let note = gf_core::parse_markdown(
+        path.trim_end_matches(".md")
+            .rsplit('/')
+            .next()
+            .unwrap_or("note"),
+        &content,
+    );
+    let passages = note
+        .chunks
+        .iter()
+        .map(|chunk| chunk.content.clone())
+        .collect::<Vec<_>>();
+    let embeddings = embedder
+        .embed_passages(&passages)
+        .map_err(|e| e.to_string())?;
+    if embeddings.len() != note.chunks.len() {
+        return Err("embedding count mismatch".into());
+    }
+    let chunks = note
+        .chunks
+        .iter()
+        .zip(embeddings)
+        .map(|(chunk, embedding)| gf_storage::VaultChunkWrite {
+            chunk_index: chunk.chunk_index as i32,
+            heading_path: chunk.heading.iter().cloned().collect(),
+            content: chunk.content.clone(),
+            token_count: chunk.token_estimate as i32,
+            content_hash: gf_core::content_hash(&chunk.content),
+            metadata: json!({"links":chunk.links,"tags":chunk.tags}),
+            embedding,
+        })
+        .collect();
+    let record = gf_storage::upsert_vault_document(
+        context.pool,
+        gf_storage::VaultDocumentWrite {
+            project_id: project.id,
+            generation: project.active_generation,
+            source_id: source.id,
+            path: path.clone(),
+            title: note.title,
+            content_hash: gf_core::content_hash(&content),
+            size_bytes: content.len() as i64,
+            metadata: json!({"summary":note.summary,"links":note.links,"tags":note.tags,"aliases":note.aliases,"content":content}),
+            chunks,
+        },
+        expected_revision,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "id": record.id,
+        "path": record.path,
+        "revision": record.revision,
+        "generation": record.generation,
+        "updated_at": record.updated_at.to_rfc3339()
+    }))
+}
+
+async fn vault_note_source_content(
+    context: &McpContext<'_>,
+    project_id: uuid::Uuid,
+    path: &str,
+) -> Result<(String, i64), String> {
+    sqlx::query_as::<_, (serde_json::Value, i64)>(
+        r#"
+        SELECT d.metadata,d.revision FROM documents d
+        JOIN projects p ON p.id=d.project_id AND p.active_generation=d.generation
+        JOIN sources s ON s.id=d.source_id AND s.project_id=d.project_id
+        WHERE d.project_id=$1 AND d.path=$2 AND s.kind='managed_vault'
+        "#,
+    )
+    .bind(project_id)
+    .bind(path)
+    .fetch_optional(context.pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .and_then(|(metadata, revision)| {
+        metadata
+            .get("content")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .map(|content| (content, revision))
+    })
+    .ok_or_else(|| "managed vault note source content not found".into())
+}
+
+fn heading_level(line: &str) -> usize {
+    line.chars().take_while(|c| *c == '#').count()
+}
+
+fn replace_markdown_section(content: &str, heading: &str, replacement: &str) -> String {
+    let lines = content.lines().collect::<Vec<_>>();
+    let mut output = Vec::new();
+    let mut index = 0usize;
+    let mut replaced = false;
+    while index < lines.len() {
+        let line = lines[index];
+        let level = heading_level(line);
+        let title = line.trim_start_matches('#').trim();
+        if level > 0 && title.eq_ignore_ascii_case(heading) {
+            replaced = true;
+            output.push(line.to_string());
+            output.push(String::new());
+            output.extend(replacement.trim().lines().map(str::to_string));
+            output.push(String::new());
+            index += 1;
+            while index < lines.len() {
+                let next_level = heading_level(lines[index]);
+                if next_level > 0 && next_level <= level {
+                    break;
+                }
+                index += 1;
+            }
+        } else {
+            output.push(line.to_string());
+            index += 1;
+        }
+    }
+    if !replaced {
+        if !output.last().map(|line| line.is_empty()).unwrap_or(true) {
+            output.push(String::new());
+        }
+        output.push(format!("## {heading}"));
+        output.push(String::new());
+        output.extend(replacement.trim().lines().map(str::to_string));
+        output.push(String::new());
+    }
+    output.join("\n")
+}
+
+async fn tool_store_context(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_VAULT_WRITE,
+    )
+    .await?;
+    let title = argument(arguments, "title")?;
+    let content = argument(arguments, "content")?;
+    let path = optional_argument(arguments, "path")
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("notes/{}.md", slugify(title)));
+    let content = if content.trim_start().starts_with('#') {
+        content.to_string()
+    } else {
+        format!("# {title}\n\n{content}\n")
+    };
+    write_vault_note(
+        context,
+        &project,
+        optional_argument(arguments, "source_id").and_then(|v| uuid::Uuid::parse_str(v).ok()),
+        path,
+        content,
+        arguments.get("expected_revision").and_then(Value::as_i64),
+    )
+    .await
+}
+
+async fn tool_update_section(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_VAULT_WRITE,
+    )
+    .await?;
+    let path = argument(arguments, "path")?;
+    let (content, revision) = vault_note_source_content(context, project.id, path).await?;
+    let expected = arguments
+        .get("expected_revision")
+        .and_then(Value::as_i64)
+        .unwrap_or(revision);
+    let updated = replace_markdown_section(
+        &content,
+        argument(arguments, "heading")?,
+        argument(arguments, "content")?,
+    );
+    write_vault_note(
+        context,
+        &project,
+        None,
+        path.to_string(),
+        updated,
+        Some(expected),
+    )
+    .await
+}
+
+async fn tool_link_notes(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_VAULT_WRITE,
+    )
+    .await?;
+    let path = argument(arguments, "source_path")?;
+    let target = argument(arguments, "target")?;
+    let (mut content, revision) = vault_note_source_content(context, project.id, path).await?;
+    let expected = arguments
+        .get("expected_revision")
+        .and_then(Value::as_i64)
+        .unwrap_or(revision);
+    let link = format!("[[{target}]]");
+    if !content.contains(&link) {
+        content.push_str(&format!("\n\n## Links\n\n- {link}\n"));
+    }
+    write_vault_note(
+        context,
+        &project,
+        None,
+        path.to_string(),
+        content,
+        Some(expected),
+    )
+    .await
+}
+
+async fn tool_delete_note(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_VAULT_DELETE,
+    )
+    .await?;
+    let deleted = gf_storage::delete_vault_document(
+        context.pool,
+        project.id,
+        argument(arguments, "path")?,
+        arguments.get("expected_revision").and_then(Value::as_i64),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(json!({"deleted":deleted,"project":project.slug}))
+}
+
 async fn call_tool(
     context: &McpContext<'_>,
     name: &str,
@@ -483,6 +810,10 @@ async fn call_tool(
         "get_graph_neighborhood" => tool_get_graph_neighborhood(context, arguments).await,
         "find_path" => tool_find_path(context, arguments).await,
         "explain_node" => tool_explain_node(context, arguments).await,
+        "store_context" => tool_store_context(context, arguments).await,
+        "update_section" => tool_update_section(context, arguments).await,
+        "link_notes" => tool_link_notes(context, arguments).await,
+        "delete_note" => tool_delete_note(context, arguments).await,
         "create_project" => tool_create_project(context, arguments).await,
         "trigger_index" | "sync_vault" => trigger_index_impl(context, arguments).await,
         "get_index_status" => tool_get_index_status(context, arguments).await,

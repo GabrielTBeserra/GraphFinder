@@ -221,3 +221,44 @@ pub async fn upsert_vault_document(
     tx.commit().await?;
     Ok(record)
 }
+
+pub async fn delete_vault_document(
+    pool: &PgPool,
+    project_id: Uuid,
+    path: &str,
+    expected_revision: Option<i64>,
+) -> StorageResult<bool> {
+    let mut tx = pool.begin().await?;
+    let document = sqlx::query_as::<_, VaultDocumentRecord>(
+        r#"
+        SELECT d.id,d.project_id,d.generation,d.source_id,d.path,d.title,d.revision,d.updated_at
+        FROM documents d
+        JOIN projects p ON p.id=d.project_id AND p.active_generation=d.generation
+        JOIN sources s ON s.id=d.source_id AND s.project_id=d.project_id
+        WHERE d.project_id=$1 AND d.path=$2 AND s.kind='managed_vault'
+        FOR UPDATE
+        "#,
+    )
+    .bind(project_id)
+    .bind(path)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(document) = document else {
+        tx.rollback().await?;
+        return Ok(false);
+    };
+    if let Some(expected) = expected_revision {
+        if expected != document.revision {
+            return Err(StorageError::Conflict(format!(
+                "document revision conflict: expected {expected}, current {}",
+                document.revision
+            )));
+        }
+    }
+    sqlx::query("DELETE FROM documents WHERE id=$1")
+        .bind(document.id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(true)
+}
