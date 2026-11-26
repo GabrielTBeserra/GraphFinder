@@ -46,8 +46,13 @@ pub fn router(pool: PgPool, embedder: Arc<LazyEmbedder>) -> Router {
         .route("/metrics", get(metrics))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/logout", post(logout))
-        .route("/api/v1/tokens", post(create_token))
+        .route("/api/v1/tokens", get(list_tokens).post(create_token))
         .route("/api/v1/tokens/{id}", axum::routing::delete(revoke_token))
+        .route("/api/v1/users", get(list_users).post(create_user))
+        .route(
+            "/api/v1/users/{id}/role",
+            axum::routing::patch(update_user_role),
+        )
         .route("/api/v1/projects", get(list_projects).post(create_project))
         .route(
             "/api/v1/projects/{id}",
@@ -224,6 +229,183 @@ async fn revoke_token(
     } else {
         Err((StatusCode::NOT_FOUND, "token not found"))
     }
+}
+
+#[derive(Debug, Serialize)]
+struct ApiTokenResponse {
+    id: uuid::Uuid,
+    user_id: Option<uuid::Uuid>,
+    name: String,
+    scopes: Vec<String>,
+    project_ids: Option<Vec<uuid::Uuid>>,
+    expires_at: Option<String>,
+    revoked_at: Option<String>,
+    last_used_at: Option<String>,
+    created_at: String,
+}
+
+impl From<gf_storage::ApiTokenMetadata> for ApiTokenResponse {
+    fn from(token: gf_storage::ApiTokenMetadata) -> Self {
+        Self {
+            id: token.id,
+            user_id: token.user_id,
+            name: token.name,
+            scopes: token.scopes,
+            project_ids: token.project_ids,
+            expires_at: token.expires_at.map(|v| v.to_rfc3339()),
+            revoked_at: token.revoked_at.map(|v| v.to_rfc3339()),
+            last_used_at: token.last_used_at.map(|v| v.to_rfc3339()),
+            created_at: token.created_at.to_rfc3339(),
+        }
+    }
+}
+
+async fn require_token_admin(
+    pool: &PgPool,
+    headers: &axum::http::HeaderMap,
+) -> Result<gf_storage::Principal, (StatusCode, &'static str)> {
+    let principal = require_principal(pool, headers).await?;
+    if principal.kind != "session" {
+        return Err((StatusCode::FORBIDDEN, "session authentication required"));
+    }
+    if !gf_storage::authorize_tenant_scope(pool, &principal, gf_storage::SCOPE_TOKENS_MANAGE)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authorization failed"))?
+    {
+        return Err((StatusCode::FORBIDDEN, "insufficient tenant scope"));
+    }
+    Ok(principal)
+}
+
+async fn list_tokens(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::Json<Vec<ApiTokenResponse>>, (StatusCode, &'static str)> {
+    let principal = require_token_admin(&pool, &headers).await?;
+    let tokens = gf_storage::list_api_tokens(&pool, principal.tenant_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "token lookup failed"))?;
+    Ok(axum::Json(
+        tokens.into_iter().map(ApiTokenResponse::from).collect(),
+    ))
+}
+
+#[derive(Debug, Serialize)]
+struct TenantUserResponse {
+    id: uuid::Uuid,
+    email: String,
+    display_name: String,
+    status: String,
+    role: Option<String>,
+    created_at: String,
+}
+
+impl From<gf_storage::TenantUser> for TenantUserResponse {
+    fn from(user: gf_storage::TenantUser) -> Self {
+        Self {
+            id: user.id,
+            email: user.email,
+            display_name: user.display_name,
+            status: user.status,
+            role: user.role,
+            created_at: user.created_at.to_rfc3339(),
+        }
+    }
+}
+
+async fn list_users(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::Json<Vec<TenantUserResponse>>, (StatusCode, &'static str)> {
+    let principal = require_token_admin(&pool, &headers).await?;
+    let users = gf_storage::list_tenant_users(&pool, principal.tenant_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "user lookup failed"))?;
+    Ok(axum::Json(
+        users.into_iter().map(TenantUserResponse::from).collect(),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateUserRequest {
+    email: String,
+    display_name: String,
+    password: String,
+    role: String,
+}
+
+fn validate_tenant_role(role: &str) -> Result<(), (StatusCode, &'static str)> {
+    if matches!(role, "owner" | "admin" | "member" | "viewer") {
+        Ok(())
+    } else {
+        Err((StatusCode::BAD_REQUEST, "invalid tenant role"))
+    }
+}
+
+async fn create_user(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::Json(request): axum::Json<CreateUserRequest>,
+) -> Result<axum::Json<TenantUserResponse>, (StatusCode, &'static str)> {
+    let principal = require_token_admin(&pool, &headers).await?;
+    validate_tenant_role(&request.role)?;
+    let hash = gf_storage::hash_password(&request.password)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "password hashing failed"))?;
+    let user_id = gf_storage::upsert_user(
+        &pool,
+        principal.tenant_id,
+        &request.email,
+        &request.display_name,
+        &hash,
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "user creation failed"))?;
+    gf_storage::ensure_tenant_membership(&pool, principal.tenant_id, user_id, &request.role)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "membership update failed",
+            )
+        })?;
+    let users = gf_storage::list_tenant_users(&pool, principal.tenant_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "user lookup failed"))?;
+    let user = users
+        .into_iter()
+        .find(|user| user.id == user_id)
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "user lookup failed"))?;
+    Ok(axum::Json(TenantUserResponse::from(user)))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateUserRoleRequest {
+    role: String,
+}
+
+async fn update_user_role(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+    axum::Json(request): axum::Json<UpdateUserRoleRequest>,
+) -> Result<StatusCode, (StatusCode, &'static str)> {
+    let principal = require_token_admin(&pool, &headers).await?;
+    validate_tenant_role(&request.role)?;
+    let users = gf_storage::list_tenant_users(&pool, principal.tenant_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "user lookup failed"))?;
+    if !users.iter().any(|user| user.id == id) {
+        return Err((StatusCode::NOT_FOUND, "user not found"));
+    }
+    gf_storage::ensure_tenant_membership(&pool, principal.tenant_id, id, &request.role)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "membership update failed",
+            )
+        })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Debug, Serialize)]

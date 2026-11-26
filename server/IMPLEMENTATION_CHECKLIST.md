@@ -561,17 +561,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 32 — tokens e usuários
 
-- [ ] Criar/listar/revogar tokens.
-- [ ] Exibir escopo, projetos, expiração e último uso.
-- [ ] Gerar snippet MCP pronto para copiar.
-- [ ] Gerenciar usuários e papéis básicos.
+- [x] Criar/listar/revogar tokens.
+- [x] Exibir escopo, projetos, expiração e último uso.
+- [x] Gerar snippet MCP pronto para copiar.
+- [x] Gerenciar usuários e papéis básicos.
 - [ ] Commit sugerido:
   ```text
   feat(server-admin): add token and user management
   ```
 
 **Critério de aceite**
-- [ ] Token criado no painel funciona em cliente MCP.
+- [x] Token criado no painel funciona em cliente MCP.
 
 #### Commit 33 — busca de teste
 

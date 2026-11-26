@@ -137,3 +137,61 @@ export function createIndexJob(token: string, projectId: string, sourceId?: stri
 export function cancelIndexJob(token: string, jobId: string) {
   return request<void>(`/api/v1/index-jobs/${jobId}/cancel`, { method: 'POST' }, token);
 }
+
+export type ApiToken = {
+  id: string;
+  user_id?: string | null;
+  name: string;
+  scopes: string[];
+  project_ids?: string[] | null;
+  expires_at?: string | null;
+  revoked_at?: string | null;
+  last_used_at?: string | null;
+  created_at: string;
+};
+
+export type TenantUser = {
+  id: string;
+  email: string;
+  display_name: string;
+  status: string;
+  role?: string | null;
+  created_at: string;
+};
+
+export function listApiTokens(token: string) {
+  return request<ApiToken[]>('/api/v1/tokens', {}, token);
+}
+
+export function createApiToken(token: string, input: {
+  name: string;
+  scopes: string[];
+  project_ids?: string[];
+  expires_in_days?: number;
+}) {
+  return request<{ id: string; token: string; expires_at?: string | null }>('/api/v1/tokens', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, token);
+}
+
+export function revokeApiToken(token: string, id: string) {
+  return request<void>(`/api/v1/tokens/${id}`, { method: 'DELETE' }, token);
+}
+
+export function listUsers(token: string) {
+  return request<TenantUser[]>('/api/v1/users', {}, token);
+}
+
+export function createUser(token: string, input: {
+  email: string;
+  display_name: string;
+  password: string;
+  role: string;
+}) {
+  return request<TenantUser>('/api/v1/users', { method: 'POST', body: JSON.stringify(input) }, token);
+}
+
+export function updateUserRole(token: string, id: string, role: string) {
+  return request<void>(`/api/v1/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }, token);
+}

@@ -266,3 +266,55 @@ pub async fn authenticate_bearer_token(
     }
     Ok(None)
 }
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ApiTokenMetadata {
+    pub id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub name: String,
+    pub scopes: Vec<String>,
+    pub project_ids: Option<Vec<Uuid>>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+pub async fn list_api_tokens(
+    pool: &PgPool,
+    tenant_id: Uuid,
+) -> StorageResult<Vec<ApiTokenMetadata>> {
+    Ok(sqlx::query_as::<_, ApiTokenMetadata>(
+        r#"
+        SELECT id,user_id,name,scopes,project_ids,expires_at,revoked_at,last_used_at,created_at
+        FROM api_tokens WHERE tenant_id=$1 ORDER BY created_at DESC
+        "#,
+    )
+    .bind(tenant_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TenantUser {
+    pub id: Uuid,
+    pub email: String,
+    pub display_name: String,
+    pub status: String,
+    pub role: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+pub async fn list_tenant_users(pool: &PgPool, tenant_id: Uuid) -> StorageResult<Vec<TenantUser>> {
+    Ok(sqlx::query_as::<_, TenantUser>(
+        r#"
+        SELECT u.id,u.email,u.display_name,u.status,m.role,u.created_at
+        FROM users u
+        LEFT JOIN tenant_memberships m ON m.user_id=u.id AND m.tenant_id=u.tenant_id
+        WHERE u.tenant_id=$1 ORDER BY u.created_at DESC
+        "#,
+    )
+    .bind(tenant_id)
+    .fetch_all(pool)
+    .await?)
+}

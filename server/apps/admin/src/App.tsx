@@ -1,22 +1,30 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
+  ApiToken,
   cancelIndexJob,
+  createApiToken,
   createIndexJob,
   createProject,
+  createUser,
   createSource,
   deleteSource,
   IndexJob,
+  listApiTokens,
   listIndexJobs,
   listProjects,
+  listUsers,
   listSources,
   loadSession,
   login,
   logout,
   Project,
+  revokeApiToken,
   saveSession,
   Session,
   Source,
+  TenantUser,
   updateProject,
+  updateUserRole,
 } from './api';
 
 function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
@@ -320,6 +328,117 @@ function JobsManager({ session, projects }: { session: Session; projects: Projec
   );
 }
 
+function TokensUsersManager({ session, projects }: { session: Session; projects: Project[] }) {
+  const [tokens, setTokens] = useState<ApiToken[]>([]);
+  const [users, setUsers] = useState<TenantUser[]>([]);
+  const [tokenForm, setTokenForm] = useState({ name: 'mcp-client', scopes: 'search:read,code:read', projectId: '', days: '30' });
+  const [userForm, setUserForm] = useState({ email: '', display_name: '', password: '', role: 'viewer' });
+  const [createdToken, setCreatedToken] = useState('');
+  const [message, setMessage] = useState('');
+
+  async function load() {
+    const [nextTokens, nextUsers] = await Promise.all([listApiTokens(session.token), listUsers(session.token)]);
+    setTokens(nextTokens);
+    setUsers(nextUsers);
+  }
+
+  useEffect(() => { load().catch(() => setMessage('failed to load tokens/users')); }, [session.token]);
+
+  async function submitToken(event: FormEvent) {
+    event.preventDefault();
+    const projectIds = tokenForm.projectId ? [tokenForm.projectId] : undefined;
+    const created = await createApiToken(session.token, {
+      name: tokenForm.name,
+      scopes: tokenForm.scopes.split(',').map((scope) => scope.trim()).filter(Boolean),
+      project_ids: projectIds,
+      expires_in_days: tokenForm.days ? Number(tokenForm.days) : undefined,
+    }).catch(() => undefined);
+    if (!created) return setMessage('failed to create token');
+    setCreatedToken(created.token);
+    setMessage('token created — copy it now; it will not be shown again');
+    await load();
+  }
+
+  async function submitUser(event: FormEvent) {
+    event.preventDefault();
+    const created = await createUser(session.token, userForm).catch(() => undefined);
+    if (!created) return setMessage('failed to create user');
+    setMessage(`user ${created.email} created/updated`);
+    setUserForm({ email: '', display_name: '', password: '', role: 'viewer' });
+    await load();
+  }
+
+  const snippet = createdToken ? JSON.stringify({
+    mcpServers: { graphfinder: { url: `${window.location.origin}/mcp`, headers: { Authorization: `Bearer ${createdToken}` } } },
+  }, null, 2) : '';
+
+  return (
+    <section className="tokens-grid">
+      <div>
+        <div className="panel-heading"><h2>API tokens</h2><span>{tokens.length} registered</span></div>
+        <form className="inline-form compact" onSubmit={submitToken}>
+          <input placeholder="token name" value={tokenForm.name} onChange={(e) => setTokenForm({ ...tokenForm, name: e.target.value })} required />
+          <input placeholder="scopes comma-separated" value={tokenForm.scopes} onChange={(e) => setTokenForm({ ...tokenForm, scopes: e.target.value })} />
+          <select value={tokenForm.projectId} onChange={(e) => setTokenForm({ ...tokenForm, projectId: e.target.value })}>
+            <option value="">all allowed projects</option>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.slug}</option>)}
+          </select>
+          <input type="number" min="1" placeholder="expires days" value={tokenForm.days} onChange={(e) => setTokenForm({ ...tokenForm, days: e.target.value })} />
+          <button>Create token</button>
+        </form>
+        {createdToken && (
+          <div className="token-secret-panel">
+            <strong>Copy MCP configuration</strong>
+            <pre>{snippet}</pre>
+          </div>
+        )}
+        <div className="token-list">
+          {tokens.map((token) => (
+            <article className="token-row" key={token.id}>
+              <div>
+                <strong>{token.name}</strong>
+                <div className="job-meta">
+                  <span>{token.scopes.join(', ')}</span>
+                  <span>{token.project_ids?.length ? `${token.project_ids.length} project(s)` : 'all projects'}</span>
+                  <span>expires {token.expires_at?.slice(0, 10) ?? 'never'}</span>
+                  <span>last used {token.last_used_at ? token.last_used_at.slice(0, 10) : 'never'}</span>
+                </div>
+              </div>
+              {!token.revoked_at && <button onClick={() => revokeApiToken(session.token, token.id).then(load)}>Revoke</button>}
+            </article>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="panel-heading"><h2>Users</h2><span>{users.length} members</span></div>
+        <form className="inline-form compact" onSubmit={submitUser}>
+          <input type="email" placeholder="email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} required />
+          <input placeholder="display name" value={userForm.display_name} onChange={(e) => setUserForm({ ...userForm, display_name: e.target.value })} required />
+          <input type="password" placeholder="temporary password" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} required />
+          <select value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
+            {['viewer', 'member', 'admin', 'owner'].map((role) => <option key={role}>{role}</option>)}
+          </select>
+          <button>Create/update user</button>
+        </form>
+        <div className="token-list">
+          {users.map((user) => (
+            <article className="token-row" key={user.id}>
+              <div>
+                <strong>{user.display_name || user.email}</strong>
+                <div className="job-meta"><span>{user.email}</span><span>{user.status}</span></div>
+              </div>
+              <select value={user.role ?? 'viewer'} onChange={(e) => updateUserRole(session.token, user.id, e.target.value).then(load)}>
+                {['viewer', 'member', 'admin', 'owner'].map((role) => <option key={role}>{role}</option>)}
+              </select>
+            </article>
+          ))}
+        </div>
+        {message && <p className="operation-message">{message}</p>}
+      </div>
+    </section>
+  );
+}
+
 const navItems = ['Overview', 'Projects', 'Sources', 'Index jobs', 'API tokens', 'Search lab'];
 
 function App() {
@@ -383,7 +502,9 @@ function App() {
           ))}
         </section>
         <section className="content-panel">
-          {active === 'Index jobs' ? (
+          {active === 'API tokens' ? (
+            <TokensUsersManager session={session} projects={projects} />
+          ) : active === 'Index jobs' ? (
             <JobsManager session={session} projects={projects} />
           ) : active === 'Projects' || active === 'Overview' || active === 'Sources' ? (
             <ProjectsManager session={session} projects={projects} setProjects={setProjects} status={status} />
