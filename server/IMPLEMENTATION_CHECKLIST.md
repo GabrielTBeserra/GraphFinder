@@ -290,18 +290,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 14 — scan e incremental hashing
 
-- [ ] Implementar scan respeitando include/exclude.
-- [ ] Ignorar diretórios pesados por padrão: `.git`, `node_modules`, `target`, `dist`, `build`, `.venv`.
-- [ ] Calcular hash por arquivo e por chunk.
-- [ ] Implementar índice incremental baseado em hash.
+- [x] Implementar scan respeitando include/exclude.
+- [x] Ignorar diretórios pesados por padrão: `.git`, `node_modules`, `target`, `dist`, `build`, `.venv`.
+- [x] Calcular hash por arquivo e por chunk.
+- [x] Implementar índice incremental baseado em hash.
 - [ ] Commit sugerido:
   ```text
   feat(server-indexer): implement incremental repository scanning
   ```
 
 **Critério de aceite**
-- [ ] Reindexação sem mudanças não reprocessa todos os chunks.
-- [ ] Arquivos removidos desaparecem da nova geração.
+- [ ] Reindexação sem mudanças não reprocessa todos os chunks. *(será validado no pipeline completo)*
+- [ ] Arquivos removidos desaparecem da nova geração. *(será validado no pipeline completo)*
 
 #### Commit 15 — pipeline completo de indexação
 
