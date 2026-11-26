@@ -319,19 +319,19 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 16 — fila de jobs no PostgreSQL
 
-- [ ] Implementar estados `queued`, `running`, `succeeded`, `failed`, `cancelled`.
-- [ ] Implementar aquisição com `FOR UPDATE SKIP LOCKED`.
-- [ ] Implementar lock por `project_id + source_id`.
-- [ ] Implementar retry com backoff simples.
-- [ ] Implementar heartbeat/timeout de worker.
+- [x] Implementar estados `queued`, `running`, `succeeded`, `failed`, `cancelled`.
+- [x] Implementar aquisição com `FOR UPDATE SKIP LOCKED`.
+- [x] Implementar lock por `project_id + source_id`.
+- [x] Implementar retry com backoff simples.
+- [x] Implementar heartbeat/timeout de worker.
 - [ ] Commit sugerido:
   ```text
   feat(server-indexer): implement postgres-backed job queue
   ```
 
 **Critério de aceite**
-- [ ] Dois workers não processam o mesmo job.
-- [ ] Duas execuções simultâneas da mesma fonte são impedidas.
+- [x] Dois workers não processam o mesmo job.
+- [x] Duas execuções simultâneas da mesma fonte são impedidas.
 
 #### Commit 17 — logs e progresso de jobs
 

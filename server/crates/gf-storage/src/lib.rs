@@ -2,6 +2,7 @@
 
 pub mod embeddings;
 pub mod generations;
+pub mod jobs;
 pub mod models;
 pub mod repositories;
 pub mod search;
@@ -11,6 +12,7 @@ use thiserror::Error;
 
 pub use embeddings::*;
 pub use generations::*;
+pub use jobs::*;
 pub use repositories::*;
 pub use search::*;
 
