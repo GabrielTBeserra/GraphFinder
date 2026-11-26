@@ -4,6 +4,7 @@ pub mod embeddings;
 pub mod generations;
 pub mod models;
 pub mod repositories;
+pub mod search;
 
 use sqlx::PgPool;
 use thiserror::Error;
@@ -11,6 +12,7 @@ use thiserror::Error;
 pub use embeddings::*;
 pub use generations::*;
 pub use repositories::*;
+pub use search::*;
 
 pub type StorageResult<T> = Result<T, StorageError>;
 

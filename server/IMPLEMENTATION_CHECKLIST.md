@@ -194,7 +194,7 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
   ```
 
 **Critério de aceite**
-- [ ] `graphfinder-server migrate` aplica migrations em PostgreSQL limpo. *(pendente: Docker indisponível neste ambiente)*
+- [x] `graphfinder-server migrate` aplica migrations em PostgreSQL limpo. *(validado via migrator em PostgreSQL/pgvector real no Ubuntu)*
 
 #### Commit 8 — schema de conteúdo
 
@@ -207,7 +207,7 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
   ```
 
 **Critério de aceite**
-- [ ] pgvector está disponível. *(pendente de validação em PostgreSQL real)*
+- [x] pgvector está disponível.
 - [x] Schema suporta múltiplas gerações por projeto.
 
 #### Commit 9 — repositories de storage
@@ -221,7 +221,7 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
   ```
 
 **Critério de aceite**
-- [ ] CRUD interno de projeto/fonte/documento/chunk funciona. *(pendente de execução contra PostgreSQL real)*
+- [x] CRUD interno de projeto/fonte/documento/chunk funciona.
 
 #### Commit 10 — publicação atômica de gerações
 
@@ -235,23 +235,23 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
   ```
 
 **Critério de aceite**
-- [ ] Busca nunca lê geração `pending`. *(será garantido na camada de busca)*
+- [x] Busca nunca lê geração `pending`.
 - [x] Rollback manual para geração anterior é possível por operação administrativa interna.
 
 #### Commit 11 — busca híbrida
 
-- [ ] Implementar busca lexical PostgreSQL FTS.
-- [ ] Implementar busca vetorial pgvector com filtro por projeto/geração.
-- [ ] Implementar fusão/Ranking inicial, preferencialmente RRF.
-- [ ] Implementar filtros por linguagem e tipo de documento.
+- [x] Implementar busca lexical PostgreSQL FTS.
+- [x] Implementar busca vetorial pgvector com filtro por projeto/geração.
+- [x] Implementar fusão/Ranking inicial, preferencialmente RRF.
+- [x] Implementar filtros por linguagem e tipo de documento.
 - [ ] Commit sugerido:
   ```text
   feat(server-db): implement hybrid lexical and vector search
   ```
 
 **Critério de aceite**
-- [ ] Consultas retornam apenas projeto autorizado e geração ativa.
-- [ ] Busca lexical e vetorial produzem resultados consistentes em fixtures indexados.
+- [x] Consultas retornam apenas projeto autorizado e geração ativa.
+- [x] Busca lexical e vetorial produzem resultados consistentes em fixtures indexados.
 
 ---
 
