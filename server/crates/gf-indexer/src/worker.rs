@@ -1,0 +1,114 @@
+use std::path::PathBuf;
+use std::time::Duration;
+
+use gf_core::EmbeddingProvider;
+use gf_storage::models::Source;
+use gf_storage::{acquire_index_job, complete_index_job, fail_index_job, get_source, IndexJob};
+use sqlx::PgPool;
+use thiserror::Error;
+use uuid::Uuid;
+
+use crate::{
+    clone_or_fetch_public_repo, index_checkout, validate_git_source_url, GitCloneError,
+    GitCloneOptions, GitSourcePolicy, GitSourceValidationError, IndexingError,
+};
+
+#[derive(Debug, Clone)]
+pub struct WorkerConfig {
+    pub repo_cache_root: PathBuf,
+    pub allow_private_git_hosts: bool,
+    pub allowed_git_hosts: Vec<String>,
+    pub git_timeout: Duration,
+    pub max_repo_bytes: u64,
+}
+
+#[derive(Debug, Error)]
+pub enum WorkerError {
+    #[error(transparent)]
+    Storage(#[from] gf_storage::StorageError),
+    #[error(transparent)]
+    Validation(#[from] GitSourceValidationError),
+    #[error(transparent)]
+    Clone(#[from] GitCloneError),
+    #[error(transparent)]
+    Indexing(#[from] IndexingError),
+    #[error("job {0} has no source")]
+    MissingSource(Uuid),
+    #[error("source {0} not found")]
+    SourceNotFound(Uuid),
+}
+
+pub async fn process_next_index_job(
+    pool: &PgPool,
+    config: &WorkerConfig,
+    embedder: &dyn EmbeddingProvider,
+) -> Result<bool, WorkerError> {
+    let Some(job) = acquire_index_job(pool).await? else {
+        return Ok(false);
+    };
+
+    let generation = match process_job(pool, &job, config, embedder).await {
+        Ok(generation) => generation,
+        Err(error) => {
+            let _ = fail_index_job(pool, job.id, &error.to_string()).await;
+            return Err(error);
+        }
+    };
+    complete_index_job(pool, job.id, generation).await?;
+    Ok(true)
+}
+
+async fn process_job(
+    pool: &PgPool,
+    job: &IndexJob,
+    config: &WorkerConfig,
+    embedder: &dyn EmbeddingProvider,
+) -> Result<i64, WorkerError> {
+    let source_id = job.source_id.ok_or(WorkerError::MissingSource(job.id))?;
+    let source = get_source(pool, source_id)
+        .await?
+        .ok_or(WorkerError::SourceNotFound(source_id))?;
+    process_source(pool, job, &source, config, embedder).await
+}
+
+async fn process_source(
+    pool: &PgPool,
+    job: &IndexJob,
+    source: &Source,
+    config: &WorkerConfig,
+    embedder: &dyn EmbeddingProvider,
+) -> Result<i64, WorkerError> {
+    let policy = GitSourcePolicy {
+        allow_private_hosts: config.allow_private_git_hosts,
+        allowed_hosts: config.allowed_git_hosts.clone(),
+    };
+    let url = validate_git_source_url(&source.uri, &policy)?;
+    let branch = job
+        .payload
+        .get("branch")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| source.branch.clone());
+    let checkout = clone_or_fetch_public_repo(
+        &url,
+        &GitCloneOptions {
+            cache_root: config.repo_cache_root.clone(),
+            source_id: source.id,
+            branch,
+            timeout: config.git_timeout,
+            max_bytes: config.max_repo_bytes,
+        },
+    )
+    .await?;
+    let report = index_checkout(
+        pool,
+        &checkout.path,
+        job.project_id,
+        Some(source.id),
+        &source.include_patterns,
+        &source.exclude_patterns,
+        embedder,
+    )
+    .await?;
+    Ok(report.generation)
+}

@@ -1,5 +1,10 @@
+use std::path::PathBuf;
+use std::time::Duration;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use gf_core::FastEmbedProvider;
+use gf_indexer::{process_next_index_job, WorkerConfig};
 
 #[derive(Debug, Parser)]
 #[command(name = "graphfinder-server")]
@@ -20,7 +25,14 @@ enum Command {
     /// Run the HTTP API and MCP server.
     Api,
     /// Run indexing workers.
-    Worker,
+    Worker {
+        /// PostgreSQL connection URL. Defaults to DATABASE_URL.
+        #[arg(long)]
+        database_url: Option<String>,
+        /// Process at most one queued job and exit.
+        #[arg(long)]
+        once: bool,
+    },
 }
 
 #[tokio::main]
@@ -37,10 +49,65 @@ async fn main() -> Result<()> {
             println!("database migrations applied");
         }
         Command::Api => not_implemented("api"),
-        Command::Worker => not_implemented("worker"),
+        Command::Worker { database_url, once } => run_worker(database_url, once).await?,
     }
 
     Ok(())
+}
+
+async fn run_worker(database_url: Option<String>, once: bool) -> Result<()> {
+    let database_url = database_url
+        .or_else(|| std::env::var("DATABASE_URL").ok())
+        .expect("DATABASE_URL or --database-url is required");
+    let pool = gf_storage::connect(&database_url).await?;
+    let model_cache = std::env::var("GF_MODEL_CACHE_DIR")
+        .unwrap_or_else(|_| "/var/lib/graphfinder/models".into());
+    let embedder = FastEmbedProvider::multilingual_e5_small(model_cache)
+        .map_err(|e| anyhow::anyhow!("failed to initialize embedding provider: {e}"))?;
+    let config = WorkerConfig {
+        repo_cache_root: PathBuf::from(
+            std::env::var("GF_REPO_CACHE_ROOT")
+                .unwrap_or_else(|_| "/var/lib/graphfinder/repo-cache".into()),
+        ),
+        allow_private_git_hosts: env_bool("GF_ALLOW_PRIVATE_GIT_HOSTS"),
+        allowed_git_hosts: std::env::var("GF_ALLOWED_GIT_HOSTS")
+            .unwrap_or_default()
+            .split(',')
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| v.trim().to_string())
+            .collect(),
+        git_timeout: Duration::from_secs(env_u64("GF_GIT_TIMEOUT_SECS", 120)),
+        max_repo_bytes: env_u64("GF_MAX_REPO_BYTES", 1_000_000_000),
+    };
+    let poll_interval = Duration::from_millis(env_u64("GF_WORKER_POLL_MS", 2_000));
+
+    loop {
+        match process_next_index_job(&pool, &config, &embedder).await {
+            Ok(true) if once => break,
+            Ok(true) => {}
+            Ok(false) if once => break,
+            Ok(false) => tokio::time::sleep(poll_interval).await,
+            Err(error) if once => return Err(error.into()),
+            Err(error) => {
+                tracing::error!(error = %error, "index job failed");
+                tokio::time::sleep(poll_interval).await;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn env_bool(name: &str) -> bool {
+    std::env::var(name)
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn env_u64(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 fn init_tracing() {
