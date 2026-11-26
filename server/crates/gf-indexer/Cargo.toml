@@ -8,3 +8,8 @@ rust-version.workspace = true
 [dependencies]
 thiserror.workspace = true
 url.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

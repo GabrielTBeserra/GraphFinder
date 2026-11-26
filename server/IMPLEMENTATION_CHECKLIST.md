@@ -274,19 +274,19 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 13 — clone/fetch seguro
 
-- [ ] Implementar clone shallow/fetch usando CLI `git` sem shell interpolation ou `git2` com credenciais controladas.
-- [ ] Resolver e armazenar commit SHA exato.
-- [ ] Implementar cache de repositório por fonte.
-- [ ] Implementar limite de tamanho e timeout.
+- [x] Implementar clone shallow/fetch usando CLI `git` sem shell interpolation ou `git2` com credenciais controladas.
+- [x] Resolver e armazenar commit SHA exato.
+- [x] Implementar cache de repositório por fonte.
+- [x] Implementar limite de tamanho e timeout.
 - [ ] Commit sugerido:
   ```text
   feat(server-indexer): implement safe git clone and fetch
   ```
 
 **Critério de aceite**
-- [ ] Clone ocorre em diretório isolado.
-- [ ] Nenhum hook/script do repositório é executado.
-- [ ] Logs não contêm credenciais.
+- [x] Clone ocorre em diretório isolado.
+- [x] Nenhum hook/script do repositório é executado.
+- [x] Logs não contêm credenciais.
 
 #### Commit 14 — scan e incremental hashing
 

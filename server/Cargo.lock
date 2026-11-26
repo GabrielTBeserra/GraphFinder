@@ -1048,8 +1048,11 @@ dependencies = [
 name = "gf-indexer"
 version = "0.1.0"
 dependencies = [
+ "tempfile",
  "thiserror",
+ "tokio",
  "url",
+ "uuid",
 ]
 
 [[package]]
