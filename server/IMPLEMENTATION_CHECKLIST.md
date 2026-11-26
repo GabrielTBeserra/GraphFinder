@@ -305,17 +305,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 15 — pipeline completo de indexação
 
-- [ ] Integrar clone → scan → parse → chunk → embeddings → staging → publish.
-- [ ] Registrar métricas de arquivos, chunks, erros e duração.
-- [ ] Implementar modo dry-run para validar configuração da fonte.
+- [x] Integrar clone → scan → parse → chunk → embeddings → staging → publish.
+- [x] Registrar métricas de arquivos, chunks, erros e duração.
+- [x] Implementar modo dry-run para validar configuração da fonte.
 - [ ] Commit sugerido:
   ```text
   feat(server-indexer): implement end-to-end indexing pipeline
   ```
 
 **Critério de aceite**
-- [ ] Fixture completo é indexado no PostgreSQL.
-- [ ] Segunda execução usa caminho incremental.
+- [x] Fixture completo é indexado no PostgreSQL.
+- [ ] Segunda execução usa caminho incremental. *(diff_scan existe; falta reutilizar embeddings/chunks inalterados)*
 
 #### Commit 16 — fila de jobs no PostgreSQL
 
