@@ -507,29 +507,29 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 28 — bootstrap do painel
 
-- [ ] Criar `server/apps/admin` com React + TypeScript + Vite.
-- [ ] Criar layout base com navegação.
-- [ ] Implementar cliente API com tratamento de autenticação.
+- [x] Criar `server/apps/admin` com React + TypeScript + Vite.
+- [x] Criar layout base com navegação.
+- [x] Implementar cliente API com tratamento de autenticação.
 - [ ] Commit sugerido:
   ```text
   feat(server-admin): bootstrap admin web application
   ```
 
 **Critério de aceite**
-- [ ] `npm run build` em `server/apps/admin` passa.
+- [x] `npm run build` em `server/apps/admin` passa.
 
 #### Commit 29 — login e sessão
 
-- [ ] Implementar tela de login.
-- [ ] Implementar logout.
-- [ ] Implementar guarda de rotas autenticadas.
+- [x] Implementar tela de login.
+- [x] Implementar logout.
+- [x] Implementar guarda de rotas autenticadas.
 - [ ] Commit sugerido:
   ```text
   feat(server-admin): add authentication flow
   ```
 
 **Critério de aceite**
-- [ ] Usuário autenticado acessa painel; não autenticado é redirecionado.
+- [x] Usuário autenticado acessa painel; não autenticado é redirecionado.
 
 #### Commit 30 — projetos e fontes
 
