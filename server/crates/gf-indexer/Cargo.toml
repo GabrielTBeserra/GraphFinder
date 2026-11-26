@@ -6,6 +6,5 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-gf-core = { path = "../gf-core" }
-gf-storage = { path = "../gf-storage" }
 thiserror.workspace = true
+url.workspace = true

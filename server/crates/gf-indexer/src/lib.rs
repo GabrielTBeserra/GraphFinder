@@ -1,5 +1,7 @@
 //! Git scanning and indexing pipeline for GraphFinder Server.
 
-pub fn not_implemented() -> &'static str {
-    "indexing is not implemented yet"
-}
+pub mod git_source;
+
+pub use git_source::{
+    validate_git_source_url, GitSourcePolicy, GitSourceValidationError, ValidatedGitUrl,
+};

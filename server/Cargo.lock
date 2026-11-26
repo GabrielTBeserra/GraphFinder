@@ -1048,9 +1048,8 @@ dependencies = [
 name = "gf-indexer"
 version = "0.1.0"
 dependencies = [
- "gf-core",
- "gf-storage",
  "thiserror",
+ "url",
 ]
 
 [[package]]

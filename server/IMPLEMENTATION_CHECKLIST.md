@@ -259,18 +259,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 12 — validação segura de fontes Git
 
-- [ ] Validar esquema `https` inicialmente; `ssh` pode entrar depois.
-- [ ] Bloquear IPs privados, loopback e link-local por padrão.
-- [ ] Criar configuração explícita para permitir hosts internos.
-- [ ] Não permitir credenciais embutidas na URL.
+- [x] Validar esquema `https` inicialmente; `ssh` pode entrar depois.
+- [x] Bloquear IPs privados, loopback e link-local por padrão.
+- [x] Criar configuração explícita para permitir hosts internos.
+- [x] Não permitir credenciais embutidas na URL.
 - [ ] Commit sugerido:
   ```text
   feat(server-indexer): add safe git source validation
   ```
 
 **Critério de aceite**
-- [ ] URLs internas são rejeitadas por padrão.
-- [ ] URLs com credenciais embutidas são rejeitadas.
+- [x] URLs internas são rejeitadas por padrão.
+- [x] URLs com credenciais embutidas são rejeitadas.
 
 #### Commit 13 — clone/fetch seguro
 
