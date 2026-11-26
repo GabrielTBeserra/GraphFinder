@@ -288,7 +288,7 @@ function JobsManager({ session, projects, setProjects }: { session: Session; pro
       }
     }
     load();
-    const interval = window.setInterval(load, 5000);
+    const interval = window.setInterval(load, 1000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -361,7 +361,7 @@ function JobsManager({ session, projects, setProjects }: { session: Session; pro
     <section>
       <div className="panel-heading">
         <h2>Index jobs · {project.slug}</h2>
-        <span>polling 5s</span>
+        <span>live · 1s</span>
       </div>
       <div className="job-toolbar">
         <select value={project.id} onChange={(event) => setProjectId(event.target.value)}>
