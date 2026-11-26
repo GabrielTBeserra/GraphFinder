@@ -212,16 +212,16 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 9 — repositories de storage
 
-- [ ] Implementar acesso a projetos, fontes, documentos, chunks e links em `gf-storage`.
-- [ ] Implementar queries com `sqlx` ou ORM escolhido.
-- [ ] Implementar testes de integração com PostgreSQL em Docker quando disponível.
+- [x] Implementar acesso a projetos, fontes, documentos, chunks e links em `gf-storage`.
+- [x] Implementar queries com `sqlx` ou ORM escolhido.
+- [x] Implementar testes de integração com PostgreSQL em Docker quando disponível. *(teste ignorado criado; Docker indisponível neste ambiente)*
 - [ ] Commit sugerido:
   ```text
   feat(server-db): implement storage repositories
   ```
 
 **Critério de aceite**
-- [ ] CRUD interno de projeto/fonte/documento/chunk funciona.
+- [ ] CRUD interno de projeto/fonte/documento/chunk funciona. *(pendente de execução contra PostgreSQL real)*
 
 #### Commit 10 — publicação atômica de gerações
 

@@ -1,7 +1,12 @@
 //! PostgreSQL storage layer for GraphFinder Server.
 
+pub mod models;
+pub mod repositories;
+
 use sqlx::PgPool;
 use thiserror::Error;
+
+pub use repositories::*;
 
 pub type StorageResult<T> = Result<T, StorageError>;
 
