@@ -10,3 +10,4 @@ serde.workspace = true
 thiserror.workspace = true
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1.10"
+fastembed = "=4.9.1"
