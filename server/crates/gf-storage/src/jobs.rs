@@ -122,7 +122,7 @@ pub async fn complete_index_job(pool: &PgPool, id: Uuid, generation: i64) -> Sto
     let rows = sqlx::query(
         r#"
         UPDATE index_jobs
-        SET status='succeeded', generation=$2, finished_at=now(), updated_at=now(), error=NULL
+        SET status='succeeded', generation=$2, progress_percent=100, current_stage='completed', finished_at=now(), updated_at=now(), error=NULL
         WHERE id=$1 AND status='running'
         "#,
     )
