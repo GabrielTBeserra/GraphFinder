@@ -407,6 +407,8 @@ struct SourceResponse {
     config: serde_json::Value,
     created_at: String,
     updated_at: String,
+    last_indexed_commit: Option<String>,
+    indexing_status: String,
 }
 
 impl From<gf_storage::models::Source> for SourceResponse {
@@ -423,8 +425,36 @@ impl From<gf_storage::models::Source> for SourceResponse {
             config: source.config,
             created_at: source.created_at.to_rfc3339(),
             updated_at: source.updated_at.to_rfc3339(),
+            last_indexed_commit: None,
+            indexing_status: "never_indexed".into(),
         }
     }
+}
+
+async fn source_response(pool: &PgPool, source: gf_storage::models::Source) -> SourceResponse {
+    let source_id = source.id;
+    let mut response = SourceResponse::from(source);
+    if let Some((revisions, status)) = sqlx::query_as::<_, (serde_json::Value, String)>(
+        r#"
+        SELECT g.source_revisions,g.status
+        FROM projects p
+        JOIN index_generations g ON g.project_id=p.id AND g.generation=p.active_generation
+        WHERE p.id=$1
+        "#,
+    )
+    .bind(response.project_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    {
+        response.last_indexed_commit = revisions
+            .get(source_id.to_string())
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        response.indexing_status = status;
+    }
+    response
 }
 
 #[derive(Debug, Deserialize)]
@@ -481,11 +511,12 @@ async fn list_sources(
         .await?;
     let sources = gf_storage::list_sources(&pool, project_id)
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source lookup failed"))?
-        .into_iter()
-        .map(Into::into)
-        .collect();
-    Ok(axum::Json(sources))
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source lookup failed"))?;
+    let mut responses = Vec::new();
+    for source in sources {
+        responses.push(source_response(&pool, source).await);
+    }
+    Ok(axum::Json(responses))
 }
 
 async fn create_source(
@@ -518,7 +549,7 @@ async fn create_source(
     )
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source creation failed"))?;
-    Ok(axum::Json(source.into()))
+    Ok(axum::Json(source_response(&pool, source).await))
 }
 
 async fn get_source(
@@ -529,7 +560,7 @@ async fn get_source(
     let principal = require_principal(&pool, &headers).await?;
     let source =
         authorize_source_or_error(&pool, &principal, id, gf_storage::SCOPE_SEARCH_READ).await?;
-    Ok(axum::Json(source.into()))
+    Ok(axum::Json(source_response(&pool, source).await))
 }
 
 async fn update_source(
@@ -560,7 +591,7 @@ async fn update_source(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source update failed"))?
     .ok_or((StatusCode::NOT_FOUND, "source not found"))?;
-    Ok(axum::Json(updated.into()))
+    Ok(axum::Json(source_response(&pool, updated).await))
 }
 
 async fn delete_source(

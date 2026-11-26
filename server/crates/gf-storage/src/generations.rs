@@ -224,3 +224,29 @@ pub async fn delete_archived_generations_before(
     .rows_affected();
     Ok(rows)
 }
+
+pub async fn record_generation_source_revision(
+    pool: &PgPool,
+    project_id: Uuid,
+    generation: i64,
+    source_id: Uuid,
+    commit_sha: &str,
+) -> StorageResult<()> {
+    let mut revisions: serde_json::Value = sqlx::query_scalar(
+        "SELECT source_revisions FROM index_generations WHERE project_id=$1 AND generation=$2",
+    )
+    .bind(project_id)
+    .bind(generation)
+    .fetch_one(pool)
+    .await?;
+    revisions[source_id.to_string()] = serde_json::Value::String(commit_sha.to_string());
+    sqlx::query(
+        "UPDATE index_generations SET source_revisions=$3 WHERE project_id=$1 AND generation=$2",
+    )
+    .bind(project_id)
+    .bind(generation)
+    .bind(revisions)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

@@ -76,6 +76,8 @@ export type Source = {
   exclude_patterns: string[];
   created_at: string;
   updated_at: string;
+  last_indexed_commit?: string | null;
+  indexing_status: string;
 };
 
 export function createProject(token: string, input: { slug: string; name: string; description?: string | null }) {
@@ -102,4 +104,36 @@ export function createSource(token: string, projectId: string, input: {
 
 export function deleteSource(token: string, sourceId: string) {
   return request<void>(`/api/v1/sources/${sourceId}`, { method: 'DELETE' }, token);
+}
+
+export type IndexJob = {
+  id: string;
+  project_id: string;
+  source_id?: string | null;
+  generation?: number | null;
+  status: string;
+  priority: number;
+  attempts: number;
+  max_attempts: number;
+  error?: string | null;
+  progress_percent: number;
+  current_stage?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+};
+
+export function listIndexJobs(token: string, projectId: string) {
+  return request<IndexJob[]>(`/api/v1/projects/${projectId}/index-jobs`, {}, token);
+}
+
+export function createIndexJob(token: string, projectId: string, sourceId?: string) {
+  return request<IndexJob>(`/api/v1/projects/${projectId}/index-jobs`, {
+    method: 'POST',
+    body: JSON.stringify({ source_id: sourceId ?? null, priority: 0, max_attempts: 3, payload: { trigger: 'admin-panel' } }),
+  }, token);
+}
+
+export function cancelIndexJob(token: string, jobId: string) {
+  return request<void>(`/api/v1/index-jobs/${jobId}/cancel`, { method: 'POST' }, token);
 }

@@ -1,8 +1,12 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
+  cancelIndexJob,
+  createIndexJob,
   createProject,
   createSource,
   deleteSource,
+  IndexJob,
+  listIndexJobs,
   listProjects,
   listSources,
   loadSession,
@@ -185,7 +189,7 @@ function ProjectsManager({ session, projects, setProjects, status }: {
                 <article className="source-row" key={source.id}>
                   <div>
                     <strong>{source.uri}</strong>
-                    <span>branch {source.branch ?? 'default'} · include {source.include_patterns.length} · exclude {source.exclude_patterns.length}</span>
+                    <span>branch {source.branch ?? 'default'} · {source.indexing_status} · commit {source.last_indexed_commit ? source.last_indexed_commit.slice(0, 10) : 'not indexed'} · include {source.include_patterns.length} · exclude {source.exclude_patterns.length}</span>
                   </div>
                   <button className="danger-button" onClick={() => removeSource(source.id)}>Remove</button>
                 </article>
@@ -205,6 +209,114 @@ function ProjectsManager({ session, projects, setProjects, status }: {
         {message && <p className="operation-message">{message}</p>}
       </section>
     </div>
+  );
+}
+
+
+function JobsManager({ session, projects }: { session: Session; projects: Project[] }) {
+  const [projectId, setProjectId] = useState('');
+  const [sources, setSources] = useState<Source[]>([]);
+  const [sourceId, setSourceId] = useState('');
+  const [jobs, setJobs] = useState<IndexJob[]>([]);
+  const [message, setMessage] = useState('');
+  const project = projects.find((item) => item.id === projectId) ?? projects[0];
+
+  useEffect(() => {
+    if (!project) return;
+    setProjectId(project.id);
+    listSources(session.token, project.id).then((items) => {
+      setSources(items);
+      setSourceId((current) => current || items[0]?.id || '');
+    }).catch(() => setSources([]));
+  }, [session.token, project?.id]);
+
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const items = await listIndexJobs(session.token, project.id);
+        if (!cancelled) setJobs(items);
+      } catch {
+        if (!cancelled) setMessage('job polling failed');
+      }
+    }
+    load();
+    const interval = window.setInterval(load, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [session.token, project?.id]);
+
+  async function trigger(source?: string) {
+    if (!project) return;
+    try {
+      await createIndexJob(session.token, project.id, source);
+      setJobs(await listIndexJobs(session.token, project.id));
+      setMessage('index job enqueued');
+    } catch {
+      setMessage('failed to enqueue index job');
+    }
+  }
+
+  async function cancel(job: IndexJob) {
+    if (!project) return;
+    await cancelIndexJob(session.token, job.id).catch(() => undefined);
+    setJobs(await listIndexJobs(session.token, project.id).catch(() => jobs));
+  }
+
+  function duration(job: IndexJob) {
+    if (!job.started_at) return 'not started';
+    const end = job.finished_at ? Date.parse(job.finished_at) : Date.now();
+    return `${Math.max(0, Math.round((end - Date.parse(job.started_at)) / 1000))}s`;
+  }
+
+  if (!project) return <p className="empty-state">Create a project before monitoring jobs.</p>;
+
+  return (
+    <section>
+      <div className="panel-heading">
+        <h2>Index jobs · {project.slug}</h2>
+        <span>polling 5s</span>
+      </div>
+      <div className="job-toolbar">
+        <select value={project.id} onChange={(event) => setProjectId(event.target.value)}>
+          {projects.map((item) => <option key={item.id} value={item.id}>{item.slug}</option>)}
+        </select>
+        <select value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
+          {sources.map((source) => <option key={source.id} value={source.id}>{source.uri}</option>)}
+        </select>
+        <button onClick={() => trigger(sourceId || undefined)} disabled={!sourceId}>Trigger index</button>
+      </div>
+      <div className="job-list">
+        {jobs.map((job) => (
+          <article className="job-row" key={job.id}>
+            <div className="job-main">
+              <div className="job-title">
+                <strong>{job.status}</strong>
+                <code>{job.id.slice(0, 8)}</code>
+              </div>
+              <div className="progress-track"><span style={{ width: `${job.progress_percent}%` }} /></div>
+              <div className="job-meta">
+                <span>{job.current_stage ?? 'waiting'}</span>
+                <span>{job.progress_percent}%</span>
+                <span>attempt {job.attempts}/{job.max_attempts}</span>
+                <span>{duration(job)}</span>
+                {job.generation && <span>gen {job.generation}</span>}
+              </div>
+              {job.error && <p className="job-error">{job.error}</p>}
+            </div>
+            <div className="job-actions">
+              {(job.status === 'queued' || job.status === 'running') && <button onClick={() => cancel(job)}>Cancel</button>}
+              {(job.status === 'failed' || job.status === 'cancelled') && <button onClick={() => trigger(job.source_id ?? undefined)}>Retry</button>}
+            </div>
+          </article>
+        ))}
+        {jobs.length === 0 && <p className="empty-state">No indexing jobs for this project.</p>}
+      </div>
+      {message && <p className="operation-message">{message}</p>}
+    </section>
   );
 }
 
@@ -271,7 +383,9 @@ function App() {
           ))}
         </section>
         <section className="content-panel">
-          {active === 'Projects' || active === 'Overview' || active === 'Sources' ? (
+          {active === 'Index jobs' ? (
+            <JobsManager session={session} projects={projects} />
+          ) : active === 'Projects' || active === 'Overview' || active === 'Sources' ? (
             <ProjectsManager session={session} projects={projects} setProjects={setProjects} status={status} />
           ) : (
             <div className="empty-state large">{active} module scaffolded. Data wiring arrives in the next implementation step.</div>

@@ -116,6 +116,14 @@ async fn process_source(
         embedder,
     )
     .await?;
+    gf_storage::record_generation_source_revision(
+        pool,
+        job.project_id,
+        report.generation,
+        source.id,
+        &checkout.commit_sha,
+    )
+    .await?;
     update_index_job_progress(pool, job.id, 95, "published_generation").await?;
     Ok(report.generation)
 }

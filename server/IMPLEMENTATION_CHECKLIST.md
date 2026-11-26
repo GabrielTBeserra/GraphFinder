@@ -536,7 +536,7 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 - [x] Listar projetos.
 - [x] Criar/editar projeto.
 - [x] Adicionar fonte Git com validação básica.
-- [ ] Exibir último commit, status e geração ativa.
+- [x] Exibir último commit, status e geração ativa.
 - [ ] Commit sugerido:
   ```text
   feat(server-admin): add project and git source management
