@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>GraphFinder — Grafo de Conhecimento Local-First e Servidor MCP para Agentes de IA</title>
-  <meta name="description" content="GraphFinder transforma vaults Markdown e bases de código em um grafo de conhecimento com indexação semântica. Busca híbrida vetorial + BM25, indexação AST de código, análise de grafos e servidor MCP nativo com 26 ferramentas. 100% local." />
+  <meta name="description" content="GraphFinder transforma vaults Markdown e bases de código em um grafo de conhecimento com indexação semântica. Busca híbrida vetorial + BM25, indexação AST de código, análise de grafos e acesso MCP nativo. Desktop local-first ou servidor privado de equipe." />
   <meta name="theme-color" content="#07080b" />
   <link rel="canonical" href="https://graphfinder.gteles.dev/pt/" />
   <link rel="alternate" hreflang="en" href="https://graphfinder.gteles.dev/" />
@@ -86,7 +86,7 @@ $ graphfinder search "como a autenticação é tratada?"</pre>
     </div>
 
     <div class="stats">
-      <div class="stat"><b>24</b><span>ferramentas MCP</span></div>
+      <div class="stat"><b>19+</b><span>ferramentas MCP</span></div>
       <div class="stat"><b>20+</b><span>linguagens indexadas</span></div>
       <div class="stat"><b>~50</b><span>tokens por consulta</span></div>
       <div class="stat"><b>0</b><span>chamadas à nuvem / API keys</span></div>
@@ -100,7 +100,7 @@ $ graphfinder search "como a autenticação é tratada?"</pre>
     <div class="section-head reveal">
       <span class="kicker">Recursos</span>
       <h2 id="features-title">Um motor para notas, código e agentes.</h2>
-      <p>Tudo roda na sua máquina: um núcleo em Rust com modelo ONNX embarcado, SQLite com FTS5, uma interface de grafo force-directed e um servidor MCP com o qual qualquer editor de IA conversa.</p>
+      <p>O GraphFinder tem dois formatos self-hosted: um núcleo desktop local-first com ONNX embarcado e SQLite FTS5, e um servidor privado de equipe com PostgreSQL/pgvector, workers de indexação e MCP autenticado por token.</p>
     </div>
 
     <div class="bento">
@@ -112,8 +112,8 @@ $ graphfinder search "como a autenticação é tratada?"</pre>
       </article>
       <article class="card span-2 reveal">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/><circle cx="12" cy="12" r="3"/></svg></div>
-        <h3>100% local</h3>
-        <p>Sem API keys, sem telemetria. Seu Markdown continua como arquivos simples no disco.</p>
+        <h3>100% self-hosted</h3>
+        <p>Sem API keys, sem telemetria. Rode no seu laptop ou dentro da infraestrutura do seu próprio servidor privado.</p>
       </article>
       <article class="card span-2 reveal">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="9" cy="18" r="2.5"/><path d="M8.2 7.2 15.7 7.7M7 8.4l1.4 7.2M16.4 10l-5.6 6.4"/></svg></div>
@@ -138,7 +138,7 @@ $ graphfinder search "como a autenticação é tratada?"</pre>
       <article class="card span-3 reveal">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg></div>
         <h3>Servidor MCP nativo</h3>
-        <p>26 ferramentas, prompts e resources via Streamable HTTP/SSE (<code>127.0.0.1:45123</code>) com o app aberto, ou stdio headless com <code>graphfinder mcp</code>. Funciona com Cursor, Claude Desktop, Antigravity, Windsurf, Cline, Roo Code e Zed.</p>
+        <p>Ferramentas, prompts e resources MCP via HTTP/SSE local ou stdio headless no desktop — e via HTTP remoto autenticado no modo servidor privado. Funciona com Cursor, Claude Desktop, Antigravity, Windsurf, Cline, Roo Code e Zed.</p>
       </article>
       <article class="card span-3 reveal">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg></div>
@@ -193,13 +193,14 @@ $ graphfinder search "como a autenticação é tratada?"</pre>
           <li><a href="#analytics">Análise de grafos</a></li>
           <li><a href="#cli">Referência da CLI</a></li>
           <li><a href="#mcp">Configurando o MCP</a></li>
-          <li><a href="#tools">Ferramentas MCP (24)</a></li>
+          <li><a href="#tools">Ferramentas MCP</a></li>
           <li><a href="#agents">Agentes de IA e skills</a></li>
           <li><a href="#projects">Projetos e vaults</a></li>
           <li><a href="#config">Configuração</a></li>
           <li><a href="#architecture">Arquitetura</a></li>
           <li><a href="#security">Segurança</a></li>
           <li><a href="#development">Desenvolvimento</a></li>
+          <li><a href="#server">Servidor privado</a></li>
           <li><a href="#faq">Problemas e FAQ</a></li>
           <li><a href="#changelog">Changelog</a></li>
         </ol>
@@ -290,7 +291,7 @@ npm run tauri build</pre></div>
             <li><strong>Crie ou abra um projeto</strong>Use o seletor de projetos na barra superior → <em>Novo projeto</em>, dê um nome e, opcionalmente, escolha uma pasta existente (de notas ou um repositório de código).</li>
             <li><strong>Escreva uma nota</strong>Crie uma nota começando com <code># Título</code>, um resumo curto e depois seções <code>##</code>. Conecte conceitos com <code>[[Outra Nota]]</code> e termine com tags como <code>#arquitetura</code>. Salve com <kbd>Ctrl</kbd>+<kbd>S</kbd>.</li>
             <li><strong>Pesquise</strong>Pressione <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> para abrir o Omnisearch — busca semântica híbrida em notas e símbolos de código.</li>
-            <li><strong>Conecte seu editor de IA</strong>Rode <code>graphfinder config --install</code> ou copie um snippet do modal MCP no app. Seu agente passa a ter 26 ferramentas do GraphFinder.</li>
+            <li><strong>Conecte seu editor de IA</strong>Rode <code>graphfinder config --install</code> ou copie um snippet do modal MCP no app. Seu agente passa a ter as ferramentas MCP do GraphFinder disponíveis naquele modo.</li>
           </ol>
           <p>Prefere o terminal? O mesmo fluxo, sem interface:</p>
           <div class="code"><div class="code-bar">bash</div>
@@ -572,7 +573,7 @@ graphfinder config --json      # apenas imprime o snippet JSON</pre></div>
 
         <!-- 11. FERRAMENTAS -->
         <section id="tools">
-          <h2><span class="idx">11</span>Ferramentas MCP (24)<a class="anchor" href="#tools" aria-label="Link para Ferramentas MCP">#</a></h2>
+          <h2><span class="idx">11</span>Ferramentas MCP<a class="anchor" href="#tools" aria-label="Link para Ferramentas MCP">#</a></h2>
           <p>Todas as ferramentas aceitam o parâmetro opcional <code>project</code> para mirar um vault específico sem contaminação entre projetos. Parâmetros tracejados são opcionais.</p>
 
           <p class="tool-group">Recuperação de conhecimento</p>
@@ -777,7 +778,8 @@ graphfinder sync</pre></div>
         <section id="security">
           <h2><span class="idx">16</span>Segurança<a class="anchor" href="#security" aria-label="Link para Segurança">#</a></h2>
           <ul>
-            <li><strong>Somente loopback</strong> — o servidor MCP HTTP escuta apenas em <code>127.0.0.1</code>.</li>
+            <li><strong>Desktop somente loopback</strong> — o servidor MCP HTTP do desktop escuta apenas em <code>127.0.0.1</code>.</li>
+            <li><strong>Autorização no servidor privado</strong> — o acesso MCP remoto exige Bearer tokens individuais com restrições de projeto e escopo.</li>
             <li><strong>Defesa contra DNS rebinding</strong> — o cabeçalho <code>Host</code> é validado em cada requisição.</li>
             <li><strong>Validação de Origin</strong> — middleware estrito em vez de CORS permissivo.</li>
             <li><strong>Content Security Policy</strong> — aplicada no <code>tauri.conf.json</code>.</li>
@@ -811,11 +813,102 @@ git push origin v0.11.0</pre></div>
           <p>Relatos de bugs, sugestões, documentação e PRs são bem-vindos. Leia o <a href="https://github.com/GabrielTBeserra/GraphFinder/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">CONTRIBUTING.md</a> e o <a href="https://github.com/GabrielTBeserra/GraphFinder/blob/main/CODE_OF_CONDUCT.md" target="_blank" rel="noopener">Código de Conduta</a>.</p>
         </section>
 
-        <!-- 18. FAQ -->
+        <!-- 18. SERVIDOR PRIVADO -->
+        <section id="server">
+          <h2><span class="idx">18</span>Servidor privado<a class="anchor" href="#server" aria-label="Link para Servidor privado">#</a></h2>
+          <p class="lead-p">Além do aplicativo desktop local-first, o GraphFinder agora possui um modo de <strong>servidor privado</strong> para centralizar projetos de uma equipe. Ele mantém o mesmo princípio de recuperação cirúrgica para agentes, mas usa PostgreSQL/pgvector, filas de indexação e tokens individuais de acesso.</p>
+          <p>O modelo mental muda de “cada pessoa indexa sua própria pasta” para:</p>
+          <div class="code"><div class="code-bar">fluxo</div>
+<pre data-lang="text">projetos centralizados
+  └─ fontes Git / vault gerenciado
+      └─ jobs de indexação
+          └─ gerações publicadas atomicamente
+              └─ busca + grafo + MCP autorizados pelo token do usuário</pre></div>
+
+          <h3>Serviços do deployment</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Serviço</th><th>Responsabilidade</th></tr></thead>
+            <tbody>
+              <tr><td><strong>PostgreSQL + pgvector</strong></td><td>Metadados, usuários, sessões, tokens, jobs, chunks, embeddings e gerações de índice.</td></tr>
+              <tr><td><strong>api</strong></td><td>REST administrativo, busca e endpoint MCP em <code>/mcp</code>.</td></tr>
+              <tr><td><strong>worker</strong></td><td>Clona/atualiza repositórios, executa parsing, embeddings, chunks e publicação de gerações.</td></tr>
+              <tr><td><strong>admin</strong></td><td>Painel web para projetos, fontes, jobs, busca, tokens e usuários.</td></tr>
+              <tr><td><strong>proxy</strong></td><td>Caddy na borda, encaminhando painel e API. Em produção deve terminar TLS ou ficar atrás de outro proxy seguro.</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3>Fluxo diário no painel</h3>
+          <ol>
+            <li><strong>Entrar no painel</strong> — o login é apenas usuário e senha. Tenant não aparece na UX; ele continua apenas como conceito interno de isolamento e auditoria.</li>
+            <li><strong>Criar um projeto</strong> — por exemplo <code>meu-produto</code>.</li>
+            <li><strong>Cadastrar uma fonte Git</strong> — URL HTTPS e branch (<code>main</code>, <code>master</code> ou outra branch rastreada).</li>
+            <li><strong>Disparar indexação</strong> — em <em>Index jobs</em>. A tela atualiza progresso aproximadamente a cada segundo.</li>
+            <li><strong>Testar no Search lab</strong> — valide busca híbrida, lexical e vetorial antes de distribuir tokens.</li>
+            <li><strong>Criar um token por pessoa</strong> — em <em>Access → API tokens</em>. Prefira readonly por padrão.</li>
+            <li><strong>Configurar o cliente MCP</strong> — cada pessoa usa seu próprio Bearer token; permissões e projetos visíveis derivam dele.</li>
+          </ol>
+
+          <h3>Configuração MCP do servidor</h3>
+          <p>O endpoint remoto usa HTTP Streamable em <code>/mcp</code> e exige Bearer token:</p>
+          <div class="code"><div class="code-bar">mcp_config.json</div>
+<pre data-lang="json">{
+  "mcpServers": {
+    "graphfinder": {
+      "url": "http://SEU-SERVIDOR:18083/mcp",
+      "headers": {
+        "Authorization": "Bearer SEU_TOKEN"
+      }
+    }
+  }
+}</pre></div>
+          <p>Se o servidor estiver atrás de HTTPS, use a origem HTTPS no lugar da porta HTTP interna. Não publique esse endpoint na internet sem TLS, proxy reverso e política de tokens.</p>
+
+          <h3>Escopos de token</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Escopo</th><th>Permite</th></tr></thead>
+            <tbody>
+              <tr><td><code>search:read</code></td><td>Listar projetos autorizados, buscar notas/conteúdo, consultar grafo e status de jobs.</td></tr>
+              <tr><td><code>code:read</code></td><td>Buscar código, ler símbolos, dependências e contexto de arquivos.</td></tr>
+              <tr><td><code>index:trigger</code></td><td>Enfileirar reindexação de projetos/fontes autorizados.</td></tr>
+              <tr><td><code>vault:write</code></td><td>Criar ou atualizar notas no vault gerenciado.</td></tr>
+              <tr><td><code>vault:delete</code></td><td>Excluir notas do vault gerenciado.</td></tr>
+            </tbody>
+          </table></div>
+          <p>Um token readonly típico usa <code>search:read,code:read</code>. Um agente operacional pode receber também <code>index:trigger</code>. Um token pode ser restrito a um projeto específico; revogar o token encerra o acesso imediatamente.</p>
+
+          <h3>Ferramentas MCP atualmente expostas pelo servidor</h3>
+          <p>O servidor privado expõe 19 ferramentas, incluindo <code>list_projects</code>, <code>search_semantic</code>, <code>search_code</code>, <code>find_files</code>, <code>get_file_context</code>, <code>read_code_chunk</code>, <code>get_compressed_context</code>, <code>get_code_dependencies</code>, <code>get_graph_neighborhood</code>, <code>find_path</code>, <code>explain_node</code>, <code>trigger_index</code>, <code>get_index_status</code> e ferramentas de vault gerenciado.</p>
+          <div class="code"><div class="code-bar">pipeline recomendado</div>
+<pre data-lang="text">list_projects
+  → search_semantic ou search_code
+  → get_file_context
+  → read_code_chunk
+  → get_code_dependencies / find_path quando analisar impacto</pre></div>
+
+          <h3>Gerações e rollback</h3>
+          <p>Cada indexação cria uma nova geração. A publicação é atômica: o projeto continua servindo a geração ativa anterior enquanto a nova é construída. Quando o job termina com sucesso, a nova geração entra no ar com progresso final <code>100%</code>. Em caso de regressão, uma geração anterior pode ser restaurada pelo painel/API com confirmação explícita.</p>
+
+          <h3>Linguagens e limites do parser no servidor</h3>
+          <p>O parser AST-lite do servidor atualmente extrai símbolos e imports melhor em <strong>Rust, TypeScript/JavaScript, Python e Go</strong>. Repositórios em outras linguagens ainda podem ser indexados como texto/documentos, mas o grafo de símbolos/dependências pode ficar incompleto. Para TypeScript moderno, imports relativos como <code>./modulo.js</code> são resolvidos para arquivos <code>.ts</code>/<code>.tsx</code> indexados.</p>
+
+          <h3>Operação e segurança</h3>
+          <ul>
+            <li>Use PostgreSQL com volume persistente e backups; ele é o estado principal do servidor.</li>
+            <li>A primeira indexação pode demorar porque o modelo ONNX de embeddings precisa ser baixado para o cache.</li>
+            <li>Mantenha o painel em rede privada, VPN/Tailscale ou HTTPS com proxy reverso.</li>
+            <li>Login por senha possui rate limiting persistido no PostgreSQL; OIDC/SSO pode ser configurado por variáveis de ambiente.</li>
+            <li>Crie um token por pessoa/agente, com o menor escopo necessário e restrição de projeto quando aplicável.</li>
+            <li>Não compartilhe tokens em repositórios, tickets ou documentos públicos.</li>
+          </ul>
+        </section>
+
+        <!-- 19. FAQ -->
         <section id="faq">
-          <h2><span class="idx">18</span>Problemas e FAQ<a class="anchor" href="#faq" aria-label="Link para FAQ">#</a></h2>
+          <h2><span class="idx">19</span>Problemas e FAQ<a class="anchor" href="#faq" aria-label="Link para FAQ">#</a></h2>
           <h4>Meu agente não conecta em <code>127.0.0.1:45123</code>.</h4>
           <p>O endpoint HTTP/SSE só existe enquanto o app desktop está aberto. Abra o app ou mude o cliente para o modo stdio (<code>"command": "graphfinder", "args": ["--mcp"]</code>). Se alterou <code>GRAPHFINDER_MCP_PORT</code>, atualize a URL.</p>
+          <h4>O MCP do servidor retorna <code>insufficient project scope</code>.</h4>
+          <p>Isso é um erro de autorização da ferramenta, não uma queda de conexão. O token não tem o escopo exigido (por exemplo <code>index:trigger</code>) ou está restrito a outro projeto. Crie ou atualize o token da pessoa em <em>Access → API tokens</em>.</p>
           <h4><code>graphfinder</code> não é reconhecido no terminal.</h4>
           <p>Rode <code>GraphFinder.exe install-cli</code> (ou <code>graphfinder config --install</code>) e abra um novo terminal para carregar o PATH atualizado.</p>
           <h4>Os resultados são ruins para português / outros idiomas.</h4>
@@ -825,12 +918,12 @@ git push origin v0.11.0</pre></div>
           <h4>Alguns arquivos não aparecem no grafo de código.</h4>
           <p>Verifique se estão no <code>.gitignore</code>, se são binários, se passam de 1 MB ou se têm extensão não suportada. Rode <code>graphfinder sync</code> para forçar uma atualização incremental.</p>
           <h4>Algum dado sai da minha máquina?</h4>
-          <p>Não. Embeddings, busca e análises rodam localmente. O único acesso à rede é o download único do modelo (e este site consultando a release mais recente no GitHub).</p>
+          <p>No modo desktop, embeddings, busca e análises rodam localmente; o único acesso à rede é o download único do modelo. No modo servidor privado, indexação e embeddings rodam no seu servidor self-hosted, não em uma nuvem de terceiros.</p>
         </section>
 
-        <!-- 19. CHANGELOG -->
+        <!-- 20. CHANGELOG -->
         <section id="changelog">
-          <h2><span class="idx">19</span>Changelog<a class="anchor" href="#changelog" aria-label="Link para Changelog">#</a></h2>
+          <h2><span class="idx">20</span>Changelog<a class="anchor" href="#changelog" aria-label="Link para Changelog">#</a></h2>
           <p>Histórico completo no <a href="https://github.com/GabrielTBeserra/GraphFinder/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md</a> e na <a href="https://github.com/GabrielTBeserra/GraphFinder/releases" target="_blank" rel="noopener">página de Releases</a>.</p>
           <div class="timeline">
             <div class="release current">
