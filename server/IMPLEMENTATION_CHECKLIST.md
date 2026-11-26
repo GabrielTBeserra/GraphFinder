@@ -152,16 +152,16 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 5 — grafo interno
 
-- [ ] Criar representação de nós e links para notas, arquivos e símbolos.
-- [ ] Implementar adjacências para wikilinks e imports.
-- [ ] Implementar consultas básicas de neighborhood/path em memória ou via storage.
+- [x] Criar representação de nós e links para notas, arquivos e símbolos.
+- [x] Implementar adjacências para wikilinks e imports.
+- [x] Implementar consultas básicas de neighborhood/path em memória ou via storage.
 - [ ] Commit sugerido:
   ```text
   feat(server-core): implement graph model
   ```
 
 **Critério de aceite**
-- [ ] É possível construir grafo de fixture e encontrar caminho simples entre dois nós.
+- [x] É possível construir grafo de fixture e encontrar caminho simples entre dois nós.
 
 #### Commit 6 — embeddings
 
