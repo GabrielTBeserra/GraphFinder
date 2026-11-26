@@ -930,6 +930,81 @@ fn resolve_reference(
         .map(|document| document.path.clone())
 }
 
+fn module_specifier(import: &str) -> &str {
+    let import = import.trim();
+    if let Some(start) = import.find(['\'', '"']) {
+        let quote = import.as_bytes()[start] as char;
+        let rest = &import[start + 1..];
+        if let Some(end) = rest.find(quote) {
+            return &rest[..end];
+        }
+    }
+    import
+}
+
+fn normalize_relative_path(base_path: &str, reference: &str) -> String {
+    let mut segments = base_path
+        .rsplit_once('/')
+        .map(|(directory, _)| directory)
+        .unwrap_or("")
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    for segment in reference.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            segment => segments.push(segment.to_string()),
+        }
+    }
+    segments.join("/")
+}
+
+fn module_path_candidates(path: &str) -> Vec<String> {
+    let mut candidates = vec![path.to_string()];
+    if let Some(stem) = path.strip_suffix(".js") {
+        candidates.push(format!("{stem}.ts"));
+        candidates.push(format!("{stem}.tsx"));
+        candidates.push(format!("{stem}.jsx"));
+    }
+    if path
+        .rsplit('/')
+        .next()
+        .is_some_and(|name| !name.contains('.'))
+    {
+        for extension in ["ts", "tsx", "js", "jsx", "rs", "py", "go"] {
+            candidates.push(format!("{path}.{extension}"));
+        }
+        for extension in ["ts", "tsx", "js", "jsx"] {
+            candidates.push(format!("{path}/index.{extension}"));
+        }
+    }
+    candidates
+}
+
+fn resolve_import_reference(
+    documents: &[gf_storage::models::Document],
+    source_path: &str,
+    import: &str,
+) -> Option<String> {
+    let reference = module_specifier(import);
+    if reference.starts_with("./") || reference.starts_with("../") {
+        let normalized = normalize_relative_path(source_path, reference);
+        return module_path_candidates(&normalized)
+            .iter()
+            .find_map(|candidate| {
+                documents
+                    .iter()
+                    .find(|document| document.path == *candidate)
+                    .map(|document| document.path.clone())
+            });
+    }
+    resolve_reference(documents, reference)
+}
+
 fn infer_document_edges(documents: &[gf_storage::models::Document]) -> Vec<DocumentEdge> {
     let mut seen = HashSet::new();
     let mut edges = Vec::new();
@@ -949,7 +1024,7 @@ fn infer_document_edges(documents: &[gf_storage::models::Document]) -> Vec<Docum
             }
         }
         for import in metadata_strings(&document.metadata, "imports") {
-            if let Some(target) = resolve_reference(documents, &import) {
+            if let Some(target) = resolve_import_reference(documents, &document.path, &import) {
                 if target != document.path {
                     let edge = DocumentEdge {
                         source: document.path.clone(),
@@ -1036,11 +1111,11 @@ async fn tool_get_code_dependencies(
     let imports = metadata_strings(&document.metadata, "imports");
     let internal = imports
         .iter()
-        .filter_map(|import| resolve_reference(&documents, import))
+        .filter_map(|import| resolve_import_reference(&documents, &document.path, import))
         .collect::<Vec<_>>();
     let external = imports
         .iter()
-        .filter(|import| resolve_reference(&documents, import).is_none())
+        .filter(|import| resolve_import_reference(&documents, &document.path, import).is_none())
         .cloned()
         .collect::<Vec<_>>();
     let dependents = edges
@@ -1383,4 +1458,59 @@ async fn tool_get_index_status(
         "jobs": jobs.iter().take(20).map(job_json).collect::<Vec<_>>(),
         "count": jobs.len().min(20)
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn document(path: &str, metadata: Value) -> gf_storage::models::Document {
+        gf_storage::models::Document {
+            id: uuid::Uuid::new_v4(),
+            project_id: uuid::Uuid::new_v4(),
+            generation: 1,
+            source_id: None,
+            path: path.to_string(),
+            document_type: "code".into(),
+            language: Some("typescript".into()),
+            title: None,
+            content_hash: path.into(),
+            size_bytes: 1,
+            metadata,
+            revision: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn resolves_typescript_js_specifier_to_source_file() {
+        let app = document(
+            "server/src/app.ts",
+            json!({"imports": ["import { RealtimeBus } from \"./realtime.js\""]}),
+        );
+        let realtime = document("server/src/realtime.ts", json!({}));
+        let documents = vec![app, realtime];
+        assert_eq!(
+            resolve_import_reference(
+                &documents,
+                "server/src/app.ts",
+                "import { RealtimeBus } from \"./realtime.js\""
+            ),
+            Some("server/src/realtime.ts".to_string())
+        );
+        let edges = infer_document_edges(&documents);
+        assert!(edges.iter().any(|edge| edge.source == "server/src/app.ts"
+            && edge.target == "server/src/realtime.ts"
+            && edge.kind == "import"));
+    }
+
+    #[test]
+    fn normalizes_parent_relative_imports() {
+        assert_eq!(
+            normalize_relative_path("server/src/routes/app.ts", "../shared/config.js"),
+            "server/src/shared/config.js"
+        );
+    }
 }

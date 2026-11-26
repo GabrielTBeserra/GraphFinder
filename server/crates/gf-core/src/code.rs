@@ -4,6 +4,8 @@
 //! without executing or compiling the target repository.
 
 use crate::markdown::content_hash;
+use regex::Regex;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeSymbol {
@@ -34,14 +36,21 @@ pub fn detect_language(path: &str) -> Option<&'static str> {
 
 pub fn parse_code(path: &str, content: &str) -> Option<ParsedCode> {
     let language = detect_language(path)?.to_string();
-    let mut imports = Vec::new();
+    let is_js_like = matches!(language.as_str(), "typescript" | "javascript");
+    let mut imports = if is_js_like {
+        parse_js_module_imports(content)
+    } else {
+        Vec::new()
+    };
     let mut symbols = Vec::new();
 
     for (index, line) in content.lines().enumerate() {
         let line_no = index + 1;
         let trimmed = line.trim();
-        if let Some(import) = parse_import(&language, trimmed) {
-            imports.push(import);
+        if !is_js_like {
+            if let Some(import) = parse_import(&language, trimmed) {
+                imports.push(import);
+            }
         }
         if let Some((kind, name)) = parse_symbol(&language, trimmed) {
             symbols.push(CodeSymbol {
@@ -70,14 +79,34 @@ pub fn parse_code(path: &str, content: &str) -> Option<ParsedCode> {
     })
 }
 
+fn js_import_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        Regex::new(r#"(?m)^\s*import\s+(?:type\s+)?(?:[^;]*?\sfrom\s*)?["']([^"']+)["']"#)
+            .expect("valid javascript import regex")
+    })
+}
+
+fn js_require_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        Regex::new(r#"require\(\s*["']([^"']+)["']\s*\)"#).expect("valid javascript require regex")
+    })
+}
+
+fn parse_js_module_imports(content: &str) -> Vec<String> {
+    js_import_pattern()
+        .captures_iter(content)
+        .chain(js_require_pattern().captures_iter(content))
+        .filter_map(|capture| capture.get(1).map(|module| module.as_str().to_string()))
+        .collect()
+}
+
 fn parse_import(language: &str, line: &str) -> Option<String> {
     match language {
         "rust" => line
             .strip_prefix("use ")
             .map(|v| v.trim_end_matches(';').trim().to_string()),
-        "typescript" | "javascript" if line.starts_with("import ") => {
-            Some(line.trim_end_matches(';').to_string())
-        }
         "python" if line.starts_with("import ") || line.starts_with("from ") => {
             Some(line.to_string())
         }
@@ -198,7 +227,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed.language, "typescript");
-        assert_eq!(parsed.imports.len(), 2);
+        assert_eq!(parsed.imports, vec!["./config", "node:fs/promises"]);
         assert!(parsed
             .symbols
             .iter()
@@ -208,6 +237,30 @@ mod tests {
             .iter()
             .any(|s| s.name == "scanRepository" && s.kind == "function"));
         assert!(parsed.symbols.iter().any(|s| s.name == "helper"));
+    }
+
+    #[test]
+    fn parses_multiline_typescript_import_specifiers() {
+        let parsed = parse_code(
+            "sample.ts",
+            r#"
+import Fastify, {
+  type FastifyReply,
+  type FastifyRequest,
+} from "fastify";
+import { helper } from './helper.js';
+import "./side-effect";
+const legacy = require("legacy-package");
+"#,
+        )
+        .unwrap();
+        for expected in ["fastify", "./helper.js", "./side-effect", "legacy-package"] {
+            assert!(parsed.imports.iter().any(|import| import == expected));
+        }
+        assert!(!parsed
+            .imports
+            .iter()
+            .any(|import| import.contains("import ")));
     }
 
     #[test]

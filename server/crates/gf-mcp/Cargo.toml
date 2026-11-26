@@ -13,3 +13,6 @@ serde_json.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
