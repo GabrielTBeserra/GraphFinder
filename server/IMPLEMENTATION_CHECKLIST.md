@@ -606,15 +606,15 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 35 — Dockerfile do painel
 
-- [ ] Criar build multi-stage do frontend.
-- [ ] Servir assets estaticamente via imagem leve ou pelo proxy.
+- [x] Criar build multi-stage do frontend.
+- [x] Servir assets estaticamente via imagem leve ou pelo proxy.
 - [ ] Commit sugerido:
   ```text
   build(server): add admin web dockerfile
   ```
 
 **Critério de aceite**
-- [ ] Painel é servido sem depender de Node em runtime.
+- [x] Painel é servido sem depender de Node em runtime.
 
 #### Commit 36 — Docker Compose
 
