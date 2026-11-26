@@ -205,7 +205,7 @@ pub async fn handle_rpc(context: &McpContext<'_>, request: Value) -> Option<Valu
             let arguments = params.get("arguments").unwrap_or(&empty);
             match call_tool(context, name, arguments).await {
                 Ok(result) => Some(json_result(id, tool_success(result))),
-                Err(error) => Some(json_error(id, -32000, &error)),
+                Err(error) => Some(json_result(id, tool_error(&error))),
             }
         }
         "ping" => Some(json_result(id, json!({}))),
@@ -219,6 +219,13 @@ fn tool_success(value: Value) -> Value {
         "content": [{"type":"text","text":text}],
         "structuredContent": value,
         "isError": false
+    })
+}
+
+fn tool_error(error: &str) -> Value {
+    json!({
+        "content": [{"type":"text","text":error}],
+        "isError": true
     })
 }
 
