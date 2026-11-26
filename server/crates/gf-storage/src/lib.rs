@@ -10,6 +10,7 @@ pub mod rbac;
 pub mod repositories;
 pub mod search;
 pub mod vault;
+pub mod webhooks;
 
 use sqlx::PgPool;
 use thiserror::Error;
@@ -23,6 +24,7 @@ pub use rbac::*;
 pub use repositories::*;
 pub use search::*;
 pub use vault::*;
+pub use webhooks::*;
 
 pub type StorageResult<T> = Result<T, StorageError>;
 

@@ -734,9 +734,9 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 44 — webhooks Git
 
-- [ ] Implementar endpoint assinado para webhooks.
-- [ ] Validar assinatura por provider.
-- [ ] Criar job incremental após push.
+- [x] Implementar endpoint assinado para webhooks.
+- [x] Validar assinatura por provider.
+- [x] Criar job incremental após push.
 - [ ] Commit sugerido:
   ```text
   feat(server-indexer): add git webhook indexing

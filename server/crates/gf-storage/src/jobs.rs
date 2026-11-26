@@ -56,6 +56,28 @@ pub async fn enqueue_index_job(pool: &PgPool, job: NewIndexJob) -> StorageResult
     .await?)
 }
 
+pub async fn enqueue_source_index_job_if_idle(
+    pool: &PgPool,
+    job: NewIndexJob,
+) -> StorageResult<Option<IndexJob>> {
+    Ok(sqlx::query_as::<_, IndexJob>(
+        r#"
+        INSERT INTO index_jobs (project_id, source_id, priority, max_attempts, payload, created_by)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (source_id) WHERE status IN ('queued','running') DO NOTHING
+        RETURNING *
+        "#,
+    )
+    .bind(job.project_id)
+    .bind(job.source_id)
+    .bind(job.priority)
+    .bind(job.max_attempts)
+    .bind(job.payload)
+    .bind(job.created_by)
+    .fetch_optional(pool)
+    .await?)
+}
+
 pub async fn acquire_index_job(pool: &PgPool) -> StorageResult<Option<IndexJob>> {
     let mut tx = pool.begin().await?;
     let job = sqlx::query_as::<_, IndexJob>(

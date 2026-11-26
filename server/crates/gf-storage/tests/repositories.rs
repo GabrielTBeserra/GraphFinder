@@ -67,6 +67,7 @@ async fn project_source_document_and_chunk_crud_work() {
             include_patterns: vec!["docs/**".into()],
             exclude_patterns: vec!["node_modules/**".into()],
             config: json!({}),
+            auto_index_interval_seconds: None,
         },
     )
     .await

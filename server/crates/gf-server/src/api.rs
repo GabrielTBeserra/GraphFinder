@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
+use axum::body::Bytes;
 use axum::extract::Request;
 use axum::extract::State;
 use axum::http::{HeaderValue, StatusCode};
@@ -11,7 +12,9 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Extension, Router};
 use gf_core::EmbeddingProvider;
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
 
@@ -75,6 +78,13 @@ pub fn router(pool: PgPool, embedder: Arc<LazyEmbedder>) -> Router {
             get(get_source).patch(update_source).delete(delete_source),
         )
         .route(
+            "/api/v1/sources/{id}/webhook",
+            get(get_source_webhook_config)
+                .put(upsert_source_webhook_config)
+                .delete(delete_source_webhook_config),
+        )
+        .route("/api/v1/webhooks/{source_id}", post(receive_git_webhook))
+        .route(
             "/api/v1/projects/{id}/index-jobs",
             post(create_index_job).get(list_index_jobs),
         )
@@ -86,6 +96,7 @@ pub fn router(pool: PgPool, embedder: Arc<LazyEmbedder>) -> Router {
         )
         .route("/api/v1/search", post(search))
         .route("/mcp", post(mcp))
+        .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024))
         .layer(Extension(embedder))
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())
@@ -957,6 +968,412 @@ async fn delete_source(
     } else {
         Err((StatusCode::NOT_FOUND, "source not found"))
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct UpsertWebhookRequest {
+    provider: String,
+    secret: String,
+    enabled: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+struct WebhookConfigResponse {
+    source_id: uuid::Uuid,
+    project_id: uuid::Uuid,
+    provider: String,
+    enabled: bool,
+    endpoint_path: String,
+    last_delivery_at: Option<String>,
+    last_status: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+fn webhook_config_response(webhook: gf_storage::SourceWebhook) -> WebhookConfigResponse {
+    WebhookConfigResponse {
+        source_id: webhook.source_id,
+        project_id: webhook.project_id,
+        provider: webhook.provider,
+        enabled: webhook.enabled,
+        endpoint_path: format!("/api/v1/webhooks/{}", webhook.source_id),
+        last_delivery_at: webhook.last_delivery_at.map(|v| v.to_rfc3339()),
+        last_status: webhook.last_status,
+        created_at: webhook.created_at.to_rfc3339(),
+        updated_at: webhook.updated_at.to_rfc3339(),
+    }
+}
+
+fn validate_webhook_provider(provider: &str) -> Result<(), (StatusCode, &'static str)> {
+    match provider {
+        "github" | "gitlab" | "generic" => Ok(()),
+        _ => Err((StatusCode::BAD_REQUEST, "unsupported webhook provider")),
+    }
+}
+
+async fn upsert_source_webhook_config(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+    axum::Json(request): axum::Json<UpsertWebhookRequest>,
+) -> Result<axum::Json<WebhookConfigResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let source =
+        authorize_source_or_error(&pool, &principal, id, gf_storage::SCOPE_PROJECT_WRITE).await?;
+    if source.kind != "git" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "webhooks are only supported for git sources",
+        ));
+    }
+    validate_webhook_provider(&request.provider)?;
+    if request.secret.len() < 16 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "webhook secret must contain at least 16 characters",
+        ));
+    }
+    let webhook = gf_storage::upsert_source_webhook(
+        &pool,
+        source.id,
+        source.project_id,
+        &request.provider,
+        &request.secret,
+        request.enabled.unwrap_or(true),
+    )
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "webhook configuration failed",
+        )
+    })?;
+    audit(
+        &pool,
+        &principal,
+        Some(source.project_id),
+        "configure",
+        "source_webhook",
+        Some(source.id),
+        serde_json::json!({"provider":webhook.provider,"enabled":webhook.enabled}),
+    )
+    .await;
+    Ok(axum::Json(webhook_config_response(webhook)))
+}
+
+async fn get_source_webhook_config(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> Result<axum::Json<WebhookConfigResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_source_or_error(&pool, &principal, id, gf_storage::SCOPE_SEARCH_READ).await?;
+    let webhook = gf_storage::get_source_webhook(&pool, id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "webhook lookup failed"))?
+        .ok_or((StatusCode::NOT_FOUND, "webhook not configured"))?;
+    Ok(axum::Json(webhook_config_response(webhook)))
+}
+
+async fn delete_source_webhook_config(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> Result<StatusCode, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let source =
+        authorize_source_or_error(&pool, &principal, id, gf_storage::SCOPE_PROJECT_WRITE).await?;
+    let deleted = gf_storage::delete_source_webhook(&pool, id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "webhook deletion failed"))?;
+    if !deleted {
+        return Err((StatusCode::NOT_FOUND, "webhook not configured"));
+    }
+    audit(
+        &pool,
+        &principal,
+        Some(source.project_id),
+        "delete",
+        "source_webhook",
+        Some(source.id),
+        serde_json::json!({}),
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+type HmacSha256 = Hmac<Sha256>;
+
+fn decode_hex(value: &str) -> Option<Vec<u8>> {
+    if value.len() % 2 != 0 {
+        return None;
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(value.get(index..index + 2)?, 16).ok())
+        .collect()
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right.iter())
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
+}
+
+fn verify_hmac_signature(secret: &str, body: &[u8], header: Option<&str>) -> bool {
+    let Some(header) = header else {
+        return false;
+    };
+    let encoded = header.strip_prefix("sha256=").unwrap_or(header);
+    let Some(expected) = decode_hex(encoded) else {
+        return false;
+    };
+    let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
+        return false;
+    };
+    mac.update(body);
+    mac.verify_slice(&expected).is_ok()
+}
+
+fn validate_webhook_delivery(
+    provider: &str,
+    secret: &str,
+    headers: &axum::http::HeaderMap,
+    body: &[u8],
+) -> bool {
+    match provider {
+        "github" => verify_hmac_signature(
+            secret,
+            body,
+            headers
+                .get("x-hub-signature-256")
+                .and_then(|value| value.to_str().ok()),
+        ),
+        "gitlab" => {
+            let Some(token) = headers
+                .get("x-gitlab-token")
+                .and_then(|value| value.to_str().ok())
+            else {
+                return false;
+            };
+            constant_time_eq(token.as_bytes(), secret.as_bytes())
+        }
+        "generic" => verify_hmac_signature(
+            secret,
+            body,
+            headers
+                .get("x-graphfinder-signature")
+                .and_then(|value| value.to_str().ok()),
+        ),
+        _ => false,
+    }
+}
+
+fn normalize_repository_url(value: &str) -> String {
+    let trimmed = value.trim().trim_end_matches('/');
+    trimmed.strip_suffix(".git").unwrap_or(trimmed).to_string()
+}
+
+fn repository_urls(payload: &serde_json::Value) -> Vec<String> {
+    [
+        "/repository/clone_url",
+        "/repository/git_url",
+        "/repository/ssh_url",
+        "/repository/html_url",
+        "/project/git_http_url",
+        "/project/git_ssh_url",
+        "/project/web_url",
+        "/repository/url",
+    ]
+    .iter()
+    .filter_map(|pointer| payload.pointer(pointer)?.as_str().map(str::to_string))
+    .collect()
+}
+
+fn repository_matches(source_uri: &str, payload: &serde_json::Value) -> bool {
+    let urls = repository_urls(payload);
+    if urls.is_empty() {
+        return true;
+    }
+    let source = normalize_repository_url(source_uri);
+    let source_lower = source.to_ascii_lowercase();
+    urls.iter().any(|candidate| {
+        let candidate = normalize_repository_url(candidate);
+        candidate == source || candidate.to_ascii_lowercase() == source_lower
+    })
+}
+
+fn payload_branch(payload: &serde_json::Value) -> Option<String> {
+    let reference = payload.get("ref")?.as_str()?;
+    if let Some(branch) = reference.strip_prefix("refs/heads/") {
+        return Some(branch.to_string());
+    }
+    if reference.starts_with("refs/") {
+        return None;
+    }
+    Some(reference.to_string())
+}
+
+fn is_zero_revision(value: Option<&serde_json::Value>) -> bool {
+    value
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| !value.is_empty() && value.chars().all(|ch| ch == '0'))
+}
+
+#[derive(Debug, Serialize)]
+struct WebhookDeliveryResponse {
+    status: &'static str,
+    job_id: Option<uuid::Uuid>,
+    reason: Option<&'static str>,
+}
+
+async fn record_webhook_audit(
+    pool: &PgPool,
+    project_id: uuid::Uuid,
+    source_id: uuid::Uuid,
+    summary: serde_json::Value,
+) {
+    let tenant_id =
+        sqlx::query_scalar::<_, uuid::Uuid>("SELECT tenant_id FROM projects WHERE id=$1")
+            .bind(project_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    if let Some(tenant_id) = tenant_id {
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO audit_events (tenant_id,project_id,actor_user_id,api_token_id,action,resource_type,resource_id,summary)
+            VALUES ($1,$2,NULL,NULL,'webhook','source',$3,$4)
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(project_id)
+        .bind(source_id)
+        .bind(summary)
+        .execute(pool)
+        .await;
+    }
+}
+
+async fn receive_git_webhook(
+    State(pool): State<PgPool>,
+    axum::extract::Path(source_id): axum::extract::Path<uuid::Uuid>,
+    headers: axum::http::HeaderMap,
+    body: Bytes,
+) -> Result<axum::Json<WebhookDeliveryResponse>, (StatusCode, &'static str)> {
+    let webhook = gf_storage::get_source_webhook(&pool, source_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "webhook lookup failed"))?
+        .ok_or((StatusCode::NOT_FOUND, "webhook not configured"))?;
+    if !validate_webhook_delivery(&webhook.provider, &webhook.secret, &headers, &body) {
+        return Err((StatusCode::UNAUTHORIZED, "invalid webhook signature"));
+    }
+    if !webhook.enabled {
+        return Err((StatusCode::FORBIDDEN, "webhook is disabled"));
+    }
+    let source = gf_storage::get_source(&pool, source_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source lookup failed"))?
+        .ok_or((StatusCode::NOT_FOUND, "source not found"))?;
+    if source.kind != "git" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "webhooks are only supported for git sources",
+        ));
+    }
+    let payload: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid webhook payload"))?;
+
+    let Some(branch) = payload_branch(&payload) else {
+        let _ = gf_storage::record_source_webhook_delivery(&pool, source_id, "ignored").await;
+        return Ok(axum::Json(WebhookDeliveryResponse {
+            status: "ignored",
+            job_id: None,
+            reason: Some("not_a_branch_push"),
+        }));
+    };
+    if let Some(configured_branch) = source.branch.as_deref() {
+        if configured_branch != branch {
+            let _ = gf_storage::record_source_webhook_delivery(&pool, source_id, "ignored").await;
+            return Ok(axum::Json(WebhookDeliveryResponse {
+                status: "ignored",
+                job_id: None,
+                reason: Some("branch_mismatch"),
+            }));
+        }
+    }
+    if is_zero_revision(payload.get("after")) {
+        let _ = gf_storage::record_source_webhook_delivery(&pool, source_id, "ignored").await;
+        return Ok(axum::Json(WebhookDeliveryResponse {
+            status: "ignored",
+            job_id: None,
+            reason: Some("branch_deleted"),
+        }));
+    }
+    if !repository_matches(&source.uri, &payload) {
+        let _ = gf_storage::record_source_webhook_delivery(&pool, source_id, "rejected").await;
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "webhook repository does not match source",
+        ));
+    }
+
+    let job_payload = serde_json::json!({
+        "trigger": "webhook",
+        "incremental": true,
+        "provider": webhook.provider,
+        "ref": payload.get("ref").cloned().unwrap_or(serde_json::Value::Null),
+        "branch": branch,
+        "before": payload.get("before").cloned().unwrap_or(serde_json::Value::Null),
+        "after": payload.get("after").cloned().unwrap_or(serde_json::Value::Null),
+        "head_commit": payload.pointer("/head_commit/id").cloned().unwrap_or(serde_json::Value::Null)
+    });
+    let job = gf_storage::enqueue_source_index_job_if_idle(
+        &pool,
+        gf_storage::NewIndexJob {
+            project_id: source.project_id,
+            source_id: Some(source.id),
+            priority: 10,
+            max_attempts: 3,
+            payload: job_payload.clone(),
+            created_by: None,
+        },
+    )
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "webhook job enqueue failed",
+        )
+    })?;
+
+    let (status, job_id, reason) = if let Some(job) = job {
+        ("queued", Some(job.id), None)
+    } else {
+        ("duplicate", None, Some("source_already_has_active_job"))
+    };
+    let _ = gf_storage::record_source_webhook_delivery(&pool, source_id, status).await;
+    record_webhook_audit(
+        &pool,
+        source.project_id,
+        source.id,
+        serde_json::json!({
+            "status":status,
+            "job_id":job_id,
+            "payload":job_payload,
+        }),
+    )
+    .await;
+    Ok(axum::Json(WebhookDeliveryResponse {
+        status,
+        job_id,
+        reason,
+    }))
 }
 
 async fn request_id(mut request: Request, next: Next) -> Response {
