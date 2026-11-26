@@ -1,5 +1,6 @@
 //! PostgreSQL storage layer for GraphFinder Server.
 
+pub mod audit;
 pub mod auth;
 pub mod embeddings;
 pub mod generations;
@@ -13,6 +14,7 @@ pub mod vault;
 use sqlx::PgPool;
 use thiserror::Error;
 
+pub use audit::*;
 pub use auth::*;
 pub use embeddings::*;
 pub use generations::*;

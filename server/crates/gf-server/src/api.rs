@@ -53,6 +53,7 @@ pub fn router(pool: PgPool, embedder: Arc<LazyEmbedder>) -> Router {
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/tokens", get(list_tokens).post(create_token))
         .route("/api/v1/tokens/{id}", axum::routing::delete(revoke_token))
+        .route("/api/v1/audit-events", get(list_audit_events))
         .route("/api/v1/users", get(list_users).post(create_user))
         .route(
             "/api/v1/users/{id}/role",
@@ -208,6 +209,7 @@ async fn create_token(
     )
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "token creation failed"))?;
+    audit(&pool,&principal,None,"create","api_token",Some(created.id),serde_json::json!({"name":request.name,"scopes":created.expires_at.map(|v| v.to_rfc3339())})).await;
     Ok(axum::Json(CreateTokenResponse {
         id: created.id,
         token: created.token,
@@ -234,6 +236,16 @@ async fn revoke_token(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "token revocation failed"))?;
     if revoked {
+        audit(
+            &pool,
+            &principal,
+            None,
+            "revoke",
+            "api_token",
+            Some(id),
+            serde_json::json!({}),
+        )
+        .await;
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, "token not found"))
@@ -384,6 +396,16 @@ async fn create_user(
         .into_iter()
         .find(|user| user.id == user_id)
         .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "user lookup failed"))?;
+    audit(
+        &pool,
+        &principal,
+        None,
+        "upsert",
+        "user",
+        Some(user_id),
+        serde_json::json!({"email":request.email,"role":request.role}),
+    )
+    .await;
     Ok(axum::Json(TenantUserResponse::from(user)))
 }
 
@@ -414,7 +436,80 @@ async fn update_user_role(
                 "membership update failed",
             )
         })?;
+    audit(
+        &pool,
+        &principal,
+        None,
+        "update_role",
+        "user",
+        Some(id),
+        serde_json::json!({"role":request.role}),
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Serialize)]
+struct AuditEventResponse {
+    id: uuid::Uuid,
+    project_id: Option<uuid::Uuid>,
+    actor_user_id: Option<uuid::Uuid>,
+    api_token_id: Option<uuid::Uuid>,
+    action: String,
+    resource_type: String,
+    resource_id: Option<uuid::Uuid>,
+    summary: serde_json::Value,
+    created_at: String,
+}
+
+impl From<gf_storage::AuditEvent> for AuditEventResponse {
+    fn from(event: gf_storage::AuditEvent) -> Self {
+        Self {
+            id: event.id,
+            project_id: event.project_id,
+            actor_user_id: event.actor_user_id,
+            api_token_id: event.api_token_id,
+            action: event.action,
+            resource_type: event.resource_type,
+            resource_id: event.resource_id,
+            summary: event.summary,
+            created_at: event.created_at.to_rfc3339(),
+        }
+    }
+}
+
+async fn audit(
+    pool: &PgPool,
+    principal: &gf_storage::Principal,
+    project_id: Option<uuid::Uuid>,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<uuid::Uuid>,
+    summary: serde_json::Value,
+) {
+    let _ = gf_storage::record_audit_event(
+        pool,
+        principal,
+        project_id,
+        action,
+        resource_type,
+        resource_id,
+        summary,
+    )
+    .await;
+}
+
+async fn list_audit_events(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::Json<Vec<AuditEventResponse>>, (StatusCode, &'static str)> {
+    let principal = require_token_admin(&pool, &headers).await?;
+    let events = gf_storage::list_audit_events(&pool, principal.tenant_id, 100)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "audit lookup failed"))?;
+    Ok(axum::Json(
+        events.into_iter().map(AuditEventResponse::from).collect(),
+    ))
 }
 
 #[derive(Debug, Serialize)]
@@ -565,6 +660,16 @@ async fn update_project(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "project update failed"))?
     .ok_or((StatusCode::NOT_FOUND, "project not found"))?;
+    audit(
+        &pool,
+        &principal,
+        Some(id),
+        "update",
+        "project",
+        Some(id),
+        serde_json::json!({"name":project.name}),
+    )
+    .await;
     Ok(axum::Json(project.into()))
 }
 
@@ -579,6 +684,16 @@ async fn delete_project(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "project deletion failed"))?;
     if deleted {
+        audit(
+            &pool,
+            &principal,
+            Some(id),
+            "delete",
+            "project",
+            Some(id),
+            serde_json::json!({}),
+        )
+        .await;
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, "project not found"))
@@ -743,6 +858,16 @@ async fn create_source(
     )
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source creation failed"))?;
+    audit(
+        &pool,
+        &principal,
+        Some(project_id),
+        "create",
+        "source",
+        Some(source.id),
+        serde_json::json!({"kind":source.kind,"uri":source.uri}),
+    )
+    .await;
     Ok(axum::Json(source_response(&pool, source).await))
 }
 
@@ -785,6 +910,16 @@ async fn update_source(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source update failed"))?
     .ok_or((StatusCode::NOT_FOUND, "source not found"))?;
+    audit(
+        &pool,
+        &principal,
+        Some(updated.project_id),
+        "update",
+        "source",
+        Some(updated.id),
+        serde_json::json!({"uri":updated.uri}),
+    )
+    .await;
     Ok(axum::Json(source_response(&pool, updated).await))
 }
 
@@ -794,11 +929,22 @@ async fn delete_source(
     axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
 ) -> Result<StatusCode, (StatusCode, &'static str)> {
     let principal = require_principal(&pool, &headers).await?;
-    authorize_source_or_error(&pool, &principal, id, gf_storage::SCOPE_PROJECT_WRITE).await?;
+    let source =
+        authorize_source_or_error(&pool, &principal, id, gf_storage::SCOPE_PROJECT_WRITE).await?;
     let deleted = gf_storage::delete_source(&pool, id)
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source deletion failed"))?;
     if deleted {
+        audit(
+            &pool,
+            &principal,
+            Some(source.project_id),
+            "delete",
+            "source",
+            Some(id),
+            serde_json::json!({}),
+        )
+        .await;
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, "source not found"))
@@ -998,6 +1144,16 @@ async fn create_index_job(
     )
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job creation failed"))?;
+    audit(
+        &pool,
+        &principal,
+        Some(project_id),
+        "create",
+        "index_job",
+        Some(job.id),
+        serde_json::json!({"source_id":job.source_id,"priority":job.priority}),
+    )
+    .await;
     Ok(axum::Json(job.into()))
 }
 
@@ -1053,6 +1209,16 @@ async fn cancel_index_job(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job cancellation failed"))?;
     if cancelled {
+        audit(
+            &pool,
+            &principal,
+            None,
+            "cancel",
+            "index_job",
+            Some(id),
+            serde_json::json!({}),
+        )
+        .await;
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::CONFLICT, "job is not cancellable"))
@@ -1232,6 +1398,16 @@ async fn upsert_vault_document(
                 ),
             }
         })?;
+    audit(
+        &pool,
+        &principal,
+        Some(project_id),
+        "upsert",
+        "vault_document",
+        Some(document.id),
+        serde_json::json!({"path":document.path,"revision":document.revision}),
+    )
+    .await;
     Ok(axum::Json(VaultDocumentResponse::from(document)))
 }
 

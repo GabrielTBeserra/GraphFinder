@@ -709,15 +709,15 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 42 — auditoria de mutações
 
-- [ ] Registrar autor, token, ação, recurso e diff/resumo.
-- [ ] Exibir eventos no painel.
+- [x] Registrar autor, token, ação, recurso e diff/resumo.
+- [x] Exibir eventos no painel.
 - [ ] Commit sugerido:
   ```text
   feat(server-auth): add mutation audit trail
   ```
 
 **Critério de aceite**
-- [ ] Toda mutação possui evento auditável.
+- [x] Toda mutação possui evento auditável.
 
 ---
 

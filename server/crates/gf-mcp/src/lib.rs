@@ -572,6 +572,16 @@ async fn write_vault_note(
     )
     .await
     .map_err(|e| e.to_string())?;
+    let _ = gf_storage::record_audit_event(
+        context.pool,
+        context.principal,
+        Some(project.id),
+        "upsert",
+        "vault_document",
+        Some(record.id),
+        json!({"path":record.path,"revision":record.revision}),
+    )
+    .await;
     Ok(json!({
         "id": record.id,
         "path": record.path,
@@ -754,6 +764,18 @@ async fn tool_delete_note(context: &McpContext<'_>, arguments: &Value) -> Result
     )
     .await
     .map_err(|e| e.to_string())?;
+    if deleted {
+        let _ = gf_storage::record_audit_event(
+            context.pool,
+            context.principal,
+            Some(project.id),
+            "delete",
+            "vault_document",
+            None,
+            json!({"path":argument(arguments,"path")?}),
+        )
+        .await;
+    }
     Ok(json!({"deleted":deleted,"project":project.slug}))
 }
 

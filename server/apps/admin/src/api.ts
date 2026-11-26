@@ -215,3 +215,19 @@ export function searchProject(token: string, input: {
 }) {
   return request<SearchHit[]>('/api/v1/search', { method: 'POST', body: JSON.stringify(input) }, token);
 }
+
+export type AuditEvent = {
+  id: string;
+  project_id?: string | null;
+  actor_user_id?: string | null;
+  api_token_id?: string | null;
+  action: string;
+  resource_type: string;
+  resource_id?: string | null;
+  summary: Record<string, unknown>;
+  created_at: string;
+};
+
+export function listAuditEvents(token: string) {
+  return request<AuditEvent[]>('/api/v1/audit-events', {}, token);
+}

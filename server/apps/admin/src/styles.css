@@ -231,3 +231,4 @@ select { border: 1px solid var(--line); background: #080d0f; color: var(--ink); 
 .search-hit p { color: #cfd8d5; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .search-hit footer { border-top: 1px solid var(--line); padding-top: 10px; color: var(--muted); font-size: 12px; }
 @media (max-width: 850px) { .search-query-row, .search-filter-row { grid-template-columns: 1fr; } }
+.audit-summary { color: var(--muted); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 0; }

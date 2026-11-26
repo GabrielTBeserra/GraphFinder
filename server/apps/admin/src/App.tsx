@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   ApiToken,
+  AuditEvent,
   cancelIndexJob,
   createApiToken,
   createIndexJob,
@@ -10,6 +11,7 @@ import {
   deleteSource,
   IndexJob,
   listApiTokens,
+  listAuditEvents,
   listIndexJobs,
   listProjects,
   listUsers,
@@ -524,7 +526,34 @@ function SearchLab({ session, projects }: { session: Session; projects: Project[
   );
 }
 
-const navItems = ['Overview', 'Projects', 'Sources', 'Index jobs', 'API tokens', 'Search lab'];
+
+function AuditViewer({ session }: { session: Session }) {
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  useEffect(() => { listAuditEvents(session.token).then(setEvents).catch(() => setEvents([])); }, [session.token]);
+  return (
+    <section>
+      <div className="panel-heading"><h2>Mutation audit trail</h2><span>{events.length} recent events</span></div>
+      <div className="token-list">
+        {events.map((event) => (
+          <article className="token-row" key={event.id}>
+            <div>
+              <strong>{event.action} · {event.resource_type}</strong>
+              <div className="job-meta">
+                <span>{new Date(event.created_at).toLocaleString()}</span>
+                <span>project {event.project_id?.slice(0, 8) ?? 'tenant'}</span>
+                <span>actor {event.actor_user_id?.slice(0, 8) ?? 'system'}</span>
+              </div>
+              <pre className="audit-summary">{JSON.stringify(event.summary)}</pre>
+            </div>
+          </article>
+        ))}
+        {events.length === 0 && <p className="empty-state">No mutation events recorded yet.</p>}
+      </div>
+    </section>
+  );
+}
+
+const navItems = ['Overview', 'Projects', 'Sources', 'Index jobs', 'API tokens', 'Search lab', 'Audit'];
 
 function App() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
@@ -587,7 +616,9 @@ function App() {
           ))}
         </section>
         <section className="content-panel">
-          {active === 'Search lab' ? (
+          {active === 'Audit' ? (
+            <AuditViewer session={session} />
+          ) : active === 'Search lab' ? (
             <SearchLab session={session} projects={projects} />
           ) : active === 'API tokens' ? (
             <TokensUsersManager session={session} projects={projects} />
