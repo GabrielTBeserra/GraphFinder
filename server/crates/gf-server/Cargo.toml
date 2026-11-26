@@ -20,3 +20,5 @@ tower-http.workspace = true
 
 sqlx.workspace = true
 uuid.workspace = true
+serde.workspace = true
+chrono.workspace = true

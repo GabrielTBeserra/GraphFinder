@@ -1,5 +1,6 @@
 //! PostgreSQL storage layer for GraphFinder Server.
 
+pub mod auth;
 pub mod embeddings;
 pub mod generations;
 pub mod jobs;
@@ -10,6 +11,7 @@ pub mod search;
 use sqlx::PgPool;
 use thiserror::Error;
 
+pub use auth::*;
 pub use embeddings::*;
 pub use generations::*;
 pub use jobs::*;
@@ -26,6 +28,8 @@ pub enum StorageError {
     Migration(#[from] sqlx::migrate::MigrateError),
     #[error("invalid embedding dimensions: expected {expected}, got {actual}")]
     InvalidEmbeddingDimensions { expected: usize, actual: usize },
+    #[error("authentication error: {0}")]
+    Auth(String),
 }
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");

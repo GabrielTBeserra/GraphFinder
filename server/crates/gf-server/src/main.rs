@@ -24,6 +24,18 @@ enum Command {
         #[arg(long)]
         database_url: Option<String>,
     },
+    /// Create or update the initial tenant admin.
+    BootstrapAdmin {
+        /// PostgreSQL connection URL. Defaults to DATABASE_URL.
+        #[arg(long)]
+        database_url: Option<String>,
+        #[arg(long, default_value = "default")]
+        tenant_slug: String,
+        #[arg(long, default_value = "admin@example.com")]
+        email: String,
+        #[arg(long, default_value = "Administrator")]
+        display_name: String,
+    },
     /// Run the HTTP API and MCP server.
     Api {
         /// PostgreSQL connection URL. Defaults to DATABASE_URL.
@@ -57,10 +69,35 @@ async fn main() -> Result<()> {
             gf_storage::migrate(&database_url).await?;
             println!("database migrations applied");
         }
+        Command::BootstrapAdmin {
+            database_url,
+            tenant_slug,
+            email,
+            display_name,
+        } => bootstrap_admin(database_url, tenant_slug, email, display_name).await?,
         Command::Api { database_url, bind } => run_api(database_url, bind).await?,
         Command::Worker { database_url, once } => run_worker(database_url, once).await?,
     }
 
+    Ok(())
+}
+
+async fn bootstrap_admin(
+    database_url: Option<String>,
+    tenant_slug: String,
+    email: String,
+    display_name: String,
+) -> Result<()> {
+    let database_url = database_url
+        .or_else(|| std::env::var("DATABASE_URL").ok())
+        .expect("DATABASE_URL or --database-url is required");
+    let password = std::env::var("GF_BOOTSTRAP_ADMIN_PASSWORD")
+        .expect("GF_BOOTSTRAP_ADMIN_PASSWORD is required");
+    let pool = gf_storage::connect(&database_url).await?;
+    let tenant_id = gf_storage::ensure_tenant(&pool, &tenant_slug, &tenant_slug).await?;
+    let hash = gf_storage::hash_password(&password)?;
+    let user_id = gf_storage::upsert_user(&pool, tenant_id, &email, &display_name, &hash).await?;
+    println!("bootstrap admin upserted: tenant={tenant_slug} email={email} user_id={user_id}");
     Ok(())
 }
 

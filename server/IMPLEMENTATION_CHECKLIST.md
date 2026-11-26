@@ -366,18 +366,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 19 — autenticação de usuários
 
-- [ ] Implementar criação inicial de usuário admin por variável de ambiente ou comando bootstrap.
-- [ ] Implementar login com senha hash Argon2/bcrypt.
-- [ ] Implementar sessões seguras ou JWT curto para painel.
-- [ ] Implementar logout/revogação de sessão.
+- [x] Implementar criação inicial de usuário admin por variável de ambiente ou comando bootstrap.
+- [x] Implementar login com senha hash Argon2/bcrypt.
+- [x] Implementar sessões seguras ou JWT curto para painel.
+- [x] Implementar logout/revogação de sessão.
 - [ ] Commit sugerido:
   ```text
   feat(server-auth): implement user authentication
   ```
 
 **Critério de aceite**
-- [ ] Painel pode autenticar usuário admin inicial.
-- [ ] Senha nunca é persistida em plaintext.
+- [x] Painel pode autenticar usuário admin inicial.
+- [x] Senha nunca é persistida em plaintext.
 
 #### Commit 20 — tokens PAT e service tokens
 

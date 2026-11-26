@@ -4,8 +4,9 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::IntoResponse;
 use axum::response::Response;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
 
@@ -14,9 +15,69 @@ pub fn router(pool: PgPool) -> Router {
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
+        .route("/api/v1/auth/login", post(login))
+        .route("/api/v1/auth/logout", post(logout))
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())
         .with_state(pool)
+}
+
+#[derive(Debug, Deserialize)]
+struct LoginRequest {
+    tenant_slug: String,
+    email: String,
+    password: String,
+}
+
+#[derive(Debug, Serialize)]
+struct LoginResponse {
+    token: String,
+    expires_at: String,
+    user_id: uuid::Uuid,
+    tenant_id: uuid::Uuid,
+}
+
+async fn login(
+    State(pool): State<PgPool>,
+    axum::Json(request): axum::Json<LoginRequest>,
+) -> Result<axum::Json<LoginResponse>, (StatusCode, &'static str)> {
+    let user = gf_storage::find_user_by_email(&pool, &request.tenant_slug, &request.email)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authentication failed"))?
+        .ok_or((StatusCode::UNAUTHORIZED, "invalid credentials"))?;
+    let hash = user
+        .password_hash
+        .as_deref()
+        .ok_or((StatusCode::UNAUTHORIZED, "invalid credentials"))?;
+    let valid = gf_storage::verify_password(&request.password, hash)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authentication failed"))?;
+    if !valid || user.status != "active" {
+        return Err((StatusCode::UNAUTHORIZED, "invalid credentials"));
+    }
+    let session = gf_storage::create_session(&pool, &user, 12)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authentication failed"))?;
+    Ok(axum::Json(LoginResponse {
+        token: session.token,
+        expires_at: session.expires_at.to_rfc3339(),
+        user_id: session.user_id,
+        tenant_id: session.tenant_id,
+    }))
+}
+
+async fn logout(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+) -> Result<StatusCode, (StatusCode, &'static str)> {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or((StatusCode::UNAUTHORIZED, "missing bearer token"))?;
+    gf_storage::revoke_session(&pool, token)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "logout failed"))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn request_id(mut request: Request, next: Next) -> Response {
