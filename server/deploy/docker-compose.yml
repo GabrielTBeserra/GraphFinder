@@ -38,6 +38,7 @@ services:
     environment:
       DATABASE_URL: postgres://graphfinder:${POSTGRES_PASSWORD}@postgres:5432/graphfinder
       GF_MODEL_CACHE_DIR: /var/lib/graphfinder/models
+      GF_LOG_FORMAT: ${GF_LOG_FORMAT:-json}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - model-cache:/var/lib/graphfinder/models
@@ -64,6 +65,7 @@ services:
       GF_GIT_TIMEOUT_SECS: ${GF_GIT_TIMEOUT_SECS:-120}
       GF_MAX_REPO_BYTES: ${GF_MAX_REPO_BYTES:-1000000000}
       GF_WORKER_POLL_MS: ${GF_WORKER_POLL_MS:-2000}
+      GF_LOG_FORMAT: ${GF_LOG_FORMAT:-json}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - model-cache:/var/lib/graphfinder/models

@@ -1,7 +1,7 @@
 {$SITE_ADDRESS} {
 	encode zstd gzip
 
-	@api path /api/* /mcp /health /ready /metrics
+	@api path /api/* /mcp /health /ready
 	reverse_proxy @api api:8080 {
 		flush_interval -1
 		transport http {

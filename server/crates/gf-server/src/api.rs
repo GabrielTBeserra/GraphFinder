@@ -1,4 +1,6 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 
 use axum::extract::Request;
 use axum::extract::State;
@@ -12,6 +14,9 @@ use gf_core::EmbeddingProvider;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
+
+static HTTP_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
+static HTTP_REQUEST_DURATION_MICROS_TOTAL: AtomicU64 = AtomicU64::new(0);
 
 pub struct LazyEmbedder {
     cache_dir: String,
@@ -794,6 +799,7 @@ async fn delete_source(
 }
 
 async fn request_id(mut request: Request, next: Next) -> Response {
+    let started = Instant::now();
     let value = request
         .headers()
         .get("x-request-id")
@@ -803,10 +809,17 @@ async fn request_id(mut request: Request, next: Next) -> Response {
     if let Ok(header) = HeaderValue::from_str(&value) {
         request.headers_mut().insert("x-request-id", header.clone());
         let mut response = next.run(request).await;
+        HTTP_REQUESTS_TOTAL.fetch_add(1, Ordering::Relaxed);
+        HTTP_REQUEST_DURATION_MICROS_TOTAL
+            .fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
         response.headers_mut().insert("x-request-id", header);
         response
     } else {
-        next.run(request).await
+        let response = next.run(request).await;
+        HTTP_REQUESTS_TOTAL.fetch_add(1, Ordering::Relaxed);
+        HTTP_REQUEST_DURATION_MICROS_TOTAL
+            .fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+        response
     }
 }
 
@@ -824,8 +837,69 @@ async fn ready(State(pool): State<PgPool>) -> Result<&'static str, impl IntoResp
     }
 }
 
-async fn metrics() -> &'static str {
-    "# HELP graphfinder_server_up Whether the API process is running.\n# TYPE graphfinder_server_up gauge\ngraphfinder_server_up 1\n"
+async fn metrics(State(pool): State<PgPool>) -> String {
+    let job_metrics = sqlx::query_as::<_, (i64, i64, i64, i64, f64)>(
+        r#"
+        SELECT
+          count(*) FILTER (WHERE status='queued'),
+          count(*) FILTER (WHERE status='running'),
+          count(*) FILTER (WHERE status='failed'),
+          count(*) FILTER (WHERE status='completed'),
+          coalesce(avg(extract(epoch from finished_at-started_at)) FILTER (WHERE status='completed' AND started_at IS NOT NULL AND finished_at IS NOT NULL),0)::float8
+        FROM index_jobs
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or((0, 0, 0, 0, 0.0));
+    let chunks_total = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM chunks")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+    let embeddings_total = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM chunk_embeddings")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+    let requests = HTTP_REQUESTS_TOTAL.load(Ordering::Relaxed);
+    let duration_seconds =
+        HTTP_REQUEST_DURATION_MICROS_TOTAL.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+    format!(
+        concat!(
+            "# HELP graphfinder_server_up Whether the API process is running.\n",
+            "# TYPE graphfinder_server_up gauge\n",
+            "graphfinder_server_up 1\n",
+            "# HELP graphfinder_http_requests_total HTTP requests handled by this process.\n",
+            "# TYPE graphfinder_http_requests_total counter\n",
+            "graphfinder_http_requests_total {requests}\n",
+            "# HELP graphfinder_http_request_duration_seconds_sum Total HTTP request duration in seconds.\n",
+            "# TYPE graphfinder_http_request_duration_seconds_sum counter\n",
+            "graphfinder_http_request_duration_seconds_sum {duration_seconds:.6}\n",
+            "# HELP graphfinder_index_jobs Index jobs by status.\n",
+            "# TYPE graphfinder_index_jobs gauge\n",
+            "graphfinder_index_jobs{{status=\"queued\"}} {queued}\n",
+            "graphfinder_index_jobs{{status=\"running\"}} {running}\n",
+            "graphfinder_index_jobs{{status=\"failed\"}} {failed}\n",
+            "graphfinder_index_jobs{{status=\"completed\"}} {completed}\n",
+            "# HELP graphfinder_index_job_duration_seconds_avg Average completed indexing job duration.\n",
+            "# TYPE graphfinder_index_job_duration_seconds_avg gauge\n",
+            "graphfinder_index_job_duration_seconds_avg {job_duration:.6}\n",
+            "# HELP graphfinder_chunks_total Indexed chunks.\n",
+            "# TYPE graphfinder_chunks_total gauge\n",
+            "graphfinder_chunks_total {chunks_total}\n",
+            "# HELP graphfinder_embeddings_total Persisted chunk embeddings.\n",
+            "# TYPE graphfinder_embeddings_total gauge\n",
+            "graphfinder_embeddings_total {embeddings_total}\n"
+        ),
+        requests = requests,
+        duration_seconds = duration_seconds,
+        queued = job_metrics.0,
+        running = job_metrics.1,
+        failed = job_metrics.2,
+        completed = job_metrics.3,
+        job_duration = job_metrics.4,
+        chunks_total = chunks_total,
+        embeddings_total = embeddings_total,
+    )
 }
 
 #[derive(Debug, Serialize)]

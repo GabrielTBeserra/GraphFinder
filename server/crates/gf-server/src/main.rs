@@ -174,5 +174,12 @@ fn env_u64(name: &str, default: u64) -> u64 {
 fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+    if std::env::var("GF_LOG_FORMAT").as_deref() == Ok("json") {
+        let _ = tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(filter)
+            .try_init();
+    } else {
+        let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+    }
 }

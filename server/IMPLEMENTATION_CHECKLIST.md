@@ -648,17 +648,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 38 — observabilidade
 
-- [ ] Implementar logs estruturados JSON.
-- [ ] Implementar métricas básicas: requests, jobs, duração, falhas, chunks, embeddings.
-- [ ] Adicionar correlation/request ids.
-- [ ] Implementar `/metrics` interno opcional.
+- [x] Implementar logs estruturados JSON.
+- [x] Implementar métricas básicas: requests, jobs, duração, falhas, chunks, embeddings.
+- [x] Adicionar correlation/request ids.
+- [x] Implementar `/metrics` interno opcional.
 - [ ] Commit sugerido:
   ```text
   feat(server-ops): add structured observability
   ```
 
 **Critério de aceite**
-- [ ] Logs não contêm tokens, senhas ou credenciais Git.
+- [x] Logs não contêm tokens, senhas ou credenciais Git.
 
 #### Commit 39 — backup e restore
 
