@@ -575,15 +575,15 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 33 — busca de teste
 
-- [ ] Implementar página para testar busca semântica/código por projeto.
-- [ ] Exibir deep links, scores e trechos.
+- [x] Implementar página para testar busca semântica/código por projeto.
+- [x] Exibir deep links, scores e trechos.
 - [ ] Commit sugerido:
   ```text
   feat(server-admin): add search inspection page
   ```
 
 **Critério de aceite**
-- [ ] Operador valida indexação sem depender de agente externo.
+- [x] Operador valida indexação sem depender de agente externo.
 
 ---
 

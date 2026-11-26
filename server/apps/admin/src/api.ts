@@ -195,3 +195,23 @@ export function createUser(token: string, input: {
 export function updateUserRole(token: string, id: string, role: string) {
   return request<void>(`/api/v1/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }, token);
 }
+
+export type SearchHit = {
+  chunk_id: string;
+  document_id: string;
+  path: string;
+  heading_path: string[];
+  content: string;
+  score: number;
+};
+
+export function searchProject(token: string, input: {
+  project_id: string;
+  query: string;
+  mode?: string;
+  language?: string;
+  document_type?: string;
+  limit?: number;
+}) {
+  return request<SearchHit[]>('/api/v1/search', { method: 'POST', body: JSON.stringify(input) }, token);
+}

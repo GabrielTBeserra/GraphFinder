@@ -20,6 +20,8 @@ import {
   Project,
   revokeApiToken,
   saveSession,
+  searchProject,
+  SearchHit,
   Session,
   Source,
   TenantUser,
@@ -439,6 +441,89 @@ function TokensUsersManager({ session, projects }: { session: Session; projects:
   );
 }
 
+function SearchLab({ session, projects }: { session: Session; projects: Project[] }) {
+  const [projectId, setProjectId] = useState(projects[0]?.id ?? '');
+  const [query, setQuery] = useState('');
+  const [mode, setMode] = useState('hybrid');
+  const [language, setLanguage] = useState('');
+  const [documentType, setDocumentType] = useState('');
+  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [message, setMessage] = useState('');
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!projectId && projects[0]) setProjectId(projects[0].id);
+  }, [projectId, projects]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!projectId || !query.trim()) return;
+    setSearching(true);
+    setMessage('');
+    try {
+      const results = await searchProject(session.token, {
+        project_id: projectId,
+        query,
+        mode,
+        language: language || undefined,
+        document_type: documentType || undefined,
+        limit: 20,
+      });
+      setHits(results);
+      if (results.length === 0) setMessage('no results in active generation');
+    } catch {
+      setMessage('search failed — check indexing status and embedding availability');
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  return (
+    <section>
+      <div className="panel-heading"><h2>Search inspection</h2><span>active generation only</span></div>
+      <form className="search-console" onSubmit={submit}>
+        <div className="search-query-row">
+          <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.slug}</option>)}
+          </select>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="semantic query, symbol, concept or phrase" required />
+          <button disabled={searching || !projectId}>{searching ? 'Searching…' : 'Run search'}</button>
+        </div>
+        <div className="search-filter-row">
+          <select value={mode} onChange={(event) => setMode(event.target.value)}>
+            <option value="hybrid">hybrid</option>
+            <option value="lexical">lexical</option>
+            <option value="vector">vector</option>
+          </select>
+          <input value={language} onChange={(event) => setLanguage(event.target.value)} placeholder="language filter (rust, markdown…)" />
+          <input value={documentType} onChange={(event) => setDocumentType(event.target.value)} placeholder="document type filter" />
+        </div>
+      </form>
+      <div className="search-results">
+        {hits.map((hit) => {
+          const heading = hit.heading_path.join(' / ');
+          const deepLink = `[[${hit.path}${heading ? `#${hit.heading_path[hit.heading_path.length - 1]}` : ''}]]`;
+          return (
+            <article className="search-hit" key={hit.chunk_id}>
+              <header>
+                <div>
+                  <strong>{hit.path}</strong>
+                  {heading && <span>{heading}</span>}
+                </div>
+                <code>{hit.score.toFixed(4)}</code>
+              </header>
+              <p>{hit.content.length > 420 ? `${hit.content.slice(0, 420)}…` : hit.content}</p>
+              <footer><code>{deepLink}</code></footer>
+            </article>
+          );
+        })}
+        {hits.length === 0 && <p className="empty-state">Run a query to inspect ranked chunks, scores and deep links.</p>}
+      </div>
+      {message && <p className="operation-message">{message}</p>}
+    </section>
+  );
+}
+
 const navItems = ['Overview', 'Projects', 'Sources', 'Index jobs', 'API tokens', 'Search lab'];
 
 function App() {
@@ -502,7 +587,9 @@ function App() {
           ))}
         </section>
         <section className="content-panel">
-          {active === 'API tokens' ? (
+          {active === 'Search lab' ? (
+            <SearchLab session={session} projects={projects} />
+          ) : active === 'API tokens' ? (
             <TokensUsersManager session={session} projects={projects} />
           ) : active === 'Index jobs' ? (
             <JobsManager session={session} projects={projects} />
