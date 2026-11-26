@@ -79,6 +79,10 @@ pub fn router(pool: PgPool, embedder: Arc<LazyEmbedder>) -> Router {
         )
         .route("/api/v1/index-jobs/{id}", get(get_index_job))
         .route("/api/v1/index-jobs/{id}/cancel", post(cancel_index_job))
+        .route(
+            "/api/v1/projects/{id}/vault/documents",
+            post(upsert_vault_document),
+        )
         .route("/api/v1/search", post(search))
         .route("/mcp", post(mcp))
         .layer(Extension(embedder))
@@ -666,8 +670,11 @@ struct UpdateSourceRequest {
 }
 
 fn validate_source_uri(kind: &str, uri: &str) -> Result<String, (StatusCode, &'static str)> {
-    if kind != "git" {
+    if kind == "managed_vault" {
         return Ok(uri.to_string());
+    }
+    if kind != "git" {
+        return Err((StatusCode::BAD_REQUEST, "unsupported source kind"));
     }
     gf_indexer::validate_git_source_url(uri, &gf_indexer::GitSourcePolicy::default())
         .map(|url| url.normalized_url)
@@ -1094,6 +1101,138 @@ async fn mcp(
         response.headers_mut().insert("mcp-session-id", value);
     }
     Ok(response)
+}
+
+#[derive(Debug, Deserialize)]
+struct UpsertVaultDocumentRequest {
+    source_id: uuid::Uuid,
+    path: String,
+    content: String,
+    expected_revision: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct VaultDocumentResponse {
+    id: uuid::Uuid,
+    project_id: uuid::Uuid,
+    generation: i64,
+    source_id: Option<uuid::Uuid>,
+    path: String,
+    title: Option<String>,
+    revision: i64,
+    updated_at: String,
+}
+
+impl From<gf_storage::VaultDocumentRecord> for VaultDocumentResponse {
+    fn from(document: gf_storage::VaultDocumentRecord) -> Self {
+        Self {
+            id: document.id,
+            project_id: document.project_id,
+            generation: document.generation,
+            source_id: document.source_id,
+            path: document.path,
+            title: document.title,
+            revision: document.revision,
+            updated_at: document.updated_at.to_rfc3339(),
+        }
+    }
+}
+
+async fn upsert_vault_document(
+    State(pool): State<PgPool>,
+    Extension(embedder): Extension<Arc<LazyEmbedder>>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(project_id): axum::extract::Path<uuid::Uuid>,
+    axum::Json(request): axum::Json<UpsertVaultDocumentRequest>,
+) -> Result<axum::Json<VaultDocumentResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_project_or_error(
+        &pool,
+        &principal,
+        project_id,
+        gf_storage::SCOPE_PROJECT_WRITE,
+    )
+    .await?;
+    let project = gf_storage::get_project(&pool, project_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "project lookup failed"))?
+        .ok_or((StatusCode::NOT_FOUND, "project not found"))?;
+    let note = gf_core::parse_markdown(
+        request
+            .path
+            .trim_end_matches(".md")
+            .rsplit('/')
+            .next()
+            .unwrap_or("note"),
+        &request.content,
+    );
+    let passages = note
+        .chunks
+        .iter()
+        .map(|chunk| chunk.content.clone())
+        .collect::<Vec<_>>();
+    let embeddings = tokio::task::spawn_blocking(move || {
+        embedder
+            .get()
+            .map_err(|e| e.to_string())?
+            .embed_passages(&passages)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "embedding task failed"))?
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "embedding generation failed",
+        )
+    })?;
+    if embeddings.len() != note.chunks.len() {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "embedding count mismatch",
+        ));
+    }
+    let chunks = note
+        .chunks
+        .iter()
+        .zip(embeddings)
+        .map(|(chunk, embedding)| gf_storage::VaultChunkWrite {
+            chunk_index: chunk.chunk_index as i32,
+            heading_path: chunk.heading.iter().cloned().collect(),
+            content: chunk.content.clone(),
+            token_count: chunk.token_estimate as i32,
+            content_hash: gf_core::content_hash(&chunk.content),
+            metadata: serde_json::json!({"links":chunk.links,"tags":chunk.tags}),
+            embedding,
+        })
+        .collect();
+    let write = gf_storage::VaultDocumentWrite {
+        project_id,
+        generation: project.active_generation,
+        source_id: request.source_id,
+        path: request.path,
+        title: note.title,
+        content_hash: gf_core::content_hash(&request.content),
+        size_bytes: request.content.len() as i64,
+        metadata: serde_json::json!({"summary":note.summary,"links":note.links,"tags":note.tags,"aliases":note.aliases}),
+        chunks,
+    };
+    let document = gf_storage::upsert_vault_document(&pool, write, request.expected_revision)
+        .await
+        .map_err(|error| {
+            tracing::error!(error = %error, "vault document write failed");
+            match error {
+                gf_storage::StorageError::Conflict(_) => (
+                    StatusCode::CONFLICT,
+                    "vault document conflict or readonly source",
+                ),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "vault document write failed",
+                ),
+            }
+        })?;
+    Ok(axum::Json(VaultDocumentResponse::from(document)))
 }
 
 #[derive(Debug, Deserialize)]

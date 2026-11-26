@@ -91,7 +91,9 @@ pub struct Document {
     pub content_hash: String,
     pub size_bytes: i64,
     pub metadata: Value,
+    pub revision: i64,
     pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 pub struct NewDocument {

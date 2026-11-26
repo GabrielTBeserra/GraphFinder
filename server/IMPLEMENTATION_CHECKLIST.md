@@ -680,17 +680,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 40 — modelo de vault gerenciado
 
-- [ ] Adicionar fonte tipo `managed_vault`.
-- [ ] Implementar documentos editáveis com revision/optimistic concurrency.
-- [ ] Indexar alterações em nova geração ou incrementalmente.
+- [x] Adicionar fonte tipo `managed_vault`.
+- [x] Implementar documentos editáveis com revision/optimistic concurrency.
+- [x] Indexar alterações em nova geração ou incrementalmente.
 - [ ] Commit sugerido:
   ```text
   feat(server-vault): add managed vault source type
   ```
 
 **Critério de aceite**
-- [ ] Fontes Git permanecem readonly.
-- [ ] Edições concorrentes são detectadas.
+- [x] Fontes Git permanecem readonly.
+- [x] Edições concorrentes são detectadas.
 
 #### Commit 41 — ferramentas MCP de escrita
 

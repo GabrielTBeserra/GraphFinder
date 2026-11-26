@@ -8,6 +8,7 @@ pub mod models;
 pub mod rbac;
 pub mod repositories;
 pub mod search;
+pub mod vault;
 
 use sqlx::PgPool;
 use thiserror::Error;
@@ -19,6 +20,7 @@ pub use jobs::*;
 pub use rbac::*;
 pub use repositories::*;
 pub use search::*;
+pub use vault::*;
 
 pub type StorageResult<T> = Result<T, StorageError>;
 
@@ -32,6 +34,8 @@ pub enum StorageError {
     InvalidEmbeddingDimensions { expected: usize, actual: usize },
     #[error("authentication error: {0}")]
     Auth(String),
+    #[error("conflict: {0}")]
+    Conflict(String),
 }
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
