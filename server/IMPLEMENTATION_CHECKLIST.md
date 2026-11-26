@@ -137,18 +137,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 4 — parser de código
 
-- [ ] Implementar detecção de linguagens suportadas no MVP: Rust, TypeScript, JavaScript, Python, Go e Markdown/documentação.
-- [ ] Extrair imports/includes/requires.
-- [ ] Extrair símbolos principais: functions, classes, structs, impls/métodos quando possível.
-- [ ] Preservar path, linguagem, linha inicial/final e nome do símbolo.
+- [x] Implementar detecção de linguagens suportadas no MVP: Rust, TypeScript, JavaScript, Python, Go e Markdown/documentação.
+- [x] Extrair imports/includes/requires.
+- [x] Extrair símbolos principais: functions, classes, structs, impls/métodos quando possível.
+- [x] Preservar path, linguagem, linha inicial/final e nome do símbolo.
 - [ ] Commit sugerido:
   ```text
   feat(server-core): implement source code parsing
   ```
 
 **Critério de aceite**
-- [ ] Fixtures de código passam.
-- [ ] Nenhum arquivo é executado durante parsing.
+- [x] Fixtures de código passam.
+- [x] Nenhum arquivo é executado durante parsing.
 
 #### Commit 5 — grafo interno
 
