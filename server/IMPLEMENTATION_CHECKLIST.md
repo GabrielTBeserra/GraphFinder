@@ -105,9 +105,9 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 2 — fixtures e testes de compatibilidade
 
-- [ ] Criar `server/fixtures/` com exemplos Markdown, TypeScript, Rust, Python e repositório misto.
-- [ ] Criar testes de chunking esperado para headings `##`/`###`.
-- [ ] Criar testes de deep links no formato `[[Nota#Seção]]` e `[[arquivo#simbolo]]`.
+- [x] Criar `server/fixtures/` com exemplos Markdown, TypeScript, Rust, Python e repositório misto.
+- [x] Criar testes de chunking esperado para headings `##`/`###`.
+- [x] Criar testes de deep links no formato `[[Nota#Seção]]` e `[[arquivo#simbolo]]`.
 - [ ] Commit sugerido:
   ```text
   test(server): add parser compatibility fixtures
@@ -122,18 +122,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 3 — parser Markdown
 
-- [ ] Implementar parser CommonMark em `gf-core`.
-- [ ] Extrair headings, seções, wikilinks e tags.
-- [ ] Gerar chunks semânticos por `##` e `###`.
-- [ ] Implementar estimativa de tokens.
+- [x] Implementar parser CommonMark em `gf-core`.
+- [x] Extrair headings, seções, wikilinks e tags.
+- [x] Gerar chunks semânticos por `##` e `###`.
+- [x] Implementar estimativa de tokens.
 - [ ] Commit sugerido:
   ```text
   feat(server-core): implement markdown parsing and chunking
   ```
 
 **Critério de aceite**
-- [ ] Fixtures Markdown passam.
-- [ ] Chunks preservam heading, deep link, conteúdo e estimativa de tokens.
+- [x] Fixtures Markdown passam.
+- [x] Chunks preservam heading, deep link, conteúdo e estimativa de tokens.
 
 #### Commit 4 — parser de código
 
