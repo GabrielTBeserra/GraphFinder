@@ -444,16 +444,16 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 24 — transporte MCP HTTP
 
-- [ ] Implementar endpoint `/mcp` compatível com Streamable HTTP.
-- [ ] Implementar initialize, tools/list e tools/call.
-- [ ] Associar cada sessão/chamada ao principal autenticado.
+- [x] Implementar endpoint `/mcp` compatível com Streamable HTTP.
+- [x] Implementar initialize, tools/list e tools/call.
+- [x] Associar cada sessão/chamada ao principal autenticado.
 - [ ] Commit sugerido:
   ```text
   feat(server-mcp): implement authenticated streamable http transport
   ```
 
 **Critério de aceite**
-- [ ] Cliente MCP consegue listar ferramentas usando Bearer token.
+- [x] Cliente MCP consegue listar ferramentas usando Bearer token.
 
 #### Commit 25 — ferramentas readonly principais
 

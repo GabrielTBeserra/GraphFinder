@@ -70,6 +70,7 @@ pub fn router(pool: PgPool, embedder: Arc<LazyEmbedder>) -> Router {
         .route("/api/v1/index-jobs/{id}", get(get_index_job))
         .route("/api/v1/index-jobs/{id}/cancel", post(cancel_index_job))
         .route("/api/v1/search", post(search))
+        .route("/mcp", post(mcp))
         .layer(Extension(embedder))
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())
@@ -762,6 +763,27 @@ async fn cancel_index_job(
     } else {
         Err((StatusCode::CONFLICT, "job is not cancellable"))
     }
+}
+
+async fn mcp(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::Json(request): axum::Json<serde_json::Value>,
+) -> Result<Response, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let context = gf_mcp::McpContext {
+        pool: &pool,
+        principal: &principal,
+        embedder: None,
+    };
+    let Some(response_value) = gf_mcp::handle_rpc(&context, request).await else {
+        return Ok(StatusCode::ACCEPTED.into_response());
+    };
+    let mut response = axum::Json(response_value).into_response();
+    if let Ok(value) = HeaderValue::from_str(&uuid::Uuid::new_v4().to_string()) {
+        response.headers_mut().insert("mcp-session-id", value);
+    }
+    Ok(response)
 }
 
 #[derive(Debug, Deserialize)]

@@ -1153,6 +1153,7 @@ dependencies = [
  "gf-storage",
  "serde",
  "serde_json",
+ "sqlx",
  "thiserror",
 ]
 
