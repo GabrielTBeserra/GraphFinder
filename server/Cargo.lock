@@ -1058,8 +1058,12 @@ dependencies = [
 name = "gf-indexer"
 version = "0.1.0"
 dependencies = [
+ "gf-core",
+ "gf-storage",
  "globset",
+ "serde_json",
  "sha2",
+ "sqlx",
  "tempfile",
  "thiserror",
  "tokio",

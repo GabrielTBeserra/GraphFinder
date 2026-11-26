@@ -352,17 +352,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 18 — bootstrap da API
 
-- [ ] Criar servidor HTTP com Axum em `gf-server`.
-- [ ] Adicionar `/health` e `/ready`.
-- [ ] Adicionar middleware de request id, logging e métricas básicas.
-- [ ] Implementar configuração por variáveis de ambiente.
+- [x] Criar servidor HTTP com Axum em `gf-server`.
+- [x] Adicionar `/health` e `/ready`.
+- [x] Adicionar middleware de request id, logging e métricas básicas.
+- [x] Implementar configuração por variáveis de ambiente.
 - [ ] Commit sugerido:
   ```text
   feat(server-api): bootstrap http api server
   ```
 
 **Critério de aceite**
-- [ ] API inicia sem GUI e responde `/health`.
+- [x] API inicia sem GUI e responde `/health`.
 
 #### Commit 19 — autenticação de usuários
 

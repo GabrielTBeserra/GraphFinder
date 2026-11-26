@@ -6,6 +6,8 @@ use clap::{Parser, Subcommand};
 use gf_core::FastEmbedProvider;
 use gf_indexer::{process_next_index_job, WorkerConfig};
 
+mod api;
+
 #[derive(Debug, Parser)]
 #[command(name = "graphfinder-server")]
 #[command(about = "Multi-user GraphFinder Server", version)]
@@ -23,7 +25,14 @@ enum Command {
         database_url: Option<String>,
     },
     /// Run the HTTP API and MCP server.
-    Api,
+    Api {
+        /// PostgreSQL connection URL. Defaults to DATABASE_URL.
+        #[arg(long)]
+        database_url: Option<String>,
+        /// HTTP bind address.
+        #[arg(long, default_value = "127.0.0.1:8080")]
+        bind: String,
+    },
     /// Run indexing workers.
     Worker {
         /// PostgreSQL connection URL. Defaults to DATABASE_URL.
@@ -48,10 +57,21 @@ async fn main() -> Result<()> {
             gf_storage::migrate(&database_url).await?;
             println!("database migrations applied");
         }
-        Command::Api => not_implemented("api"),
+        Command::Api { database_url, bind } => run_api(database_url, bind).await?,
         Command::Worker { database_url, once } => run_worker(database_url, once).await?,
     }
 
+    Ok(())
+}
+
+async fn run_api(database_url: Option<String>, bind: String) -> Result<()> {
+    let database_url = database_url
+        .or_else(|| std::env::var("DATABASE_URL").ok())
+        .expect("DATABASE_URL or --database-url is required");
+    let pool = gf_storage::connect(&database_url).await?;
+    let listener = tokio::net::TcpListener::bind(&bind).await?;
+    tracing::info!(%bind, "graphfinder api listening");
+    axum::serve(listener, api::router(pool)).await?;
     Ok(())
 }
 
@@ -114,8 +134,4 @@ fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
-}
-
-fn not_implemented(command: &str) {
-    println!("graphfinder-server {command}: not implemented yet");
 }

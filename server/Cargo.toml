@@ -29,3 +29,5 @@ url = "2"
 walkdir = "2"
 globset = "0.4"
 sha2 = "0.10"
+axum = "0.8"
+tower-http = { version = "0.6", features = ["trace"] }
