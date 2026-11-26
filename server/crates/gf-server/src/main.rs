@@ -12,7 +12,11 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Apply database migrations.
-    Migrate,
+    Migrate {
+        /// PostgreSQL connection URL. Defaults to DATABASE_URL.
+        #[arg(long)]
+        database_url: Option<String>,
+    },
     /// Run the HTTP API and MCP server.
     Api,
     /// Run indexing workers.
@@ -25,7 +29,13 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Migrate => not_implemented("migrate"),
+        Command::Migrate { database_url } => {
+            let database_url = database_url
+                .or_else(|| std::env::var("DATABASE_URL").ok())
+                .expect("DATABASE_URL or --database-url is required");
+            gf_storage::migrate(&database_url).await?;
+            println!("database migrations applied");
+        }
         Command::Api => not_implemented("api"),
         Command::Worker => not_implemented("worker"),
     }

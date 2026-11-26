@@ -185,16 +185,16 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 7 — migrations base
 
-- [ ] Adicionar migrations SQL para tenants, users, projects, memberships e api_tokens.
-- [ ] Adicionar índice único para slugs/emails quando aplicável.
-- [ ] Usar hashes de senha/token, nunca plaintext.
+- [x] Adicionar migrations SQL para tenants, users, projects, memberships e api_tokens.
+- [x] Adicionar índice único para slugs/emails quando aplicável.
+- [x] Usar hashes de senha/token, nunca plaintext.
 - [ ] Commit sugerido:
   ```text
   feat(server-db): add identity and authorization schema
   ```
 
 **Critério de aceite**
-- [ ] `graphfinder-server migrate` aplica migrations em PostgreSQL limpo.
+- [ ] `graphfinder-server migrate` aplica migrations em PostgreSQL limpo. *(pendente: Docker indisponível neste ambiente)*
 
 #### Commit 8 — schema de conteúdo
 
