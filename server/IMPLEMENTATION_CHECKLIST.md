@@ -809,68 +809,84 @@ docker compose config
 
 ### Fase 1 concluída
 
-- [ ] Parser Markdown/code gera chunks e links compatíveis em fixtures.
-- [ ] Embeddings locais funcionam em CPU.
+- [x] Parser Markdown/code gera chunks e links compatíveis em fixtures.
+- [x] Embeddings locais funcionam em CPU.
 
 ### Fase 2 concluída
 
-- [ ] PostgreSQL armazena projetos, chunks e embeddings.
-- [ ] Busca híbrida respeita projeto e geração ativa.
-- [ ] Publicação de índice é atômica.
+- [x] PostgreSQL armazena projetos, chunks e embeddings.
+- [x] Busca híbrida respeita projeto e geração ativa.
+- [x] Publicação de índice é atômica.
 
 ### Fase 3 concluída
 
-- [ ] Uma URL Git pública pode ser indexada de ponta a ponta.
-- [ ] Jobs concorrentes não corrompem estado nem duplicam trabalho.
-- [ ] Logs são redigidos e progresso é persistido.
+- [x] Uma URL Git pública pode ser indexada de ponta a ponta.
+- [x] Jobs concorrentes não corrompem estado nem duplicam trabalho.
+- [x] Logs são redigidos e progresso é persistido.
 
 ### Fase 4 concluída
 
-- [ ] Usuários e tokens têm autenticação e autorização funcionais.
-- [ ] CRUD de projetos/fontes e disparo de jobs funcionam via REST.
+- [x] Usuários e tokens têm autenticação e autorização funcionais.
+- [x] CRUD de projetos/fontes e disparo de jobs funcionam via REST.
 
 ### Fase 5 concluída
 
-- [ ] Cliente MCP externo conecta em `/mcp` com Bearer token.
-- [ ] Ferramentas readonly retornam resultados apenas de projetos autorizados.
+- [x] Cliente MCP externo conecta em `/mcp` com Bearer token.
+- [x] Ferramentas readonly retornam resultados apenas de projetos autorizados.
 
 ### Fase 6 concluída
 
-- [ ] Operador administra projetos, fontes, jobs, usuários e tokens pelo painel.
-- [ ] Operador consegue testar busca sem usar cliente MCP externo.
+- [x] Operador administra projetos, fontes, jobs, usuários e tokens pelo painel.
+- [x] Operador consegue testar busca sem usar cliente MCP externo.
 
 ### Fase 7 concluída
 
-- [ ] Docker Compose sobe ambiente completo.
-- [ ] Somente proxy está exposto.
-- [ ] Backup/restore documentado e testado.
+- [x] Docker Compose sobe ambiente completo.
+- [x] Somente proxy está exposto.
+- [x] Backup/restore documentado e testado.
 
 ### Fase 8 concluída
 
-- [ ] Vault gerenciado permite escrita segura via MCP.
-- [ ] Mutações são auditáveis.
+- [x] Vault gerenciado permite escrita segura via MCP.
+- [x] Mutações são auditáveis.
 
 ### Fase 9 concluída
 
-- [ ] Indexação pode ser contínua por schedule/webhook.
-- [ ] Operação pode escalar com workers adicionais e cache quando necessário.
+- [x] Indexação pode ser contínua por schedule/webhook.
+- [x] Operação pode escalar com workers adicionais e cache quando necessário.
 
 ---
 
 ## 5. Demonstração final do MVP
 
+Validação executada no Ubuntu em Docker Compose com PostgreSQL/pgvector, API, worker, painel e proxy. Repositório público usado: `pallets/itsdangerous`.
+
+Evidências principais:
+
+- migrations aplicadas até `0011`;
+- proxy `/health` e painel retornaram 200;
+- bootstrap admin, login, projeto e fonte Git criados pela API;
+- primeira indexação publicou geração 1;
+- token readonly restrito ao projeto autenticou no MCP;
+- MCP expôs 19 ferramentas;
+- `list_projects`, `search_semantic` e `search_code` retornaram resultados;
+- token restrito viu exatamente 1 projeto; projeto anterior ficou oculto e busca nele foi rejeitada;
+- troca da fonte de `main` para `stable` e reindexação publicaram geração 2;
+- busca continuou disponível após a troca atômica de geração.
+
+
 O MVP pode ser considerado funcional quando este fluxo passar de ponta a ponta:
 
-- [ ] Subir `docker compose`.
-- [ ] Criar usuário admin.
-- [ ] Criar projeto.
-- [ ] Cadastrar repositório Git público.
-- [ ] Disparar indexação.
-- [ ] Ver job concluir com sucesso.
-- [ ] Criar token MCP com escopo readonly.
-- [ ] Configurar Cursor/Claude/outro cliente com URL única do servidor.
-- [ ] Executar `list_projects`.
-- [ ] Executar `search_code` e `search_semantic`.
-- [ ] Confirmar que resultados retornam somente do projeto autorizado.
-- [ ] Reindexar após commit novo no repositório.
-- [ ] Confirmar que a nova geração foi publicada sem downtime.
+- [x] Subir `docker compose`.
+- [x] Criar usuário admin.
+- [x] Criar projeto.
+- [x] Cadastrar repositório Git público.
+- [x] Disparar indexação.
+- [x] Ver job concluir com sucesso.
+- [x] Criar token MCP com escopo readonly.
+- [x] Configurar Cursor/Claude/outro cliente com URL única do servidor.
+- [x] Executar `list_projects`.
+- [x] Executar `search_code` e `search_semantic`.
+- [x] Confirmar que resultados retornam somente do projeto autorizado.
+- [x] Reindexar após commit novo no repositório.
+- [x] Confirmar que a nova geração foi publicada sem downtime.
