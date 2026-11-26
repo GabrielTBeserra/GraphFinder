@@ -200,3 +200,37 @@ pub async fn get_index_job(pool: &PgPool, id: Uuid) -> StorageResult<Option<Inde
             .await?,
     )
 }
+
+pub async fn schedule_due_index_jobs(pool: &PgPool) -> StorageResult<u64> {
+    let rows = sqlx::query(
+        r#"
+        WITH due AS (
+            SELECT s.id,s.project_id,s.auto_index_interval_seconds
+            FROM sources s
+            WHERE s.kind='git'
+              AND s.auto_index_interval_seconds IS NOT NULL
+              AND s.auto_index_interval_seconds > 0
+              AND s.next_index_at IS NOT NULL
+              AND s.next_index_at <= now()
+              AND NOT EXISTS (
+                SELECT 1 FROM index_jobs j
+                WHERE j.source_id=s.id AND j.status IN ('queued','running')
+              )
+            FOR UPDATE OF s SKIP LOCKED
+        ), inserted AS (
+            INSERT INTO index_jobs (project_id,source_id,priority,max_attempts,payload)
+            SELECT project_id,id,0,3,jsonb_build_object('trigger','schedule')
+            FROM due
+            RETURNING source_id
+        )
+        UPDATE sources s
+        SET next_index_at=now()+make_interval(secs=>s.auto_index_interval_seconds),updated_at=now()
+        FROM inserted i
+        WHERE s.id=i.source_id
+        "#,
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(rows)
+}

@@ -143,6 +143,9 @@ async fn run_worker(database_url: Option<String>, once: bool) -> Result<()> {
     let poll_interval = Duration::from_millis(env_u64("GF_WORKER_POLL_MS", 2_000));
 
     loop {
+        if let Err(error) = gf_storage::schedule_due_index_jobs(&pool).await {
+            tracing::error!(error = %error, "scheduled indexing scan failed");
+        }
         match process_next_index_job(&pool, &config, &embedder).await {
             Ok(true) if once => break,
             Ok(true) => {}

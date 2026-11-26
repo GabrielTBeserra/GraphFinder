@@ -711,6 +711,8 @@ struct SourceResponse {
     include_patterns: Vec<String>,
     exclude_patterns: Vec<String>,
     config: serde_json::Value,
+    auto_index_interval_seconds: Option<i32>,
+    next_index_at: Option<String>,
     created_at: String,
     updated_at: String,
     last_indexed_commit: Option<String>,
@@ -729,6 +731,8 @@ impl From<gf_storage::models::Source> for SourceResponse {
             include_patterns: source.include_patterns,
             exclude_patterns: source.exclude_patterns,
             config: source.config,
+            auto_index_interval_seconds: source.auto_index_interval_seconds,
+            next_index_at: source.next_index_at.map(|v| v.to_rfc3339()),
             created_at: source.created_at.to_rfc3339(),
             updated_at: source.updated_at.to_rfc3339(),
             last_indexed_commit: None,
@@ -772,6 +776,7 @@ struct CreateSourceRequest {
     include_patterns: Option<Vec<String>>,
     exclude_patterns: Option<Vec<String>>,
     config: Option<serde_json::Value>,
+    auto_index_interval_seconds: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -782,6 +787,7 @@ struct UpdateSourceRequest {
     include_patterns: Option<Vec<String>>,
     exclude_patterns: Option<Vec<String>>,
     config: Option<serde_json::Value>,
+    auto_index_interval_seconds: Option<Option<i32>>,
 }
 
 fn validate_source_uri(kind: &str, uri: &str) -> Result<String, (StatusCode, &'static str)> {
@@ -854,6 +860,7 @@ async fn create_source(
             include_patterns: request.include_patterns.unwrap_or_default(),
             exclude_patterns: request.exclude_patterns.unwrap_or_default(),
             config: request.config.unwrap_or_else(|| serde_json::json!({})),
+            auto_index_interval_seconds: request.auto_index_interval_seconds,
         },
     )
     .await
@@ -905,6 +912,7 @@ async fn update_source(
             include_patterns: request.include_patterns,
             exclude_patterns: request.exclude_patterns,
             config: request.config,
+            auto_index_interval_seconds: request.auto_index_interval_seconds,
         },
     )
     .await

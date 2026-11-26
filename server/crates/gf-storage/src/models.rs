@@ -40,6 +40,8 @@ pub struct Source {
     pub include_patterns: Vec<String>,
     pub exclude_patterns: Vec<String>,
     pub config: Value,
+    pub auto_index_interval_seconds: Option<i32>,
+    pub next_index_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -53,6 +55,7 @@ pub struct NewSource {
     pub include_patterns: Vec<String>,
     pub exclude_patterns: Vec<String>,
     pub config: Value,
+    pub auto_index_interval_seconds: Option<i32>,
 }
 
 pub struct SourceUpdate {
@@ -62,6 +65,7 @@ pub struct SourceUpdate {
     pub include_patterns: Option<Vec<String>>,
     pub exclude_patterns: Option<Vec<String>>,
     pub config: Option<Value>,
+    pub auto_index_interval_seconds: Option<Option<i32>>,
 }
 
 #[derive(Debug, Clone, FromRow)]

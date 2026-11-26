@@ -505,6 +505,7 @@ async fn managed_vault_source(
             include_patterns: vec![],
             exclude_patterns: vec![],
             config: json!({}),
+            auto_index_interval_seconds: None,
         },
     )
     .await

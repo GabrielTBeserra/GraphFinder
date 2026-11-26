@@ -725,8 +725,8 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 43 — reindexação agendada
 
-- [ ] Implementar schedule por fonte/projeto.
-- [ ] Implementar política de deduplicação.
+- [x] Implementar schedule por fonte/projeto.
+- [x] Implementar política de deduplicação.
 - [ ] Commit sugerido:
   ```text
   feat(server-indexer): add scheduled indexing

@@ -77,9 +77,9 @@ pub async fn create_source(pool: &PgPool, source: NewSource) -> StorageResult<So
         r#"
         INSERT INTO sources (
             project_id, kind, uri, branch, credential_ref,
-            include_patterns, exclude_patterns, config
+            include_patterns, exclude_patterns, config, auto_index_interval_seconds
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *
         "#,
     )
@@ -91,6 +91,7 @@ pub async fn create_source(pool: &PgPool, source: NewSource) -> StorageResult<So
     .bind(source.include_patterns)
     .bind(source.exclude_patterns)
     .bind(source.config)
+    .bind(source.auto_index_interval_seconds)
     .fetch_one(pool)
     .await?)
 }
@@ -127,6 +128,8 @@ pub async fn update_source(
             include_patterns = COALESCE($5, include_patterns),
             exclude_patterns = COALESCE($6, exclude_patterns),
             config = COALESCE($7, config),
+            auto_index_interval_seconds = COALESCE($8, auto_index_interval_seconds),
+            next_index_at = CASE WHEN $8 IS NULL THEN next_index_at ELSE now() + make_interval(secs=>$8) END,
             updated_at = now()
         WHERE id = $1
         RETURNING *
@@ -139,6 +142,7 @@ pub async fn update_source(
     .bind(update.include_patterns)
     .bind(update.exclude_patterns)
     .bind(update.config)
+    .bind(update.auto_index_interval_seconds.flatten())
     .fetch_optional(pool)
     .await?)
 }
