@@ -547,17 +547,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 31 — jobs de indexação
 
-- [ ] Listar jobs por projeto.
-- [ ] Exibir progresso, etapa, erros e duração.
-- [ ] Implementar retry/cancel quando permitido.
-- [ ] Implementar polling simples ou SSE.
+- [x] Listar jobs por projeto.
+- [x] Exibir progresso, etapa, erros e duração.
+- [x] Implementar retry/cancel quando permitido.
+- [x] Implementar polling simples ou SSE.
 - [ ] Commit sugerido:
   ```text
   feat(server-admin): add indexing job monitoring
   ```
 
 **Critério de aceite**
-- [ ] Operador acompanha indexação sem acessar logs do container.
+- [x] Operador acompanha indexação sem acessar logs do container.
 
 #### Commit 32 — tokens e usuários
 
