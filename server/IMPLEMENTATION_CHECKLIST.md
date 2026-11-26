@@ -533,9 +533,9 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 30 — projetos e fontes
 
-- [ ] Listar projetos.
-- [ ] Criar/editar projeto.
-- [ ] Adicionar fonte Git com validação básica.
+- [x] Listar projetos.
+- [x] Criar/editar projeto.
+- [x] Adicionar fonte Git com validação básica.
 - [ ] Exibir último commit, status e geração ativa.
 - [ ] Commit sugerido:
   ```text
@@ -543,7 +543,7 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
   ```
 
 **Critério de aceite**
-- [ ] Usuário consegue configurar um projeto completo pelo painel.
+- [x] Usuário consegue configurar um projeto completo pelo painel.
 
 #### Commit 31 — jobs de indexação
 

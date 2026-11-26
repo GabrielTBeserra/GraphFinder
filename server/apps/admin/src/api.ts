@@ -65,3 +65,41 @@ export type Project = {
 export function listProjects(token: string) {
   return request<Project[]>('/api/v1/projects', {}, token);
 }
+
+export type Source = {
+  id: string;
+  project_id: string;
+  kind: string;
+  uri: string;
+  branch?: string | null;
+  include_patterns: string[];
+  exclude_patterns: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export function createProject(token: string, input: { slug: string; name: string; description?: string | null }) {
+  return request<Project>('/api/v1/projects', { method: 'POST', body: JSON.stringify(input) }, token);
+}
+
+export function updateProject(token: string, id: string, input: { name?: string; description?: string | null }) {
+  return request<Project>(`/api/v1/projects/${id}`, { method: 'PATCH', body: JSON.stringify(input) }, token);
+}
+
+export function listSources(token: string, projectId: string) {
+  return request<Source[]>(`/api/v1/projects/${projectId}/sources`, {}, token);
+}
+
+export function createSource(token: string, projectId: string, input: {
+  kind: string;
+  uri: string;
+  branch?: string | null;
+  include_patterns?: string[];
+  exclude_patterns?: string[];
+}) {
+  return request<Source>(`/api/v1/projects/${projectId}/sources`, { method: 'POST', body: JSON.stringify(input) }, token);
+}
+
+export function deleteSource(token: string, sourceId: string) {
+  return request<void>(`/api/v1/sources/${sourceId}`, { method: 'DELETE' }, token);
+}

@@ -1,5 +1,19 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { listProjects, loadSession, login, logout, Project, saveSession, Session } from './api';
+import {
+  createProject,
+  createSource,
+  deleteSource,
+  listProjects,
+  listSources,
+  loadSession,
+  login,
+  logout,
+  Project,
+  saveSession,
+  Session,
+  Source,
+  updateProject,
+} from './api';
 
 function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
   const [tenant, setTenant] = useState('default');
@@ -47,6 +61,150 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         </form>
       </section>
     </main>
+  );
+}
+
+
+function ProjectsManager({ session, projects, setProjects, status }: {
+  session: Session;
+  projects: Project[];
+  setProjects: (projects: Project[]) => void;
+  status: string;
+}) {
+  const [selectedId, setSelectedId] = useState('');
+  const [sources, setSources] = useState<Source[]>([]);
+  const [projectForm, setProjectForm] = useState({ slug: '', name: '', description: '' });
+  const [sourceForm, setSourceForm] = useState({ uri: '', branch: 'main', include: '', exclude: '' });
+  const [editName, setEditName] = useState('');
+  const [message, setMessage] = useState('');
+  const selected = projects.find((project) => project.id === selectedId) ?? projects[0];
+
+  useEffect(() => {
+    if (!selected) {
+      setSources([]);
+      return;
+    }
+    setSelectedId(selected.id);
+    setEditName(selected.name);
+    listSources(session.token, selected.id).then(setSources).catch(() => setSources([]));
+  }, [session.token, selected?.id]);
+
+  async function refreshProjects() {
+    const items = await listProjects(session.token);
+    setProjects(items);
+  }
+
+  async function submitProject(event: FormEvent) {
+    event.preventDefault();
+    setMessage('');
+    try {
+      const project = await createProject(session.token, {
+        slug: projectForm.slug,
+        name: projectForm.name,
+        description: projectForm.description || null,
+      });
+      setProjectForm({ slug: '', name: '', description: '' });
+      await refreshProjects();
+      setSelectedId(project.id);
+      setMessage('project created');
+    } catch {
+      setMessage('project creation failed');
+    }
+  }
+
+  async function saveProject(event: FormEvent) {
+    event.preventDefault();
+    if (!selected) return;
+    try {
+      await updateProject(session.token, selected.id, { name: editName });
+      await refreshProjects();
+      setMessage('project updated');
+    } catch {
+      setMessage('project update failed');
+    }
+  }
+
+  async function submitSource(event: FormEvent) {
+    event.preventDefault();
+    if (!selected) return;
+    const split = (value: string) => value.split('\n').map((item) => item.trim()).filter(Boolean);
+    try {
+      await createSource(session.token, selected.id, {
+        kind: 'git',
+        uri: sourceForm.uri,
+        branch: sourceForm.branch || null,
+        include_patterns: split(sourceForm.include),
+        exclude_patterns: split(sourceForm.exclude),
+      });
+      setSourceForm({ uri: '', branch: 'main', include: '', exclude: '' });
+      setSources(await listSources(session.token, selected.id));
+      setMessage('source created');
+    } catch {
+      setMessage('source creation failed');
+    }
+  }
+
+  async function removeSource(id: string) {
+    if (!selected) return;
+    await deleteSource(session.token, id).catch(() => undefined);
+    setSources(await listSources(session.token, selected.id).catch(() => []));
+  }
+
+  return (
+    <div className="management-grid">
+      <section>
+        <div className="panel-heading"><h2>Projects</h2><span>{status}</span></div>
+        <div className="project-list">
+          {projects.map((project) => (
+            <button key={project.id} className={`project-row selectable ${selected?.id === project.id ? 'selected' : ''}`} onClick={() => setSelectedId(project.id)}>
+              <div><strong>{project.name}</strong><span>{project.slug}</span></div>
+              <code>gen {project.active_generation}</code>
+            </button>
+          ))}
+          {projects.length === 0 && <p className="empty-state">No projects visible for this principal.</p>}
+        </div>
+        <form className="inline-form" onSubmit={submitProject}>
+          <h3>New project</h3>
+          <input placeholder="slug" value={projectForm.slug} onChange={(e) => setProjectForm({ ...projectForm, slug: e.target.value })} required />
+          <input placeholder="name" value={projectForm.name} onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })} required />
+          <input placeholder="description" value={projectForm.description} onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })} />
+          <button>Create project</button>
+        </form>
+      </section>
+      <section>
+        {selected ? (
+          <>
+            <div className="panel-heading"><h2>{selected.slug}</h2><span>generation {selected.active_generation}</span></div>
+            <form className="inline-form horizontal" onSubmit={saveProject}>
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} />
+              <button>Save name</button>
+            </form>
+            <div className="source-block">
+              <h3>Git sources</h3>
+              {sources.map((source) => (
+                <article className="source-row" key={source.id}>
+                  <div>
+                    <strong>{source.uri}</strong>
+                    <span>branch {source.branch ?? 'default'} · include {source.include_patterns.length} · exclude {source.exclude_patterns.length}</span>
+                  </div>
+                  <button className="danger-button" onClick={() => removeSource(source.id)}>Remove</button>
+                </article>
+              ))}
+              {sources.length === 0 && <p className="empty-state">No git sources configured.</p>}
+            </div>
+            <form className="inline-form" onSubmit={submitSource}>
+              <h3>Add source</h3>
+              <input placeholder="https://github.com/org/repo.git" value={sourceForm.uri} onChange={(e) => setSourceForm({ ...sourceForm, uri: e.target.value })} required />
+              <input placeholder="branch" value={sourceForm.branch} onChange={(e) => setSourceForm({ ...sourceForm, branch: e.target.value })} />
+              <textarea placeholder="include patterns, one per line" value={sourceForm.include} onChange={(e) => setSourceForm({ ...sourceForm, include: e.target.value })} />
+              <textarea placeholder="exclude patterns, one per line" value={sourceForm.exclude} onChange={(e) => setSourceForm({ ...sourceForm, exclude: e.target.value })} />
+              <button>Add git source</button>
+            </form>
+          </>
+        ) : <p className="empty-state">Create a project to configure sources.</p>}
+        {message && <p className="operation-message">{message}</p>}
+      </section>
+    </div>
   );
 }
 
@@ -113,25 +271,8 @@ function App() {
           ))}
         </section>
         <section className="content-panel">
-          {active === 'Projects' || active === 'Overview' ? (
-            <>
-              <div className="panel-heading">
-                <h2>Projects</h2>
-                <span>{status}</span>
-              </div>
-              <div className="project-list">
-                {projects.map((project) => (
-                  <article key={project.id} className="project-row">
-                    <div>
-                      <strong>{project.name}</strong>
-                      <span>{project.slug}</span>
-                    </div>
-                    <code>gen {project.active_generation}</code>
-                  </article>
-                ))}
-                {projects.length === 0 && <p className="empty-state">No projects visible for this principal.</p>}
-              </div>
-            </>
+          {active === 'Projects' || active === 'Overview' || active === 'Sources' ? (
+            <ProjectsManager session={session} projects={projects} setProjects={setProjects} status={status} />
           ) : (
             <div className="empty-state large">{active} module scaffolded. Data wiring arrives in the next implementation step.</div>
           )}

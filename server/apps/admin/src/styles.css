@@ -170,3 +170,23 @@ code { color: var(--accent); font-family: 'JetBrains Mono', monospace; }
   .workspace-header { display: block; }
   .login-panel { padding: 32px 24px; }
 }
+
+.management-grid { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(420px, 1.2fr); gap: 28px; }
+.project-row.selectable { width: 100%; border-left: 0; border-right: 0; background: transparent; color: var(--ink); text-align: left; }
+.project-row.selectable:hover, .project-row.selectable.selected { background: rgba(143,255,189,.055); }
+.project-row.selected code { color: var(--accent-ink); background: var(--accent); padding: 2px 6px; }
+.inline-form { display: grid; gap: 10px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.inline-form.horizontal { grid-template-columns: 1fr auto; align-items: end; }
+.inline-form h3, .source-block h3 { margin: 0 0 4px; color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+.inline-form button { border: 1px solid var(--accent); background: transparent; color: var(--accent); padding: 10px 13px; font-weight: 700; }
+.inline-form button:hover { background: var(--accent); color: var(--accent-ink); }
+textarea { min-height: 74px; resize: vertical; border: 1px solid var(--line); background: #080d0f; color: var(--ink); padding: 12px; font: inherit; }
+textarea:focus { border-color: var(--accent); outline: none; }
+.source-block { margin-top: 24px; }
+.source-row { display: flex; justify-content: space-between; gap: 18px; align-items: center; border: 1px solid var(--line); background: rgba(255,255,255,.018); padding: 13px; margin-top: 8px; }
+.source-row div { display: grid; gap: 4px; min-width: 0; }
+.source-row strong { overflow-wrap: anywhere; font-size: 14px; }
+.source-row span { color: var(--muted); font-size: 12px; }
+.danger-button { border: 1px solid rgba(255,107,122,.45); background: transparent; color: var(--danger); padding: 7px 9px; }
+.operation-message { color: var(--warning); font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+@media (max-width: 1000px) { .management-grid { grid-template-columns: 1fr; } }
