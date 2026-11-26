@@ -1,5 +1,7 @@
 //! MCP protocol surface for GraphFinder Server.
 
+use std::collections::{HashMap, HashSet, VecDeque};
+
 use serde_json::{json, Value};
 use sqlx::PgPool;
 
@@ -91,6 +93,31 @@ pub fn tool_definitions() -> Value {
                 "required":["project","path","symbol"],
                 "additionalProperties":false
             }
+        },
+        {
+            "name": "get_compressed_context",
+            "description": "Return a compact structural map of a document with section/token metadata.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"path":{"type":"string"}},"required":["project","path"],"additionalProperties":false}
+        },
+        {
+            "name": "get_code_dependencies",
+            "description": "Return imports, internal dependencies, dependents, and external packages for a file.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"path":{"type":"string"}},"required":["project","path"],"additionalProperties":false}
+        },
+        {
+            "name": "get_graph_neighborhood",
+            "description": "Return nodes and edges around a document in the active-generation graph.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"target":{"type":"string"},"depth":{"type":"integer"}},"required":["project","target"],"additionalProperties":false}
+        },
+        {
+            "name": "find_path",
+            "description": "Find the shortest dependency/link path between two documents.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"source":{"type":"string"},"target":{"type":"string"}},"required":["project","source","target"],"additionalProperties":false}
+        },
+        {
+            "name": "explain_node",
+            "description": "Explain a document graph node with degree, dependencies, dependents, and architectural role.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"target":{"type":"string"}},"required":["project","target"],"additionalProperties":false}
         }
     ])
 }
@@ -431,6 +458,420 @@ async fn call_tool(
         "find_files" => tool_find_files(context, arguments).await,
         "get_file_context" => tool_get_file_context(context, arguments).await,
         "read_code_chunk" => tool_read_code_chunk(context, arguments).await,
+        "get_compressed_context" => tool_get_compressed_context(context, arguments).await,
+        "get_code_dependencies" => tool_get_code_dependencies(context, arguments).await,
+        "get_graph_neighborhood" => tool_get_graph_neighborhood(context, arguments).await,
+        "find_path" => tool_find_path(context, arguments).await,
+        "explain_node" => tool_explain_node(context, arguments).await,
         _ => Err("unknown tool".into()),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DocumentEdge {
+    source: String,
+    target: String,
+    kind: String,
+}
+
+async fn active_documents(
+    context: &McpContext<'_>,
+    project_id: uuid::Uuid,
+) -> Result<Vec<gf_storage::models::Document>, String> {
+    sqlx::query_as::<_, gf_storage::models::Document>(
+        r#"
+        SELECT d.* FROM documents d
+        JOIN projects p ON p.id=d.project_id AND p.active_generation=d.generation
+        WHERE d.project_id=$1 ORDER BY d.path
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(context.pool)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+fn file_stem(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.split('.').next().unwrap_or(name).to_string()
+}
+
+fn normalize_key(value: &str) -> String {
+    value
+        .split('#')
+        .next()
+        .unwrap_or(value)
+        .trim()
+        .trim_end_matches(".md")
+        .to_ascii_lowercase()
+        .replace(['-', '_'], " ")
+}
+
+fn document_keys(document: &gf_storage::models::Document) -> HashSet<String> {
+    let mut keys = HashSet::from([
+        normalize_key(&document.path),
+        normalize_key(&file_stem(&document.path)),
+    ]);
+    if let Some(title) = &document.title {
+        keys.insert(normalize_key(title));
+    }
+    keys
+}
+
+fn metadata_strings(metadata: &Value, key: &str) -> Vec<String> {
+    metadata
+        .get(key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn resolve_reference(
+    documents: &[gf_storage::models::Document],
+    reference: &str,
+) -> Option<String> {
+    let reference = reference.trim();
+    if reference.is_empty() {
+        return None;
+    }
+    if let Some(document) = documents.iter().find(|document| document.path == reference) {
+        return Some(document.path.clone());
+    }
+    let normalized = normalize_key(reference);
+    documents
+        .iter()
+        .find(|document| document_keys(document).contains(&normalized))
+        .or_else(|| {
+            documents.iter().find(|document| {
+                document.path.ends_with(reference)
+                    || reference.ends_with(&file_stem(&document.path))
+            })
+        })
+        .map(|document| document.path.clone())
+}
+
+fn infer_document_edges(documents: &[gf_storage::models::Document]) -> Vec<DocumentEdge> {
+    let mut seen = HashSet::new();
+    let mut edges = Vec::new();
+    for document in documents {
+        for link in metadata_strings(&document.metadata, "links") {
+            if let Some(target) = resolve_reference(documents, &link) {
+                if target != document.path {
+                    let edge = DocumentEdge {
+                        source: document.path.clone(),
+                        target,
+                        kind: "link".into(),
+                    };
+                    if seen.insert(edge.clone()) {
+                        edges.push(edge);
+                    }
+                }
+            }
+        }
+        for import in metadata_strings(&document.metadata, "imports") {
+            if let Some(target) = resolve_reference(documents, &import) {
+                if target != document.path {
+                    let edge = DocumentEdge {
+                        source: document.path.clone(),
+                        target,
+                        kind: "import".into(),
+                    };
+                    if seen.insert(edge.clone()) {
+                        edges.push(edge);
+                    }
+                }
+            }
+        }
+    }
+    edges
+}
+
+fn undirected_adjacency(edges: &[DocumentEdge]) -> HashMap<String, Vec<String>> {
+    let mut adjacency: HashMap<String, Vec<String>> = HashMap::new();
+    for edge in edges {
+        adjacency
+            .entry(edge.source.clone())
+            .or_default()
+            .push(edge.target.clone());
+        adjacency
+            .entry(edge.target.clone())
+            .or_default()
+            .push(edge.source.clone());
+    }
+    for neighbors in adjacency.values_mut() {
+        neighbors.sort();
+        neighbors.dedup();
+    }
+    adjacency
+}
+
+async fn tool_get_compressed_context(
+    context: &McpContext<'_>,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    let path = argument(arguments, "path")?;
+    let document = active_document(context, project.id, path).await?;
+    let chunks = gf_storage::list_chunks(context.pool, document.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let total_tokens: i32 = chunks.iter().map(|chunk| chunk.token_count).sum();
+    Ok(json!({
+        "project": project.slug,
+        "path": document.path,
+        "type": document.document_type,
+        "language": document.language,
+        "title": document.title,
+        "total_tokens": total_tokens,
+        "links": metadata_strings(&document.metadata, "links"),
+        "tags": metadata_strings(&document.metadata, "tags"),
+        "sections": chunks.iter().take(40).map(|chunk| json!({
+            "heading": chunk.heading_path.last(),
+            "tokens": chunk.token_count,
+            "lines": [chunk.start_line, chunk.end_line]
+        })).collect::<Vec<_>>(),
+        "section_count": chunks.len()
+    }))
+}
+
+async fn tool_get_code_dependencies(
+    context: &McpContext<'_>,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_CODE_READ,
+    )
+    .await?;
+    let path = argument(arguments, "path")?;
+    let document = active_document(context, project.id, path).await?;
+    let documents = active_documents(context, project.id).await?;
+    let edges = infer_document_edges(&documents);
+    let imports = metadata_strings(&document.metadata, "imports");
+    let internal = imports
+        .iter()
+        .filter_map(|import| resolve_reference(&documents, import))
+        .collect::<Vec<_>>();
+    let external = imports
+        .iter()
+        .filter(|import| resolve_reference(&documents, import).is_none())
+        .cloned()
+        .collect::<Vec<_>>();
+    let dependents = edges
+        .iter()
+        .filter(|edge| edge.target == document.path)
+        .map(|edge| edge.source.clone())
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "project": project.slug,
+        "path": document.path,
+        "imports": imports,
+        "internal_dependencies": internal,
+        "external_dependencies": external,
+        "dependents": dependents,
+        "dependency_count": edges.iter().filter(|edge| edge.source == document.path).count(),
+        "dependent_count": dependents.len()
+    }))
+}
+
+async fn load_project_graph(
+    context: &McpContext<'_>,
+    project: &gf_storage::models::Project,
+) -> Result<(Vec<gf_storage::models::Document>, Vec<DocumentEdge>), String> {
+    let documents = active_documents(context, project.id).await?;
+    let edges = infer_document_edges(&documents);
+    Ok((documents, edges))
+}
+
+fn graph_node_json(document: &gf_storage::models::Document) -> Value {
+    json!({
+        "id": document.path,
+        "path": document.path,
+        "type": document.document_type,
+        "language": document.language,
+        "title": document.title
+    })
+}
+
+fn edge_json(edge: &DocumentEdge) -> Value {
+    json!({"source": edge.source, "target": edge.target, "kind": edge.kind})
+}
+
+async fn tool_get_graph_neighborhood(
+    context: &McpContext<'_>,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    let target_input = argument(arguments, "target")?;
+    let depth = arguments
+        .get("depth")
+        .and_then(Value::as_i64)
+        .unwrap_or(1)
+        .clamp(1, 3) as usize;
+    let (documents, edges) = load_project_graph(context, &project).await?;
+    let target = resolve_reference(&documents, target_input)
+        .ok_or_else(|| "target node not found in active generation".to_string())?;
+    let adjacency = undirected_adjacency(&edges);
+    let mut seen = HashSet::from([target.clone()]);
+    let mut frontier = vec![target.clone()];
+    for _ in 0..depth {
+        let mut next = Vec::new();
+        for node in frontier {
+            for neighbor in adjacency.get(&node).into_iter().flatten() {
+                if seen.insert(neighbor.clone()) {
+                    next.push(neighbor.clone());
+                }
+            }
+        }
+        frontier = next;
+    }
+    let nodes = documents
+        .iter()
+        .filter(|document| seen.contains(&document.path))
+        .map(graph_node_json)
+        .collect::<Vec<_>>();
+    let neighborhood_edges = edges
+        .iter()
+        .filter(|edge| seen.contains(&edge.source) && seen.contains(&edge.target))
+        .map(edge_json)
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "project": project.slug,
+        "target": target,
+        "depth": depth,
+        "nodes": nodes,
+        "edges": neighborhood_edges,
+        "node_count": nodes.len(),
+        "edge_count": neighborhood_edges.len()
+    }))
+}
+
+fn shortest_path(
+    adjacency: &HashMap<String, Vec<String>>,
+    source: &str,
+    target: &str,
+) -> Option<Vec<String>> {
+    if source == target {
+        return Some(vec![source.to_string()]);
+    }
+    let mut visited = HashSet::from([source.to_string()]);
+    let mut parent = HashMap::new();
+    let mut queue = VecDeque::from([source.to_string()]);
+    while let Some(current) = queue.pop_front() {
+        for next in adjacency.get(&current).into_iter().flatten() {
+            if !visited.insert(next.clone()) {
+                continue;
+            }
+            parent.insert(next.clone(), current.clone());
+            if next == target {
+                let mut path = vec![target.to_string()];
+                let mut cursor = target;
+                while let Some(previous) = parent.get(cursor) {
+                    path.push(previous.clone());
+                    cursor = previous;
+                }
+                path.reverse();
+                return Some(path);
+            }
+            queue.push_back(next.clone());
+        }
+    }
+    None
+}
+
+async fn tool_find_path(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    let (documents, edges) = load_project_graph(context, &project).await?;
+    let source = resolve_reference(&documents, argument(arguments, "source")?)
+        .ok_or_else(|| "source node not found in active generation".to_string())?;
+    let target = resolve_reference(&documents, argument(arguments, "target")?)
+        .ok_or_else(|| "target node not found in active generation".to_string())?;
+    let adjacency = undirected_adjacency(&edges);
+    let path = shortest_path(&adjacency, &source, &target)
+        .ok_or_else(|| "no path found in active generation graph".to_string())?;
+    Ok(json!({
+        "project": project.slug,
+        "source": source,
+        "target": target,
+        "path": path,
+        "length": path.len().saturating_sub(1)
+    }))
+}
+
+async fn tool_explain_node(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    let target_input = argument(arguments, "target")?;
+    let (documents, edges) = load_project_graph(context, &project).await?;
+    let target = resolve_reference(&documents, target_input)
+        .ok_or_else(|| "target node not found in active generation".to_string())?;
+    let document = documents
+        .iter()
+        .find(|document| document.path == target)
+        .ok_or_else(|| "target document not found".to_string())?;
+    let outgoing = edges
+        .iter()
+        .filter(|edge| edge.source == target)
+        .map(|edge| edge.target.clone())
+        .collect::<Vec<_>>();
+    let incoming = edges
+        .iter()
+        .filter(|edge| edge.target == target)
+        .map(|edge| edge.source.clone())
+        .collect::<Vec<_>>();
+    let degree = outgoing.len() + incoming.len();
+    let centrality = if documents.len() > 1 {
+        degree as f32 / (documents.len() - 1) as f32
+    } else {
+        0.0
+    };
+    let role = if degree >= 5 {
+        "hub"
+    } else if incoming.len() >= 2 {
+        "shared_dependency"
+    } else if outgoing.len() >= 2 {
+        "integrator"
+    } else if degree == 0 {
+        "isolated"
+    } else {
+        "peripheral"
+    };
+    Ok(json!({
+        "project": project.slug,
+        "node": graph_node_json(document),
+        "degree": degree,
+        "degree_centrality": centrality,
+        "incoming": incoming,
+        "outgoing": outgoing,
+        "role": role,
+        "explanation": format!(
+            "{} has {} incoming and {} outgoing active-generation graph connections; role={role}",
+            document.path,
+            incoming.len(),
+            outgoing.len()
+        )
+    }))
 }

@@ -474,18 +474,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 26 — ferramentas de contexto e grafo
 
-- [ ] Implementar `get_compressed_context`.
-- [ ] Implementar `get_code_dependencies`.
-- [ ] Implementar `get_graph_neighborhood`.
-- [ ] Implementar `find_path`.
-- [ ] Implementar `explain_node`.
+- [x] Implementar `get_compressed_context`.
+- [x] Implementar `get_code_dependencies`.
+- [x] Implementar `get_graph_neighborhood`.
+- [x] Implementar `find_path`.
+- [x] Implementar `explain_node`.
 - [ ] Commit sugerido:
   ```text
   feat(server-mcp): add context and graph tools
   ```
 
 **Critério de aceite**
-- [ ] Consultas de grafo usam a geração ativa consistente.
+- [x] Consultas de grafo usam a geração ativa consistente.
 
 #### Commit 27 — ferramentas administrativas MCP
 
