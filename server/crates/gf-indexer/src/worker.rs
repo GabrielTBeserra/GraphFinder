@@ -3,7 +3,10 @@ use std::time::Duration;
 
 use gf_core::EmbeddingProvider;
 use gf_storage::models::Source;
-use gf_storage::{acquire_index_job, complete_index_job, fail_index_job, get_source, IndexJob};
+use gf_storage::{
+    acquire_index_job, complete_index_job, fail_index_job, get_source, update_index_job_progress,
+    IndexJob,
+};
 use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
@@ -82,6 +85,7 @@ async fn process_source(
         allow_private_hosts: config.allow_private_git_hosts,
         allowed_hosts: config.allowed_git_hosts.clone(),
     };
+    update_index_job_progress(pool, job.id, 10, "validating_git_source").await?;
     let url = validate_git_source_url(&source.uri, &policy)?;
     let branch = job
         .payload
@@ -89,6 +93,7 @@ async fn process_source(
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .or_else(|| source.branch.clone());
+    update_index_job_progress(pool, job.id, 20, "cloning_repository").await?;
     let checkout = clone_or_fetch_public_repo(
         &url,
         &GitCloneOptions {
@@ -100,6 +105,7 @@ async fn process_source(
         },
     )
     .await?;
+    update_index_job_progress(pool, job.id, 40, "indexing_repository").await?;
     let report = index_checkout(
         pool,
         &checkout.path,
@@ -110,5 +116,6 @@ async fn process_source(
         embedder,
     )
     .await?;
+    update_index_job_progress(pool, job.id, 95, "published_generation").await?;
     Ok(report.generation)
 }

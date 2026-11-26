@@ -23,6 +23,10 @@ pub struct IndexJob {
     pub created_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub progress_percent: i32,
+    pub current_stage: Option<String>,
+    pub heartbeat_at: Option<DateTime<Utc>>,
+    pub error_details: Value,
 }
 
 pub struct NewIndexJob {
@@ -85,7 +89,7 @@ pub async fn acquire_index_job(pool: &PgPool) -> StorageResult<Option<IndexJob>>
 }
 
 pub async fn heartbeat_index_job(pool: &PgPool, id: Uuid) -> StorageResult<()> {
-    sqlx::query("UPDATE index_jobs SET updated_at = now() WHERE id = $1 AND status = 'running'")
+    sqlx::query("UPDATE index_jobs SET updated_at = now(), heartbeat_at = now() WHERE id = $1 AND status = 'running'")
         .bind(id)
         .execute(pool)
         .await?;
@@ -156,4 +160,25 @@ pub async fn requeue_stale_index_jobs(pool: &PgPool, stale_seconds: i32) -> Stor
     .await?
     .rows_affected();
     Ok(rows)
+}
+
+pub async fn update_index_job_progress(
+    pool: &PgPool,
+    id: Uuid,
+    progress_percent: i32,
+    stage: &str,
+) -> StorageResult<()> {
+    sqlx::query(
+        r#"
+        UPDATE index_jobs
+        SET progress_percent=$2, current_stage=$3, updated_at=now(), heartbeat_at=now()
+        WHERE id=$1 AND status='running'
+        "#,
+    )
+    .bind(id)
+    .bind(progress_percent.clamp(0, 100))
+    .bind(stage)
+    .execute(pool)
+    .await?;
+    Ok(())
 }

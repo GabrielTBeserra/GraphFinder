@@ -335,16 +335,16 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 17 — logs e progresso de jobs
 
-- [ ] Persistir progresso percentual e etapa atual.
-- [ ] Persistir erros estruturados por arquivo/fase.
-- [ ] Redigir segredos de URLs e logs.
+- [x] Persistir progresso percentual e etapa atual.
+- [ ] Persistir erros estruturados por arquivo/fase. *(schema criado; falta granularidade por arquivo)*
+- [x] Redigir segredos de URLs e logs.
 - [ ] Commit sugerido:
   ```text
   feat(server-indexer): add job progress and redacted logs
   ```
 
 **Critério de aceite**
-- [ ] Painel/API consegue acompanhar job sem ler logs de processo.
+- [ ] Painel/API consegue acompanhar job sem ler logs de processo. *(pendente da API/painel)*
 
 ---
 
