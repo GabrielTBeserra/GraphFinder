@@ -634,17 +634,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 37 — proxy e TLS
 
-- [ ] Adicionar `Caddyfile` ou configuração equivalente.
-- [ ] Rotear `/api` para API, `/mcp` para API e `/` para painel.
-- [ ] Configurar headers de segurança.
-- [ ] Configurar timeouts adequados para MCP/streaming.
+- [x] Adicionar `Caddyfile` ou configuração equivalente.
+- [x] Rotear `/api` para API, `/mcp` para API e `/` para painel.
+- [x] Configurar headers de segurança.
+- [x] Configurar timeouts adequados para MCP/streaming.
 - [ ] Commit sugerido:
   ```text
   build(server): add reverse proxy configuration
   ```
 
 **Critério de aceite**
-- [ ] Painel, API e MCP funcionam pelo mesmo domínio.
+- [x] Painel, API e MCP funcionam pelo mesmo domínio.
 
 #### Commit 38 — observabilidade
 
