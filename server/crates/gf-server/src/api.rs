@@ -26,6 +26,14 @@ pub fn router(pool: PgPool) -> Router {
                 .patch(update_project)
                 .delete(delete_project),
         )
+        .route(
+            "/api/v1/projects/{id}/sources",
+            get(list_sources).post(create_source),
+        )
+        .route(
+            "/api/v1/sources/{id}",
+            get(get_source).patch(update_source).delete(delete_source),
+        )
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())
         .with_state(pool)
@@ -345,6 +353,192 @@ async fn delete_project(
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, "project not found"))
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct SourceResponse {
+    id: uuid::Uuid,
+    project_id: uuid::Uuid,
+    kind: String,
+    uri: String,
+    branch: Option<String>,
+    credential_ref: Option<String>,
+    include_patterns: Vec<String>,
+    exclude_patterns: Vec<String>,
+    config: serde_json::Value,
+    created_at: String,
+    updated_at: String,
+}
+
+impl From<gf_storage::models::Source> for SourceResponse {
+    fn from(source: gf_storage::models::Source) -> Self {
+        Self {
+            id: source.id,
+            project_id: source.project_id,
+            kind: source.kind,
+            uri: source.uri,
+            branch: source.branch,
+            credential_ref: source.credential_ref,
+            include_patterns: source.include_patterns,
+            exclude_patterns: source.exclude_patterns,
+            config: source.config,
+            created_at: source.created_at.to_rfc3339(),
+            updated_at: source.updated_at.to_rfc3339(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateSourceRequest {
+    kind: String,
+    uri: String,
+    branch: Option<String>,
+    credential_ref: Option<String>,
+    include_patterns: Option<Vec<String>>,
+    exclude_patterns: Option<Vec<String>>,
+    config: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateSourceRequest {
+    uri: Option<String>,
+    branch: Option<String>,
+    credential_ref: Option<String>,
+    include_patterns: Option<Vec<String>>,
+    exclude_patterns: Option<Vec<String>>,
+    config: Option<serde_json::Value>,
+}
+
+fn validate_source_uri(kind: &str, uri: &str) -> Result<String, (StatusCode, &'static str)> {
+    if kind != "git" {
+        return Ok(uri.to_string());
+    }
+    gf_indexer::validate_git_source_url(uri, &gf_indexer::GitSourcePolicy::default())
+        .map(|url| url.normalized_url)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid or unsafe git source url"))
+}
+
+async fn authorize_source_or_error(
+    pool: &PgPool,
+    principal: &gf_storage::Principal,
+    source_id: uuid::Uuid,
+    scope: &str,
+) -> Result<gf_storage::models::Source, (StatusCode, &'static str)> {
+    let source = gf_storage::get_source(pool, source_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source lookup failed"))?
+        .ok_or((StatusCode::NOT_FOUND, "source not found"))?;
+    authorize_project_or_error(pool, principal, source.project_id, scope).await?;
+    Ok(source)
+}
+
+async fn list_sources(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(project_id): axum::extract::Path<uuid::Uuid>,
+) -> Result<axum::Json<Vec<SourceResponse>>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_project_or_error(&pool, &principal, project_id, gf_storage::SCOPE_SEARCH_READ)
+        .await?;
+    let sources = gf_storage::list_sources(&pool, project_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source lookup failed"))?
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    Ok(axum::Json(sources))
+}
+
+async fn create_source(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(project_id): axum::extract::Path<uuid::Uuid>,
+    axum::Json(request): axum::Json<CreateSourceRequest>,
+) -> Result<axum::Json<SourceResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_project_or_error(
+        &pool,
+        &principal,
+        project_id,
+        gf_storage::SCOPE_PROJECT_WRITE,
+    )
+    .await?;
+    let uri = validate_source_uri(&request.kind, &request.uri)?;
+    let source = gf_storage::create_source(
+        &pool,
+        gf_storage::models::NewSource {
+            project_id,
+            kind: request.kind,
+            uri,
+            branch: request.branch,
+            credential_ref: request.credential_ref,
+            include_patterns: request.include_patterns.unwrap_or_default(),
+            exclude_patterns: request.exclude_patterns.unwrap_or_default(),
+            config: request.config.unwrap_or_else(|| serde_json::json!({})),
+        },
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source creation failed"))?;
+    Ok(axum::Json(source.into()))
+}
+
+async fn get_source(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> Result<axum::Json<SourceResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let source =
+        authorize_source_or_error(&pool, &principal, id, gf_storage::SCOPE_SEARCH_READ).await?;
+    Ok(axum::Json(source.into()))
+}
+
+async fn update_source(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+    axum::Json(request): axum::Json<UpdateSourceRequest>,
+) -> Result<axum::Json<SourceResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let source =
+        authorize_source_or_error(&pool, &principal, id, gf_storage::SCOPE_PROJECT_WRITE).await?;
+    let uri = request
+        .uri
+        .map(|uri| validate_source_uri(&source.kind, &uri))
+        .transpose()?;
+    let updated = gf_storage::update_source(
+        &pool,
+        id,
+        gf_storage::models::SourceUpdate {
+            uri,
+            branch: request.branch,
+            credential_ref: request.credential_ref,
+            include_patterns: request.include_patterns,
+            exclude_patterns: request.exclude_patterns,
+            config: request.config,
+        },
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source update failed"))?
+    .ok_or((StatusCode::NOT_FOUND, "source not found"))?;
+    Ok(axum::Json(updated.into()))
+}
+
+async fn delete_source(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> Result<StatusCode, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    authorize_source_or_error(&pool, &principal, id, gf_storage::SCOPE_PROJECT_WRITE).await?;
+    let deleted = gf_storage::delete_source(&pool, id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "source deletion failed"))?;
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "source not found"))
     }
 }
 

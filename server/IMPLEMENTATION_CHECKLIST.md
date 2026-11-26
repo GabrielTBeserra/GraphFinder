@@ -411,17 +411,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 22 — endpoints REST de projetos e fontes
 
-- [ ] `GET/POST /api/v1/projects`
-- [ ] `GET/PATCH/DELETE /api/v1/projects/{id}`
-- [ ] `GET/POST /api/v1/projects/{id}/sources`
-- [ ] `GET/PATCH/DELETE /api/v1/sources/{id}`
+- [x] `GET/POST /api/v1/projects`
+- [x] `GET/PATCH/DELETE /api/v1/projects/{id}`
+- [x] `GET/POST /api/v1/projects/{id}/sources`
+- [x] `GET/PATCH/DELETE /api/v1/sources/{id}`
 - [ ] Commit sugerido:
   ```text
   feat(server-api): add project and source endpoints
   ```
 
 **Critério de aceite**
-- [ ] CRUD de projeto/fonte respeita RBAC.
+- [x] CRUD de projeto/fonte respeita RBAC.
 
 #### Commit 23 — endpoints REST de jobs e busca
 
