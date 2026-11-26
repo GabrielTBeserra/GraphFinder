@@ -662,17 +662,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 39 — backup e restore
 
-- [ ] Documentar backup PostgreSQL.
-- [ ] Adicionar script ou procedimento de `pg_dump`.
-- [ ] Definir política para cache repositório/modelos como artefatos reconstruíveis.
-- [ ] Testar restore em ambiente limpo.
+- [x] Documentar backup PostgreSQL.
+- [x] Adicionar script ou procedimento de `pg_dump`.
+- [x] Definir política para cache repositório/modelos como artefatos reconstruíveis.
+- [x] Testar restore em ambiente limpo.
 - [ ] Commit sugerido:
   ```text
   docs(server): add backup and restore procedures
   ```
 
 **Critério de aceite**
-- [ ] Restore recria ambiente funcional a partir de backup.
+- [x] Restore recria ambiente funcional a partir de backup.
 
 ---
 
