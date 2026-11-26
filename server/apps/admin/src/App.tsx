@@ -7,6 +7,7 @@ import {
   createIndexJob,
   createProject,
   createUser,
+  getOidcConfig,
   createSource,
   deleteSource,
   IndexGeneration,
@@ -30,6 +31,7 @@ import {
   Session,
   Source,
   TenantUser,
+  OidcPublicConfig,
   updateProject,
   updateUserRole,
 } from './api';
@@ -40,6 +42,25 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [oidcConfig, setOidcConfig] = useState<OidcPublicConfig | null>(null);
+
+  useEffect(() => {
+    if (window.location.hash.startsWith('#oidc_token=')) {
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      const token = params.get('oidc_token');
+      const expiresAt = params.get('expires_at');
+      const userId = params.get('user_id');
+      const tenantId = params.get('tenant_id');
+      if (token && expiresAt && userId && tenantId) {
+        const session = { token, expires_at: expiresAt, user_id: userId, tenant_id: tenantId };
+        saveSession(session);
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        onLogin(session);
+        return;
+      }
+    }
+    getOidcConfig().then(setOidcConfig).catch(() => setOidcConfig({ enabled: false, button_label: 'Continue with SSO' }));
+  }, [onLogin]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -77,6 +98,11 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
           </label>
           {error && <p className="form-error">{error}</p>}
           <button disabled={loading}>{loading ? 'Authenticating…' : 'Enter console'}</button>
+          {oidcConfig?.enabled && (
+            <a className="sso-button" href="/api/v1/auth/oidc/start">
+              {oidcConfig.button_label}
+            </a>
+          )}
         </form>
       </section>
     </main>

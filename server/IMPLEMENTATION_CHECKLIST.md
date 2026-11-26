@@ -765,9 +765,9 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 47 — OIDC/SSO
 
-- [ ] Implementar login OIDC para humanos.
-- [ ] Mapear grupos/claims para roles quando aplicável.
-- [ ] Manter PATs para MCP/agentes.
+- [x] Implementar login OIDC para humanos.
+- [x] Mapear grupos/claims para roles quando aplicável.
+- [x] Manter PATs para MCP/agentes.
 - [ ] Commit sugerido:
   ```text
   feat(server-auth): add oidc single sign-on

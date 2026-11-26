@@ -38,6 +38,18 @@ services:
     environment:
       DATABASE_URL: postgres://graphfinder:${POSTGRES_PASSWORD}@postgres:5432/graphfinder
       GF_MODEL_CACHE_DIR: /var/lib/graphfinder/models
+      GF_OIDC_ISSUER: ${GF_OIDC_ISSUER:-}
+      GF_OIDC_CLIENT_ID: ${GF_OIDC_CLIENT_ID:-}
+      GF_OIDC_CLIENT_SECRET: ${GF_OIDC_CLIENT_SECRET:-}
+      GF_OIDC_REDIRECT_URI: ${GF_OIDC_REDIRECT_URI:-}
+      GF_OIDC_TENANT_SLUG: ${GF_OIDC_TENANT_SLUG:-default}
+      GF_OIDC_SCOPES: ${GF_OIDC_SCOPES:-openid profile email}
+      GF_OIDC_ROLE_CLAIM: ${GF_OIDC_ROLE_CLAIM:-groups}
+      GF_OIDC_ROLE_MAP: ${GF_OIDC_ROLE_MAP:-}
+      GF_OIDC_DEFAULT_ROLE: ${GF_OIDC_DEFAULT_ROLE:-viewer}
+      GF_OIDC_REQUIRE_VERIFIED_EMAIL: ${GF_OIDC_REQUIRE_VERIFIED_EMAIL:-true}
+      GF_OIDC_SUCCESS_REDIRECT: ${GF_OIDC_SUCCESS_REDIRECT:-/}
+      GF_OIDC_BUTTON_LABEL: ${GF_OIDC_BUTTON_LABEL:-Continue with SSO}
       GF_LOG_FORMAT: ${GF_LOG_FORMAT:-json}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:

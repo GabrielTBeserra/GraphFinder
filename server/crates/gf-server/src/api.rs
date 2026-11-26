@@ -47,13 +47,26 @@ impl LazyEmbedder {
     }
 }
 
-pub fn router(pool: PgPool, embedder: Arc<LazyEmbedder>) -> Router {
+pub fn router(
+    pool: PgPool,
+    embedder: Arc<LazyEmbedder>,
+    oidc: Arc<crate::oidc::OidcConfig>,
+) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/logout", post(logout))
+        .route(
+            "/api/v1/auth/oidc/config",
+            get(crate::oidc::oidc_public_config),
+        )
+        .route("/api/v1/auth/oidc/start", get(crate::oidc::oidc_start))
+        .route(
+            "/api/v1/auth/oidc/callback",
+            get(crate::oidc::oidc_callback),
+        )
         .route("/api/v1/tokens", get(list_tokens).post(create_token))
         .route("/api/v1/tokens/{id}", axum::routing::delete(revoke_token))
         .route("/api/v1/audit-events", get(list_audit_events))
@@ -105,6 +118,7 @@ pub fn router(pool: PgPool, embedder: Arc<LazyEmbedder>) -> Router {
         .route("/api/v1/search", post(search))
         .route("/mcp", post(mcp))
         .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024))
+        .layer(Extension(oidc))
         .layer(Extension(embedder))
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())

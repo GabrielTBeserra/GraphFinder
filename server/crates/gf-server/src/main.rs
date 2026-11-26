@@ -7,6 +7,7 @@ use gf_core::FastEmbedProvider;
 use gf_indexer::{process_next_index_job, WorkerConfig};
 
 mod api;
+mod oidc;
 
 #[derive(Debug, Parser)]
 #[command(name = "graphfinder-server")]
@@ -112,7 +113,8 @@ async fn run_api(database_url: Option<String>, bind: String) -> Result<()> {
     let model_cache = std::env::var("GF_MODEL_CACHE_DIR")
         .unwrap_or_else(|_| "/var/lib/graphfinder/models".into());
     let embedder = std::sync::Arc::new(api::LazyEmbedder::new(model_cache));
-    axum::serve(listener, api::router(pool, embedder)).await?;
+    let oidc = std::sync::Arc::new(oidc::OidcConfig::from_env());
+    axum::serve(listener, api::router(pool, embedder, oidc)).await?;
     Ok(())
 }
 

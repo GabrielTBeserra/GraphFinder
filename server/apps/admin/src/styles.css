@@ -242,3 +242,5 @@ select { border: 1px solid var(--line); background: #080d0f; color: var(--ink); 
 .rollback-actions { display: grid; grid-template-columns: 140px 1fr auto auto; gap: 10px; }
 .rollback-actions input { border: 1px solid var(--line); background: #080d0f; color: var(--ink); padding: 10px; }
 @media (max-width: 900px) { .generation-row, .rollback-actions { grid-template-columns: 1fr; } }
+.sso-button { display: block; border: 1px solid rgba(82,255,168,.4); color: var(--accent); text-align: center; text-decoration: none; padding: 11px 12px; font-weight: 800; margin-top: 2px; }
+.sso-button:hover { background: rgba(82,255,168,.08); }

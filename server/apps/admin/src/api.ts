@@ -41,6 +41,16 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string):
   return response.json() as Promise<T>;
 }
 
+
+export type OidcPublicConfig = {
+  enabled: boolean;
+  button_label: string;
+};
+
+export function getOidcConfig() {
+  return request<OidcPublicConfig>('/api/v1/auth/oidc/config');
+}
+
 export function login(tenantSlug: string, email: string, password: string) {
   return request<Session>('/api/v1/auth/login', {
     method: 'POST',
