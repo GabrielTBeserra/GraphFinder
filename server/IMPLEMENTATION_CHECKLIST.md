@@ -381,18 +381,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 20 — tokens PAT e service tokens
 
-- [ ] Implementar criação de tokens com formato prefixado.
-- [ ] Persistir somente hash.
-- [ ] Implementar scopes, projetos permitidos e expiração.
-- [ ] Implementar revogação e `last_used_at`.
+- [x] Implementar criação de tokens com formato prefixado.
+- [x] Persistir somente hash.
+- [x] Implementar scopes, projetos permitidos e expiração.
+- [x] Implementar revogação e `last_used_at`.
 - [ ] Commit sugerido:
   ```text
   feat(server-auth): implement scoped api tokens
   ```
 
 **Critério de aceite**
-- [ ] Token completo é exibido apenas uma vez.
-- [ ] Token expirado/revogado é rejeitado.
+- [x] Token completo é exibido apenas uma vez.
+- [x] Token expirado/revogado é rejeitado.
 
 #### Commit 21 — RBAC e autorização
 

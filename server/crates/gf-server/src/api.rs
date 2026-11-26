@@ -17,6 +17,8 @@ pub fn router(pool: PgPool) -> Router {
         .route("/metrics", get(metrics))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/logout", post(logout))
+        .route("/api/v1/tokens", post(create_token))
+        .route("/api/v1/tokens/{id}", axum::routing::delete(revoke_token))
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())
         .with_state(pool)
@@ -78,6 +80,85 @@ async fn logout(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "logout failed"))?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateTokenRequest {
+    name: String,
+    scopes: Vec<String>,
+    project_ids: Option<Vec<uuid::Uuid>>,
+    expires_in_days: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct CreateTokenResponse {
+    id: uuid::Uuid,
+    token: String,
+    expires_at: Option<String>,
+}
+
+fn bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+}
+
+async fn require_principal(
+    pool: &PgPool,
+    headers: &axum::http::HeaderMap,
+) -> Result<gf_storage::Principal, (StatusCode, &'static str)> {
+    let token = bearer_token(headers).ok_or((StatusCode::UNAUTHORIZED, "missing bearer token"))?;
+    gf_storage::authenticate_bearer_token(pool, token)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authentication failed"))?
+        .ok_or((StatusCode::UNAUTHORIZED, "invalid token"))
+}
+
+async fn create_token(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::Json(request): axum::Json<CreateTokenRequest>,
+) -> Result<axum::Json<CreateTokenResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    if principal.kind != "session" {
+        return Err((StatusCode::FORBIDDEN, "session authentication required"));
+    }
+    let created = gf_storage::create_api_token(
+        &pool,
+        principal.tenant_id,
+        principal.user_id,
+        &request.name,
+        request.scopes,
+        request.project_ids,
+        request.expires_in_days,
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "token creation failed"))?;
+    Ok(axum::Json(CreateTokenResponse {
+        id: created.id,
+        token: created.token,
+        expires_at: created.expires_at.map(|v| v.to_rfc3339()),
+    }))
+}
+
+async fn revoke_token(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> Result<StatusCode, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    if principal.kind != "session" {
+        return Err((StatusCode::FORBIDDEN, "session authentication required"));
+    }
+    let revoked = gf_storage::revoke_api_token(&pool, principal.tenant_id, id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "token revocation failed"))?;
+    if revoked {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "token not found"))
+    }
 }
 
 async fn request_id(mut request: Request, next: Next) -> Response {

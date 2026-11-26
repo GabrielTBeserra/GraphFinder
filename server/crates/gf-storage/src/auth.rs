@@ -144,3 +144,125 @@ pub async fn revoke_session(pool: &PgPool, token: &str) -> StorageResult<bool> {
     .rows_affected();
     Ok(rows > 0)
 }
+
+#[derive(Debug, Clone)]
+pub struct Principal {
+    pub tenant_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub token_id: Option<Uuid>,
+    pub scopes: Vec<String>,
+    pub project_ids: Option<Vec<Uuid>>,
+    pub kind: String,
+}
+
+pub struct CreatedApiToken {
+    pub id: Uuid,
+    pub token: String,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+pub fn api_token_secret() -> String {
+    format!("gfp_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+}
+
+pub async fn create_api_token(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    user_id: Option<Uuid>,
+    name: &str,
+    scopes: Vec<String>,
+    project_ids: Option<Vec<Uuid>>,
+    expires_in_days: Option<i64>,
+) -> StorageResult<CreatedApiToken> {
+    let token = api_token_secret();
+    let expires_at = expires_in_days.map(|days| Utc::now() + Duration::days(days));
+    let id = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        INSERT INTO api_tokens (tenant_id,user_id,name,token_hash,scopes,project_ids,expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(user_id)
+    .bind(name)
+    .bind(token_hash(&token))
+    .bind(scopes)
+    .bind(project_ids)
+    .bind(expires_at)
+    .fetch_one(pool)
+    .await?;
+    Ok(CreatedApiToken {
+        id,
+        token,
+        expires_at,
+    })
+}
+
+pub async fn revoke_api_token(pool: &PgPool, tenant_id: Uuid, id: Uuid) -> StorageResult<bool> {
+    let rows = sqlx::query(
+        "UPDATE api_tokens SET revoked_at=now() WHERE tenant_id=$1 AND id=$2 AND revoked_at IS NULL",
+    )
+    .bind(tenant_id)
+    .bind(id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(rows > 0)
+}
+
+pub async fn authenticate_bearer_token(
+    pool: &PgPool,
+    token: &str,
+) -> StorageResult<Option<Principal>> {
+    let hash = token_hash(token);
+    if let Some(row) = sqlx::query_as::<_, (Uuid, Uuid)>(
+        r#"
+        SELECT tenant_id,user_id FROM auth_sessions
+        WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now()
+        "#,
+    )
+    .bind(&hash)
+    .fetch_optional(pool)
+    .await?
+    {
+        sqlx::query("UPDATE auth_sessions SET last_used_at=now() WHERE token_hash=$1")
+            .bind(&hash)
+            .execute(pool)
+            .await?;
+        return Ok(Some(Principal {
+            tenant_id: row.0,
+            user_id: Some(row.1),
+            token_id: None,
+            scopes: vec!["session".into()],
+            project_ids: None,
+            kind: "session".into(),
+        }));
+    }
+
+    if let Some(row) =
+        sqlx::query_as::<_, (Uuid, Uuid, Option<Uuid>, Vec<String>, Option<Vec<Uuid>>)>(
+            r#"
+        SELECT tenant_id,id,user_id,scopes,project_ids FROM api_tokens
+        WHERE token_hash=$1 AND revoked_at IS NULL
+          AND (expires_at IS NULL OR expires_at > now())
+        "#,
+        )
+        .bind(&hash)
+        .fetch_optional(pool)
+        .await?
+    {
+        sqlx::query("UPDATE api_tokens SET last_used_at=now() WHERE id=$1")
+            .bind(row.1)
+            .execute(pool)
+            .await?;
+        return Ok(Some(Principal {
+            tenant_id: row.0,
+            token_id: Some(row.1),
+            user_id: row.2,
+            scopes: row.3,
+            project_ids: row.4,
+            kind: "api_token".into(),
+        }));
+    }
+    Ok(None)
+}
