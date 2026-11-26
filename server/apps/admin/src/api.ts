@@ -51,10 +51,10 @@ export function getOidcConfig() {
   return request<OidcPublicConfig>('/api/v1/auth/oidc/config');
 }
 
-export function login(tenantSlug: string, email: string, password: string) {
+export function login(email: string, password: string) {
   return request<Session>('/api/v1/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ tenant_slug: tenantSlug, email, password }),
+    body: JSON.stringify({ email, password }),
   });
 }
 

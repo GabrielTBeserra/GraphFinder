@@ -51,6 +51,7 @@ services:
       GF_OIDC_SUCCESS_REDIRECT: ${GF_OIDC_SUCCESS_REDIRECT:-/}
       GF_OIDC_BUTTON_LABEL: ${GF_OIDC_BUTTON_LABEL:-Continue with SSO}
       GF_LOG_FORMAT: ${GF_LOG_FORMAT:-json}
+      GF_DEFAULT_TENANT_SLUG: ${GF_DEFAULT_TENANT_SLUG:-default}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - model-cache:/var/lib/graphfinder/models

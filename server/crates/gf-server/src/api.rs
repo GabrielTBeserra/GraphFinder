@@ -127,7 +127,7 @@ pub fn router(
 
 #[derive(Debug, Deserialize)]
 struct LoginRequest {
-    tenant_slug: String,
+    tenant_slug: Option<String>,
     email: String,
     password: String,
 }
@@ -144,9 +144,18 @@ async fn login(
     State(pool): State<PgPool>,
     axum::Json(request): axum::Json<LoginRequest>,
 ) -> Result<axum::Json<LoginResponse>, (StatusCode, &'static str)> {
+    let tenant_slug = request
+        .tenant_slug
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| std::env::var("GF_DEFAULT_TENANT_SLUG").ok())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "default".into());
     let rate_bucket = format!(
         "password-login:{}:{}",
-        request.tenant_slug.trim().to_lowercase(),
+        tenant_slug.to_lowercase(),
         request.email.trim().to_lowercase()
     );
     let allowed = gf_storage::check_rate_limit(&pool, &rate_bucket, 10, 300)
@@ -155,7 +164,7 @@ async fn login(
     if !allowed {
         return Err((StatusCode::TOO_MANY_REQUESTS, "too many login attempts"));
     }
-    let user = gf_storage::find_user_by_email(&pool, &request.tenant_slug, &request.email)
+    let user = gf_storage::find_user_by_email(&pool, &tenant_slug, &request.email)
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authentication failed"))?
         .ok_or((StatusCode::UNAUTHORIZED, "invalid credentials"))?;

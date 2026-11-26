@@ -37,7 +37,6 @@ import {
 } from './api';
 
 function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
-  const [tenant, setTenant] = useState('default');
   const [email, setEmail] = useState('admin@example.com');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -67,7 +66,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
     setLoading(true);
     setError('');
     try {
-      const session = await login(tenant, email, password);
+      const session = await login(email, password);
       saveSession(session);
       onLogin(session);
     } catch {
@@ -84,10 +83,6 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         <p className="eyebrow">GraphFinder Server</p>
         <h1>Control room for distributed knowledge indexing.</h1>
         <form onSubmit={submit} className="login-form">
-          <label>
-            Tenant
-            <input value={tenant} onChange={(event) => setTenant(event.target.value)} required />
-          </label>
           <label>
             Email
             <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
@@ -714,7 +709,7 @@ function App() {
             <p className="eyebrow">{active}</p>
             <h1>{active === 'Overview' ? 'Indexing operations at a glance.' : `${active} workspace`}</h1>
           </div>
-          <div className="session-chip">tenant · {session.tenant_id.slice(0, 8)}</div>
+          <div className="session-chip">private server</div>
         </header>
         <section className="metric-grid">
           {metrics.map(([label, value]) => (
