@@ -90,18 +90,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 1 — workspace independente
 
-- [ ] Criar `server/Cargo.toml` como workspace independente.
-- [ ] Criar crates vazios: `gf-core`, `gf-storage`, `gf-indexer`, `gf-mcp`, `gf-server`.
-- [ ] Criar binário inicial `graphfinder-server` com subcomandos `migrate`, `api` e `worker` ainda retornando “not implemented”.
-- [ ] Adicionar `server/README.md` com escopo e comandos básicos.
+- [x] Criar `server/Cargo.toml` como workspace independente.
+- [x] Criar crates vazios: `gf-core`, `gf-storage`, `gf-indexer`, `gf-mcp`, `gf-server`.
+- [x] Criar binário inicial `graphfinder-server` com subcomandos `migrate`, `api` e `worker` ainda retornando “not implemented”.
+- [x] Adicionar `server/README.md` com escopo e comandos básicos.
 - [ ] Commit sugerido:
   ```text
   chore(server): initialize independent rust workspace
   ```
 
 **Critério de aceite**
-- [ ] `cargo check --manifest-path server/Cargo.toml` passa.
-- [ ] Nenhuma dependência de Tauri foi adicionada.
+- [x] `cargo check --manifest-path server/Cargo.toml` passa.
+- [x] Nenhuma dependência de Tauri foi adicionada.
 
 #### Commit 2 — fixtures e testes de compatibilidade
 
