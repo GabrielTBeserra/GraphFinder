@@ -2,10 +2,11 @@ use gf_storage::models::{
     NewChunk, NewDocument, NewProject, NewSource, ProjectUpdate, SourceUpdate,
 };
 use gf_storage::{
-    connect, create_chunk, create_document, create_index_generation, create_project, create_source,
-    delete_chunk, delete_document, delete_project, delete_source, get_chunk, get_document,
-    get_project, get_source, list_chunks, list_documents, list_projects, list_sources,
-    migrate_with_pool, update_project, update_source,
+    activate_index_generation, connect, create_chunk, create_document,
+    create_next_index_generation, create_project, create_source, delete_chunk, delete_document,
+    delete_project, delete_source, get_chunk, get_document, get_project, get_source, list_chunks,
+    list_documents, list_projects, list_sources, migrate_with_pool, publish_index_generation,
+    update_project, update_source,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -91,13 +92,16 @@ async fn project_source_document_and_chunk_crud_work() {
     .unwrap();
     assert_eq!(source.branch.as_deref(), Some("develop"));
 
-    create_index_generation(&pool, project.id, 1).await.unwrap();
+    let generation = create_next_index_generation(&pool, project.id)
+        .await
+        .unwrap();
+    assert_eq!(generation.generation, 1);
 
     let document = create_document(
         &pool,
         NewDocument {
             project_id: project.id,
-            generation: 1,
+            generation: generation.generation,
             source_id: Some(source.id),
             path: "docs/guide.md".into(),
             document_type: "markdown".into(),
@@ -112,14 +116,20 @@ async fn project_source_document_and_chunk_crud_work() {
     .unwrap();
 
     assert!(get_document(&pool, document.id).await.unwrap().is_some());
-    assert_eq!(list_documents(&pool, project.id, 1).await.unwrap().len(), 1);
+    assert_eq!(
+        list_documents(&pool, project.id, generation.generation)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
 
     let chunk = create_chunk(
         &pool,
         NewChunk {
             document_id: document.id,
             project_id: project.id,
-            generation: 1,
+            generation: generation.generation,
             chunk_index: 0,
             heading_path: vec!["Guide".into()],
             content: "Hello GraphFinder".into(),
@@ -135,6 +145,19 @@ async fn project_source_document_and_chunk_crud_work() {
 
     assert!(get_chunk(&pool, chunk.id).await.unwrap().is_some());
     assert_eq!(list_chunks(&pool, document.id).await.unwrap().len(), 1);
+
+    assert!(
+        publish_index_generation(&pool, project.id, generation.generation)
+            .await
+            .unwrap()
+    );
+    let project = get_project(&pool, project.id).await.unwrap().unwrap();
+    assert_eq!(project.active_generation, generation.generation);
+    assert!(
+        activate_index_generation(&pool, project.id, generation.generation)
+            .await
+            .unwrap()
+    );
 
     assert!(delete_chunk(&pool, chunk.id).await.unwrap());
     assert!(delete_document(&pool, document.id).await.unwrap());

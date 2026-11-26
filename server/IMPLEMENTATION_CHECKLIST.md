@@ -225,18 +225,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 10 — publicação atômica de gerações
 
-- [ ] Implementar criação de geração `pending`.
-- [ ] Implementar escrita de documentos/chunks/embeddings por geração.
-- [ ] Implementar publicação atômica em `projects.active_generation`.
-- [ ] Implementar limpeza de gerações antigas.
+- [x] Implementar criação de geração `pending`.
+- [x] Implementar escrita de documentos/chunks/embeddings por geração.
+- [x] Implementar publicação atômica em `projects.active_generation`.
+- [x] Implementar limpeza de gerações antigas.
 - [ ] Commit sugerido:
   ```text
   feat(server-db): implement atomic index generation publishing
   ```
 
 **Critério de aceite**
-- [ ] Busca nunca lê geração `pending`.
-- [ ] Rollback manual para geração anterior é possível por operação administrativa interna.
+- [ ] Busca nunca lê geração `pending`. *(será garantido na camada de busca)*
+- [x] Rollback manual para geração anterior é possível por operação administrativa interna.
 
 #### Commit 11 — busca híbrida
 
