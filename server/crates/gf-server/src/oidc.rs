@@ -175,6 +175,16 @@ pub async fn oidc_start(
     if tenant_slug != config.tenant_slug {
         return Err((StatusCode::NOT_FOUND, "tenant not found"));
     }
+    let rate_allowed =
+        gf_storage::check_rate_limit(&pool, &format!("oidc-start:{tenant_slug}"), 30, 60)
+            .await
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "rate limit check failed"))?;
+    if !rate_allowed {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many oidc login attempts",
+        ));
+    }
     let tenant_exists =
         sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM tenants WHERE slug=$1)")
             .bind(&tenant_slug)

@@ -144,6 +144,17 @@ async fn login(
     State(pool): State<PgPool>,
     axum::Json(request): axum::Json<LoginRequest>,
 ) -> Result<axum::Json<LoginResponse>, (StatusCode, &'static str)> {
+    let rate_bucket = format!(
+        "password-login:{}:{}",
+        request.tenant_slug.trim().to_lowercase(),
+        request.email.trim().to_lowercase()
+    );
+    let allowed = gf_storage::check_rate_limit(&pool, &rate_bucket, 10, 300)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "rate limit check failed"))?;
+    if !allowed {
+        return Err((StatusCode::TOO_MANY_REQUESTS, "too many login attempts"));
+    }
     let user = gf_storage::find_user_by_email(&pool, &request.tenant_slug, &request.email)
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authentication failed"))?

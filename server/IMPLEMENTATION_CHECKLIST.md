@@ -757,7 +757,9 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
   - Medição local PostgreSQL/API, concorrência 8: projects p95 ~67 ms, sources p95 ~31 ms, generations p95 ~37 ms, audit p95 ~19 ms.
   - Decisão: cache distribuído adiado; rotas medidas são de control plane e não há evidência de gargalo que justifique operar Redis/Valkey.
 - [ ] Implementar cache de metadados e invalidação por geração quando houver evidência de necessidade.
-- [ ] Implementar rate limiting distribuído se necessário.
+- [x] Implementar rate limiting distribuído se necessário.
+  - Implementado com coordenação transacional em PostgreSQL, sem introduzir Redis: login por senha limitado a 10 tentativas/5 min por tenant+email e início OIDC a 30/min por tenant.
+  - Validação PostgreSQL/API: 10×401 seguidos de 429; teste concorrente com 20 requisições/paralelismo 8 resultou em exatamente 10×401 e 10×429.
 - [ ] Commit sugerido:
   ```text
   feat(server-ops): add redis-backed caching and rate limiting
