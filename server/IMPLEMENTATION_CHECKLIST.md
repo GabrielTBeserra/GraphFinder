@@ -753,8 +753,10 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 46 — Redis/cache quando necessário
 
-- [ ] Introduzir Redis/Valkey somente após medir necessidade.
-- [ ] Implementar cache de metadados e invalidação por geração.
+- [x] Medir necessidade de Redis/Valkey antes de introduzir infraestrutura adicional.
+  - Medição local PostgreSQL/API, concorrência 8: projects p95 ~67 ms, sources p95 ~31 ms, generations p95 ~37 ms, audit p95 ~19 ms.
+  - Decisão: cache distribuído adiado; rotas medidas são de control plane e não há evidência de gargalo que justifique operar Redis/Valkey.
+- [ ] Implementar cache de metadados e invalidação por geração quando houver evidência de necessidade.
 - [ ] Implementar rate limiting distribuído se necessário.
 - [ ] Commit sugerido:
   ```text
