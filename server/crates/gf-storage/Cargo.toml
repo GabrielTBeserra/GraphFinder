@@ -6,7 +6,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-gf-core = { path = "../gf-core" }
 thiserror.workspace = true
 sqlx.workspace = true
 tokio.workspace = true

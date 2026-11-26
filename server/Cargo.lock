@@ -1083,7 +1083,6 @@ dependencies = [
 name = "gf-storage"
 version = "0.1.0"
 dependencies = [
- "gf-core",
  "sqlx",
  "thiserror",
  "tokio",

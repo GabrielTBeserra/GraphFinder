@@ -198,17 +198,17 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 8 — schema de conteúdo
 
-- [ ] Adicionar tabelas `sources`, `documents`, `chunks`, `chunk_embeddings`, `links`, `index_jobs` e `index_generations`.
-- [ ] Habilitar extensão `vector`.
-- [ ] Criar índices por `project_id`, `generation`, `source_id` e `content_hash`.
+- [x] Adicionar tabelas `sources`, `documents`, `chunks`, `chunk_embeddings`, `links`, `index_jobs` e `index_generations`.
+- [x] Habilitar extensão `vector`.
+- [x] Criar índices por `project_id`, `generation`, `source_id` e `content_hash`.
 - [ ] Commit sugerido:
   ```text
   feat(server-db): add content and vector index schema
   ```
 
 **Critério de aceite**
-- [ ] pgvector está disponível.
-- [ ] Schema suporta múltiplas gerações por projeto.
+- [ ] pgvector está disponível. *(pendente de validação em PostgreSQL real)*
+- [x] Schema suporta múltiplas gerações por projeto.
 
 #### Commit 9 — repositories de storage
 
