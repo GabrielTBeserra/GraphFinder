@@ -591,18 +591,18 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 34 — Dockerfile do servidor
 
-- [ ] Criar build multi-stage enxuto.
-- [ ] Incluir `git` no runtime apenas se o worker usar CLI Git.
-- [ ] Executar como usuário não-root.
-- [ ] Preparar diretório de cache de modelos/repositórios.
+- [x] Criar build multi-stage enxuto.
+- [x] Incluir `git` no runtime apenas se o worker usar CLI Git.
+- [x] Executar como usuário não-root.
+- [x] Preparar diretório de cache de modelos/repositórios.
 - [ ] Commit sugerido:
   ```text
   build(server): add production server dockerfile
   ```
 
 **Critério de aceite**
-- [ ] `docker build` da imagem servidor passa.
-- [ ] Imagem executa `migrate`, `api` e `worker`.
+- [x] `docker build` da imagem servidor passa.
+- [x] Imagem executa `migrate`, `api` e `worker`.
 
 #### Commit 35 — Dockerfile do painel
 
