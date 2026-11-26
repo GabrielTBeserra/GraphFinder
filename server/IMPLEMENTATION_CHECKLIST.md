@@ -744,8 +744,8 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 45 — rollback operacional de índice
 
-- [ ] Expor rollback para geração anterior no painel.
-- [ ] Implementar proteção contra rollback acidental.
+- [x] Expor rollback para geração anterior no painel.
+- [x] Implementar proteção contra rollback acidental.
 - [ ] Commit sugerido:
   ```text
   feat(server-admin): add index generation rollback

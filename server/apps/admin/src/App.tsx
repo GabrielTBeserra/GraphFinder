@@ -9,9 +9,11 @@ import {
   createUser,
   createSource,
   deleteSource,
+  IndexGeneration,
   IndexJob,
   listApiTokens,
   listAuditEvents,
+  listIndexGenerations,
   listIndexJobs,
   listProjects,
   listUsers,
@@ -21,6 +23,7 @@ import {
   logout,
   Project,
   revokeApiToken,
+  rollbackIndexGeneration,
   saveSession,
   searchProject,
   SearchHit,
@@ -225,11 +228,15 @@ function ProjectsManager({ session, projects, setProjects, status }: {
 }
 
 
-function JobsManager({ session, projects }: { session: Session; projects: Project[] }) {
+function JobsManager({ session, projects, setProjects }: { session: Session; projects: Project[]; setProjects: (projects: Project[]) => void }) {
   const [projectId, setProjectId] = useState('');
   const [sources, setSources] = useState<Source[]>([]);
   const [sourceId, setSourceId] = useState('');
   const [jobs, setJobs] = useState<IndexJob[]>([]);
+  const [generations, setGenerations] = useState<IndexGeneration[]>([]);
+  const [rollbackTarget, setRollbackTarget] = useState<IndexGeneration | null>(null);
+  const [rollbackConfirm, setRollbackConfirm] = useState('');
+  const [rollbackReason, setRollbackReason] = useState('');
   const [message, setMessage] = useState('');
   const project = projects.find((item) => item.id === projectId) ?? projects[0];
 
@@ -247,8 +254,14 @@ function JobsManager({ session, projects }: { session: Session; projects: Projec
     let cancelled = false;
     async function load() {
       try {
-        const items = await listIndexJobs(session.token, project.id);
-        if (!cancelled) setJobs(items);
+        const [items, generationItems] = await Promise.all([
+          listIndexJobs(session.token, project.id),
+          listIndexGenerations(session.token, project.id),
+        ]);
+        if (!cancelled) {
+          setJobs(items);
+          setGenerations(generationItems);
+        }
       } catch {
         if (!cancelled) setMessage('job polling failed');
       }
@@ -278,6 +291,43 @@ function JobsManager({ session, projects }: { session: Session; projects: Projec
     setJobs(await listIndexJobs(session.token, project.id).catch(() => jobs));
   }
 
+  async function refreshOperations() {
+    if (!project) return;
+    const [nextJobs, nextGenerations, nextProjects] = await Promise.all([
+      listIndexJobs(session.token, project.id),
+      listIndexGenerations(session.token, project.id),
+      listProjects(session.token),
+    ]);
+    setJobs(nextJobs);
+    setGenerations(nextGenerations);
+    setProjects(nextProjects);
+  }
+
+  function beginRollback(generation: IndexGeneration) {
+    setRollbackTarget(generation);
+    setRollbackConfirm('');
+    setRollbackReason('');
+    setMessage('');
+  }
+
+  async function confirmRollback() {
+    if (!project || !rollbackTarget) return;
+    if (rollbackConfirm.trim() !== String(rollbackTarget.generation)) {
+      setMessage('type the exact generation number to confirm rollback');
+      return;
+    }
+    try {
+      await rollbackIndexGeneration(session.token, project.id, rollbackTarget.generation, rollbackReason.trim() || undefined);
+      setRollbackTarget(null);
+      setRollbackConfirm('');
+      setRollbackReason('');
+      await refreshOperations();
+      setMessage(`rolled back to generation ${rollbackTarget.generation}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'rollback failed');
+    }
+  }
+
   function duration(job: IndexJob) {
     if (!job.started_at) return 'not started';
     const end = job.finished_at ? Date.parse(job.finished_at) : Date.now();
@@ -300,6 +350,39 @@ function JobsManager({ session, projects }: { session: Session; projects: Projec
           {sources.map((source) => <option key={source.id} value={source.id}>{source.uri}</option>)}
         </select>
         <button onClick={() => trigger(sourceId || undefined)} disabled={!sourceId}>Trigger index</button>
+      </div>
+      <div className="generation-block">
+        <div className="panel-heading compact-heading"><h3>Index generations</h3><span>{generations.length} recorded</span></div>
+        {generations.map((generation) => (
+          <article className={`generation-row ${generation.is_active ? 'active' : ''}`} key={generation.generation}>
+            <div>
+              <strong>generation {generation.generation}</strong>
+              <div className="job-meta">
+                <span>{generation.status}</span>
+                <span>{generation.embedding_model}</span>
+                <span>published {generation.published_at ? generation.published_at.slice(0, 10) : 'never'}</span>
+                {generation.is_active && <span>active</span>}
+              </div>
+              {generation.error && <p className="job-error">{generation.error}</p>}
+            </div>
+            {!generation.is_active && generation.status === 'archived' && (
+              <button className="danger-button" onClick={() => beginRollback(generation)}>Rollback</button>
+            )}
+          </article>
+        ))}
+        {generations.length === 0 && <p className="empty-state">No generations recorded yet.</p>}
+        {rollbackTarget && (
+          <div className="rollback-confirm">
+            <strong>Confirm rollback to generation {rollbackTarget.generation}</strong>
+            <p>This switches the active search generation. Active indexing jobs must be cancelled first. Type <code>{rollbackTarget.generation}</code> to confirm.</p>
+            <div className="rollback-actions">
+              <input value={rollbackConfirm} onChange={(event) => setRollbackConfirm(event.target.value)} placeholder={`type ${rollbackTarget.generation}`} />
+              <input value={rollbackReason} onChange={(event) => setRollbackReason(event.target.value)} placeholder="rollback reason for audit" />
+              <button className="danger-button" onClick={confirmRollback} disabled={rollbackConfirm.trim() !== String(rollbackTarget.generation)}>Confirm rollback</button>
+              <button onClick={() => setRollbackTarget(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
       <div className="job-list">
         {jobs.map((job) => (
@@ -623,7 +706,7 @@ function App() {
           ) : active === 'API tokens' ? (
             <TokensUsersManager session={session} projects={projects} />
           ) : active === 'Index jobs' ? (
-            <JobsManager session={session} projects={projects} />
+            <JobsManager session={session} projects={projects} setProjects={setProjects} />
           ) : active === 'Projects' || active === 'Overview' || active === 'Sources' ? (
             <ProjectsManager session={session} projects={projects} setProjects={setProjects} status={status} />
           ) : (

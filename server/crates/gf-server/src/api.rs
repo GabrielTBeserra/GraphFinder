@@ -85,6 +85,14 @@ pub fn router(pool: PgPool, embedder: Arc<LazyEmbedder>) -> Router {
         )
         .route("/api/v1/webhooks/{source_id}", post(receive_git_webhook))
         .route(
+            "/api/v1/projects/{id}/generations",
+            get(list_index_generations),
+        )
+        .route(
+            "/api/v1/projects/{id}/generations/{generation}/rollback",
+            post(rollback_index_generation),
+        )
+        .route(
             "/api/v1/projects/{id}/index-jobs",
             post(create_index_job).get(list_index_jobs),
         )
@@ -1523,6 +1531,150 @@ impl From<gf_storage::IndexJob> for IndexJobResponse {
             updated_at: job.updated_at.to_rfc3339(),
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+struct IndexGenerationResponse {
+    project_id: uuid::Uuid,
+    generation: i64,
+    status: String,
+    embedding_model: String,
+    embedding_dimensions: i32,
+    source_revisions: serde_json::Value,
+    error: Option<String>,
+    is_active: bool,
+    created_at: String,
+    started_at: Option<String>,
+    published_at: Option<String>,
+}
+
+fn generation_response(
+    generation: gf_storage::models::IndexGeneration,
+    active_generation: i64,
+) -> IndexGenerationResponse {
+    IndexGenerationResponse {
+        project_id: generation.project_id,
+        generation: generation.generation,
+        status: generation.status,
+        embedding_model: generation.embedding_model,
+        embedding_dimensions: generation.embedding_dimensions,
+        source_revisions: generation.source_revisions,
+        error: generation.error,
+        is_active: generation.generation == active_generation,
+        created_at: generation.created_at.to_rfc3339(),
+        started_at: generation.started_at.map(|value| value.to_rfc3339()),
+        published_at: generation.published_at.map(|value| value.to_rfc3339()),
+    }
+}
+
+async fn list_index_generations(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(project_id): axum::extract::Path<uuid::Uuid>,
+) -> Result<axum::Json<Vec<IndexGenerationResponse>>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let project =
+        authorize_project_or_error(&pool, &principal, project_id, gf_storage::SCOPE_SEARCH_READ)
+            .await?;
+    let generations = gf_storage::list_index_generations(&pool, project_id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "generation lookup failed",
+            )
+        })?
+        .into_iter()
+        .map(|generation| generation_response(generation, project.active_generation))
+        .collect();
+    Ok(axum::Json(generations))
+}
+
+#[derive(Debug, Deserialize)]
+struct RollbackGenerationRequest {
+    confirm_generation: i64,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RollbackGenerationResponse {
+    project_id: uuid::Uuid,
+    active_generation: i64,
+    status: &'static str,
+}
+
+async fn rollback_index_generation(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path((project_id, generation)): axum::extract::Path<(uuid::Uuid, i64)>,
+    axum::Json(request): axum::Json<RollbackGenerationRequest>,
+) -> Result<axum::Json<RollbackGenerationResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let project = authorize_project_or_error(
+        &pool,
+        &principal,
+        project_id,
+        gf_storage::SCOPE_PROJECT_WRITE,
+    )
+    .await?;
+    if request.confirm_generation != generation {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "confirmation does not match target generation",
+        ));
+    }
+    if generation == project.active_generation {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "rollback target is already the active generation",
+        ));
+    }
+    let has_active_jobs = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM index_jobs WHERE project_id=$1 AND status IN ('queued','running'))",
+    )
+    .bind(project_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job state lookup failed"))?;
+    if has_active_jobs {
+        return Err((
+            StatusCode::CONFLICT,
+            "cancel or finish active indexing jobs before rollback",
+        ));
+    }
+    let activated = gf_storage::activate_index_generation(&pool, project_id, generation)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "generation rollback failed",
+            )
+        })?;
+    if !activated {
+        return Err((
+            StatusCode::CONFLICT,
+            "target generation is not rollback eligible",
+        ));
+    }
+    audit(
+        &pool,
+        &principal,
+        Some(project_id),
+        "rollback",
+        "index_generation",
+        None,
+        serde_json::json!({
+            "from_generation":project.active_generation,
+            "to_generation":generation,
+            "reason":request.reason,
+        }),
+    )
+    .await;
+    Ok(axum::Json(RollbackGenerationResponse {
+        project_id,
+        active_generation: generation,
+        status: "rolled_back",
+    }))
 }
 
 #[derive(Debug, Deserialize)]

@@ -106,6 +106,32 @@ export function deleteSource(token: string, sourceId: string) {
   return request<void>(`/api/v1/sources/${sourceId}`, { method: 'DELETE' }, token);
 }
 
+
+export type IndexGeneration = {
+  project_id: string;
+  generation: number;
+  status: string;
+  embedding_model: string;
+  embedding_dimensions: number;
+  source_revisions: Record<string, string>;
+  error?: string | null;
+  is_active: boolean;
+  created_at: string;
+  started_at?: string | null;
+  published_at?: string | null;
+};
+
+export function listIndexGenerations(token: string, projectId: string) {
+  return request<IndexGeneration[]>(`/api/v1/projects/${projectId}/generations`, {}, token);
+}
+
+export function rollbackIndexGeneration(token: string, projectId: string, generation: number, reason?: string) {
+  return request<{ project_id: string; active_generation: number; status: string }>(`/api/v1/projects/${projectId}/generations/${generation}/rollback`, {
+    method: 'POST',
+    body: JSON.stringify({ confirm_generation: generation, reason: reason || null }),
+  }, token);
+}
+
 export type IndexJob = {
   id: string;
   project_id: string;
