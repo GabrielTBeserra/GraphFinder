@@ -9,7 +9,7 @@ RUN cargo build --release -p gf-server
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git libgomp1 \
+    && apt-get install -y --no-install-recommends ca-certificates curl git libgomp1 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --create-home --home-dir /var/lib/graphfinder graphfinder \
     && mkdir -p /var/lib/graphfinder/models /var/lib/graphfinder/repo-cache \

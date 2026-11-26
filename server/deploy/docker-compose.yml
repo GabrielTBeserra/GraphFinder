@@ -1,0 +1,119 @@
+name: graphfinder-server
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: graphfinder
+      POSTGRES_USER: graphfinder
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U graphfinder -d graphfinder"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  migrate:
+    image: graphfinder-server:latest
+    command: ["migrate"]
+    environment:
+      DATABASE_URL: postgres://graphfinder:${POSTGRES_PASSWORD}@postgres:5432/graphfinder
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+    restart: "no"
+
+  api:
+    image: graphfinder-server:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["api", "--bind", "0.0.0.0:8080"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://graphfinder:${POSTGRES_PASSWORD}@postgres:5432/graphfinder
+      GF_MODEL_CACHE_DIR: /var/lib/graphfinder/models
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - model-cache:/var/lib/graphfinder/models
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    networks: [internal]
+
+  worker:
+    image: graphfinder-server:latest
+    command: ["worker"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://graphfinder:${POSTGRES_PASSWORD}@postgres:5432/graphfinder
+      GF_MODEL_CACHE_DIR: /var/lib/graphfinder/models
+      GF_REPO_CACHE_ROOT: /var/lib/graphfinder/repo-cache
+      GF_ALLOW_PRIVATE_GIT_HOSTS: ${GF_ALLOW_PRIVATE_GIT_HOSTS:-false}
+      GF_ALLOWED_GIT_HOSTS: ${GF_ALLOWED_GIT_HOSTS:-}
+      GF_GIT_TIMEOUT_SECS: ${GF_GIT_TIMEOUT_SECS:-120}
+      GF_MAX_REPO_BYTES: ${GF_MAX_REPO_BYTES:-1000000000}
+      GF_WORKER_POLL_MS: ${GF_WORKER_POLL_MS:-2000}
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - model-cache:/var/lib/graphfinder/models
+      - repo-cache:/var/lib/graphfinder/repo-cache
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+    networks: [internal]
+
+  admin:
+    image: graphfinder-admin:latest
+    build:
+      context: ../apps/admin
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    networks: [internal]
+
+  proxy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - "${GF_HTTP_PORT:-8080}:80"
+      - "${GF_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_started
+      admin:
+        condition: service_started
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  model-cache:
+  repo-cache:
+  caddy-data:
+  caddy-config:

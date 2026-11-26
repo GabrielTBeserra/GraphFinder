@@ -618,19 +618,19 @@ Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
 
 #### Commit 36 — Docker Compose
 
-- [ ] Adicionar `server/deploy/docker-compose.yml`.
-- [ ] Configurar PostgreSQL + pgvector, api, worker, admin e proxy.
-- [ ] Adicionar volumes persistentes.
-- [ ] Adicionar healthchecks.
-- [ ] Expor publicamente apenas proxy.
+- [x] Adicionar `server/deploy/docker-compose.yml`.
+- [x] Configurar PostgreSQL + pgvector, api, worker, admin e proxy.
+- [x] Adicionar volumes persistentes.
+- [x] Adicionar healthchecks.
+- [x] Expor publicamente apenas proxy.
 - [ ] Commit sugerido:
   ```text
   build(server): add docker compose deployment
   ```
 
 **Critério de aceite**
-- [ ] `docker compose config` é válido.
-- [ ] Ambiente sobe com migrations, API, worker e painel.
+- [x] `docker compose config` é válido.
+- [x] Ambiente sobe com migrations, API, worker e painel.
 
 #### Commit 37 — proxy e TLS
 
