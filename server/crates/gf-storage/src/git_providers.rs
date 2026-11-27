@@ -246,7 +246,8 @@ mod tests {
 
     #[test]
     fn encrypted_provider_secret_round_trips() {
-        let key = parse_credential_key("0123456789abcdef0123456789abcdef").unwrap();
+        let raw_key = "k".repeat(32);
+        let key = parse_credential_key(&raw_key).unwrap();
         let (ciphertext, nonce) = encrypt_secret(&key, "secret-token").unwrap();
         assert_ne!(ciphertext, b"secret-token");
         assert_eq!(
@@ -257,12 +258,14 @@ mod tests {
 
     #[test]
     fn parses_base64_hex_and_raw_keys() {
-        assert!(parse_credential_key("0123456789abcdef0123456789abcdef").is_ok());
-        assert!(parse_credential_key("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=").is_ok());
-        assert!(parse_credential_key(
-            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        )
-        .is_ok());
+        let raw_key = "k".repeat(32);
+        let base64_key = BASE64.encode([7u8; 32]);
+        let hex_key = (0..32)
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert!(parse_credential_key(&raw_key).is_ok());
+        assert!(parse_credential_key(&base64_key).is_ok());
+        assert!(parse_credential_key(&hex_key).is_ok());
         assert!(parse_credential_key("short").is_err());
     }
 }
