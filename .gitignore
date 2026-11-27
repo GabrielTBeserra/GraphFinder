@@ -100,3 +100,6 @@ vaults/*/
 /graphfinder.lock
 /instance.json
 /settings.json
+
+# Generated documentation release data
+docs/src/generated/

@@ -1,0 +1,2 @@
+# SQL migrations are byte-sensitive because sqlx stores checksums.
+*.sql text eol=lf

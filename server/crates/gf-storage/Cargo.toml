@@ -1,0 +1,18 @@
+[package]
+name = "gf-storage"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+argon2.workspace = true
+sha2.workspace = true
+aes-gcm.workspace = true
+base64.workspace = true

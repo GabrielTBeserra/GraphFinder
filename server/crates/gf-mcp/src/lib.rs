@@ -1,0 +1,1523 @@
+//! MCP protocol surface for GraphFinder Server.
+
+use std::collections::{HashMap, HashSet, VecDeque};
+
+use serde_json::{json, Value};
+use sqlx::PgPool;
+
+use gf_core::EmbeddingProvider;
+use gf_storage::Principal;
+
+pub const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
+
+#[derive(Clone)]
+pub struct McpContext<'a> {
+    pub pool: &'a PgPool,
+    pub principal: &'a Principal,
+    pub embedder: Option<&'a dyn EmbeddingProvider>,
+}
+
+pub fn tool_definitions() -> Value {
+    json!([
+        {
+            "name": "list_projects",
+            "description": "List GraphFinder projects visible to the authenticated token.",
+            "inputSchema": {"type":"object","properties":{},"additionalProperties":false}
+        },
+        {
+            "name": "search_semantic",
+            "description": "Hybrid semantic and lexical search over the active generation of a project.",
+            "inputSchema": {
+                "type":"object",
+                "properties":{
+                    "project":{"type":"string"},
+                    "query":{"type":"string"},
+                    "limit":{"type":"integer","minimum":1,"maximum":20}
+                },
+                "required":["project","query"],
+                "additionalProperties":false
+            }
+        },
+        {
+            "name": "search_code",
+            "description": "Search indexed code symbols and chunks in a project.",
+            "inputSchema": {
+                "type":"object",
+                "properties":{
+                    "project":{"type":"string"},
+                    "query":{"type":"string"},
+                    "language":{"type":"string"},
+                    "limit":{"type":"integer","minimum":1,"maximum":20}
+                },
+                "required":["project","query"],
+                "additionalProperties":false
+            }
+        },
+        {
+            "name": "find_files",
+            "description": "Find indexed files by path substring or simple wildcard pattern.",
+            "inputSchema": {
+                "type":"object",
+                "properties":{
+                    "project":{"type":"string"},
+                    "pattern":{"type":"string"},
+                    "limit":{"type":"integer","minimum":1,"maximum":100}
+                },
+                "required":["project","pattern"],
+                "additionalProperties":false
+            }
+        },
+        {
+            "name": "get_file_context",
+            "description": "Return compact structural context for an indexed file.",
+            "inputSchema": {
+                "type":"object",
+                "properties":{
+                    "project":{"type":"string"},
+                    "path":{"type":"string"}
+                },
+                "required":["project","path"],
+                "additionalProperties":false
+            }
+        },
+        {
+            "name": "read_code_chunk",
+            "description": "Read one indexed code symbol or markdown section without fetching the whole file.",
+            "inputSchema": {
+                "type":"object",
+                "properties":{
+                    "project":{"type":"string"},
+                    "path":{"type":"string"},
+                    "symbol":{"type":"string"}
+                },
+                "required":["project","path","symbol"],
+                "additionalProperties":false
+            }
+        },
+        {
+            "name": "get_compressed_context",
+            "description": "Return a compact structural map of a document with section/token metadata.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"path":{"type":"string"}},"required":["project","path"],"additionalProperties":false}
+        },
+        {
+            "name": "get_code_dependencies",
+            "description": "Return imports, internal dependencies, dependents, and external packages for a file.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"path":{"type":"string"}},"required":["project","path"],"additionalProperties":false}
+        },
+        {
+            "name": "get_graph_neighborhood",
+            "description": "Return nodes and edges around a document in the active-generation graph.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"target":{"type":"string"},"depth":{"type":"integer"}},"required":["project","target"],"additionalProperties":false}
+        },
+        {
+            "name": "find_path",
+            "description": "Find the shortest dependency/link path between two documents.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"source":{"type":"string"},"target":{"type":"string"}},"required":["project","source","target"],"additionalProperties":false}
+        },
+        {
+            "name": "explain_node",
+            "description": "Explain a document graph node with degree, dependencies, dependents, and architectural role.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"target":{"type":"string"}},"required":["project","target"],"additionalProperties":false}
+        },
+        {
+            "name": "create_project",
+            "description": "Create a project when the principal has project:write tenant scope.",
+            "inputSchema": {"type":"object","properties":{"slug":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"}},"required":["slug","name"],"additionalProperties":false}
+        },
+        {
+            "name": "trigger_index",
+            "description": "Enqueue an indexing job for a project or source with index:trigger scope.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"source_id":{"type":"string"},"priority":{"type":"integer"}},"required":["project"],"additionalProperties":false}
+        },
+        {
+            "name": "sync_vault",
+            "description": "Compatibility alias for trigger_index.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"source_id":{"type":"string"},"priority":{"type":"integer"}},"required":["project"],"additionalProperties":false}
+        },
+        {
+            "name": "store_context",
+            "description": "Create or replace a managed vault note with explicit vault:write scope.",
+            "inputSchema":{"type":"object","properties":{"project":{"type":"string"},"title":{"type":"string"},"content":{"type":"string"},"path":{"type":"string"},"source_id":{"type":"string"},"expected_revision":{"type":"integer"}},"required":["project","title","content"],"additionalProperties":false}
+        },
+        {
+            "name": "update_section",
+            "description": "Replace one markdown section in a managed vault note using optimistic concurrency.",
+            "inputSchema":{"type":"object","properties":{"project":{"type":"string"},"path":{"type":"string"},"heading":{"type":"string"},"content":{"type":"string"},"expected_revision":{"type":"integer"}},"required":["project","path","heading","content","expected_revision"],"additionalProperties":false}
+        },
+        {
+            "name": "link_notes",
+            "description": "Append a wikilink from one managed vault note to another note or indexed document.",
+            "inputSchema":{"type":"object","properties":{"project":{"type":"string"},"source_path":{"type":"string"},"target":{"type":"string"},"expected_revision":{"type":"integer"}},"required":["project","source_path","target","expected_revision"],"additionalProperties":false}
+        },
+        {
+            "name": "delete_note",
+            "description": "Delete a managed vault note with explicit vault:delete scope.",
+            "inputSchema":{"type":"object","properties":{"project":{"type":"string"},"path":{"type":"string"},"expected_revision":{"type":"integer"}},"required":["project","path"],"additionalProperties":false}
+        },
+        {
+            "name": "get_index_status",
+            "description": "Return recent indexing jobs or one job status for an authorized project.",
+            "inputSchema": {"type":"object","properties":{"project":{"type":"string"},"job_id":{"type":"string"}},"required":["project"],"additionalProperties":false}
+        }
+    ])
+}
+
+fn json_error(id: Value, code: i64, message: &str) -> Value {
+    json!({
+        "jsonrpc":"2.0",
+        "id":id,
+        "error":{"code":code,"message":message}
+    })
+}
+
+fn json_result(id: Value, result: Value) -> Value {
+    json!({"jsonrpc":"2.0","id":id,"result":result})
+}
+
+pub async fn handle_rpc(context: &McpContext<'_>, request: Value) -> Option<Value> {
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let is_notification = request.get("id").is_none();
+    let Some(method) = request.get("method").and_then(Value::as_str) else {
+        return Some(json_error(id, -32600, "invalid JSON-RPC request"));
+    };
+
+    match method {
+        "initialize" => Some(json_result(
+            id,
+            json!({
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {"tools": {"listChanged": false}},
+                "serverInfo": {"name":"graphfinder-server","version":env!("CARGO_PKG_VERSION")}
+            }),
+        )),
+        "notifications/initialized" | "initialized" => {
+            if is_notification {
+                None
+            } else {
+                Some(json_result(id, json!({})))
+            }
+        }
+        "tools/list" => Some(json_result(id, json!({"tools": tool_definitions()}))),
+        "tools/call" => {
+            let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
+            let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+            let empty = json!({});
+            let arguments = params.get("arguments").unwrap_or(&empty);
+            match call_tool(context, name, arguments).await {
+                Ok(result) => Some(json_result(id, tool_success(result))),
+                Err(error) => Some(json_result(id, tool_error(&error))),
+            }
+        }
+        "ping" => Some(json_result(id, json!({}))),
+        _ => Some(json_error(id, -32601, "method not found")),
+    }
+}
+
+fn tool_success(value: Value) -> Value {
+    let text = serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".into());
+    json!({
+        "content": [{"type":"text","text":text}],
+        "structuredContent": value,
+        "isError": false
+    })
+}
+
+fn tool_error(error: &str) -> Value {
+    json!({
+        "content": [{"type":"text","text":error}],
+        "isError": true
+    })
+}
+
+fn argument<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, String> {
+    arguments
+        .get(name)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("missing required argument `{name}`"))
+}
+
+fn argument_limit(arguments: &Value, default: i64, maximum: i64) -> i64 {
+    arguments
+        .get("limit")
+        .and_then(Value::as_i64)
+        .unwrap_or(default)
+        .clamp(1, maximum)
+}
+
+async fn resolve_project(
+    context: &McpContext<'_>,
+    input: &str,
+    scope: &str,
+) -> Result<gf_storage::models::Project, String> {
+    let project = if let Ok(id) = uuid::Uuid::parse_str(input) {
+        gf_storage::get_project(context.pool, id)
+            .await
+            .map_err(|e| e.to_string())?
+            .filter(|project| project.tenant_id == context.principal.tenant_id)
+    } else {
+        sqlx::query_as::<_, gf_storage::models::Project>(
+            "SELECT * FROM projects WHERE tenant_id=$1 AND slug=$2",
+        )
+        .bind(context.principal.tenant_id)
+        .bind(input)
+        .fetch_optional(context.pool)
+        .await
+        .map_err(|e| e.to_string())?
+    }
+    .ok_or_else(|| "project not found".to_string())?;
+
+    if !gf_storage::authorize_project_scope(context.pool, context.principal, project.id, scope)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        return Err("insufficient project scope".into());
+    }
+    Ok(project)
+}
+
+async fn tool_list_projects(context: &McpContext<'_>) -> Result<Value, String> {
+    let projects = gf_storage::list_projects(context.pool, context.principal.tenant_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut visible = Vec::new();
+    for project in projects {
+        if gf_storage::authorize_project_scope(
+            context.pool,
+            context.principal,
+            project.id,
+            gf_storage::SCOPE_SEARCH_READ,
+        )
+        .await
+        .unwrap_or(false)
+        {
+            visible.push(json!({
+                "id": project.id,
+                "slug": project.slug,
+                "name": project.name,
+                "active_generation": project.active_generation
+            }));
+        }
+    }
+    Ok(json!({"projects": visible, "count": visible.len()}))
+}
+
+async fn search_hits(
+    context: &McpContext<'_>,
+    project: &gf_storage::models::Project,
+    query: &str,
+    filters: gf_storage::SearchFilters,
+    limit: i64,
+) -> Result<Value, String> {
+    let embedder = context
+        .embedder
+        .ok_or_else(|| "embedding provider unavailable".to_string())?;
+    let embedding = embedder.embed_query(query).map_err(|e| e.to_string())?;
+    let hits =
+        gf_storage::hybrid_search(context.pool, project.id, query, &embedding, &filters, limit)
+            .await
+            .map_err(|e| e.to_string())?;
+    let results = hits
+        .into_iter()
+        .map(|hit| {
+            json!({
+                "path": hit.path,
+                "heading_path": hit.heading_path,
+                "score": hit.score,
+                "excerpt": hit.content.chars().take(500).collect::<String>(),
+                "chunk_id": hit.chunk_id,
+                "document_id": hit.document_id
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({"project": project.slug, "results": results, "count": results.len()}))
+}
+
+async fn tool_find_files(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    let pattern = argument(arguments, "pattern")?;
+    let limit = argument_limit(arguments, 20, 100);
+    let like = if pattern.contains('*') {
+        pattern.replace('*', "%")
+    } else {
+        format!("%{pattern}%")
+    };
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, i64)>(
+        r#"
+        SELECT d.path,d.document_type,d.language,d.size_bytes
+        FROM documents d
+        JOIN projects p ON p.id=d.project_id AND p.active_generation=d.generation
+        WHERE d.project_id=$1 AND d.path ILIKE $2
+        ORDER BY d.path LIMIT $3
+        "#,
+    )
+    .bind(project.id)
+    .bind(like)
+    .bind(limit)
+    .fetch_all(context.pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let files = rows
+        .into_iter()
+        .map(|(path, document_type, language, size_bytes)| {
+            json!({"path":path,"type":document_type,"language":language,"size_bytes":size_bytes})
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({"project":project.slug,"files":files,"count":files.len()}))
+}
+
+async fn active_document(
+    context: &McpContext<'_>,
+    project_id: uuid::Uuid,
+    path: &str,
+) -> Result<gf_storage::models::Document, String> {
+    sqlx::query_as::<_, gf_storage::models::Document>(
+        r#"
+        SELECT d.* FROM documents d
+        JOIN projects p ON p.id=d.project_id AND p.active_generation=d.generation
+        WHERE d.project_id=$1 AND d.path=$2
+        "#,
+    )
+    .bind(project_id)
+    .bind(path)
+    .fetch_optional(context.pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "file not found in active generation".into())
+}
+
+async fn tool_get_file_context(
+    context: &McpContext<'_>,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_CODE_READ,
+    )
+    .await?;
+    let path = argument(arguments, "path")?;
+    let document = active_document(context, project.id, path).await?;
+    let chunks = gf_storage::list_chunks(context.pool, document.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "project": project.slug,
+        "path": document.path,
+        "type": document.document_type,
+        "language": document.language,
+        "size_bytes": document.size_bytes,
+        "metadata": document.metadata,
+        "chunks": chunks.iter().map(|chunk| json!({
+            "heading_path": chunk.heading_path,
+            "token_count": chunk.token_count,
+            "start_line": chunk.start_line,
+            "end_line": chunk.end_line
+        })).collect::<Vec<_>>()
+    }))
+}
+
+async fn tool_read_code_chunk(
+    context: &McpContext<'_>,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_CODE_READ,
+    )
+    .await?;
+    let path = argument(arguments, "path")?;
+    let symbol = argument(arguments, "symbol")?;
+    let document = active_document(context, project.id, path).await?;
+    let chunk = sqlx::query_as::<_, gf_storage::models::Chunk>(
+        r#"
+        SELECT * FROM chunks
+        WHERE document_id=$1 AND ($2 = ANY(heading_path) OR metadata->>'symbol'=$2)
+        ORDER BY chunk_index LIMIT 1
+        "#,
+    )
+    .bind(document.id)
+    .bind(symbol)
+    .fetch_optional(context.pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "chunk not found".to_string())?;
+    Ok(json!({
+        "project": project.slug,
+        "path": document.path,
+        "symbol": symbol,
+        "start_line": chunk.start_line,
+        "end_line": chunk.end_line,
+        "content": chunk.content
+    }))
+}
+
+fn slugify(value: &str) -> String {
+    let slug = value
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if slug.is_empty() {
+        "note".into()
+    } else {
+        slug
+    }
+}
+
+async fn managed_vault_source(
+    context: &McpContext<'_>,
+    project: &gf_storage::models::Project,
+    source_id: Option<uuid::Uuid>,
+) -> Result<gf_storage::models::Source, String> {
+    if let Some(source_id) = source_id {
+        let source = gf_storage::get_source(context.pool, source_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "source not found".to_string())?;
+        if source.project_id != project.id {
+            return Err("source does not belong to project".into());
+        }
+        if source.kind != "managed_vault" {
+            return Err("source is readonly or is not a managed vault".into());
+        }
+        return Ok(source);
+    }
+    if let Some(source) = gf_storage::list_sources(context.pool, project.id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|source| source.kind == "managed_vault")
+    {
+        return Ok(source);
+    }
+    gf_storage::create_source(
+        context.pool,
+        gf_storage::models::NewSource {
+            project_id: project.id,
+            kind: "managed_vault".into(),
+            uri: "vault://default".into(),
+            branch: None,
+            credential_ref: None,
+            include_patterns: vec![],
+            exclude_patterns: vec![],
+            config: json!({}),
+            auto_index_interval_seconds: None,
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+async fn write_vault_note(
+    context: &McpContext<'_>,
+    project: &gf_storage::models::Project,
+    source_id: Option<uuid::Uuid>,
+    path: String,
+    content: String,
+    expected_revision: Option<i64>,
+) -> Result<Value, String> {
+    let source = managed_vault_source(context, project, source_id).await?;
+    let embedder = context
+        .embedder
+        .ok_or_else(|| "embedding provider unavailable".to_string())?;
+    let note = gf_core::parse_markdown(
+        path.trim_end_matches(".md")
+            .rsplit('/')
+            .next()
+            .unwrap_or("note"),
+        &content,
+    );
+    let passages = note
+        .chunks
+        .iter()
+        .map(|chunk| chunk.content.clone())
+        .collect::<Vec<_>>();
+    let embeddings = embedder
+        .embed_passages(&passages)
+        .map_err(|e| e.to_string())?;
+    if embeddings.len() != note.chunks.len() {
+        return Err("embedding count mismatch".into());
+    }
+    let chunks = note
+        .chunks
+        .iter()
+        .zip(embeddings)
+        .map(|(chunk, embedding)| gf_storage::VaultChunkWrite {
+            chunk_index: chunk.chunk_index as i32,
+            heading_path: chunk.heading.iter().cloned().collect(),
+            content: chunk.content.clone(),
+            token_count: chunk.token_estimate as i32,
+            content_hash: gf_core::content_hash(&chunk.content),
+            metadata: json!({"links":chunk.links,"tags":chunk.tags}),
+            embedding,
+        })
+        .collect();
+    let record = gf_storage::upsert_vault_document(
+        context.pool,
+        gf_storage::VaultDocumentWrite {
+            project_id: project.id,
+            generation: project.active_generation,
+            source_id: source.id,
+            path: path.clone(),
+            title: note.title,
+            content_hash: gf_core::content_hash(&content),
+            size_bytes: content.len() as i64,
+            metadata: json!({"summary":note.summary,"links":note.links,"tags":note.tags,"aliases":note.aliases,"content":content}),
+            chunks,
+        },
+        expected_revision,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let _ = gf_storage::record_audit_event(
+        context.pool,
+        context.principal,
+        Some(project.id),
+        "upsert",
+        "vault_document",
+        Some(record.id),
+        json!({"path":record.path,"revision":record.revision}),
+    )
+    .await;
+    Ok(json!({
+        "id": record.id,
+        "path": record.path,
+        "revision": record.revision,
+        "generation": record.generation,
+        "updated_at": record.updated_at.to_rfc3339()
+    }))
+}
+
+async fn vault_note_source_content(
+    context: &McpContext<'_>,
+    project_id: uuid::Uuid,
+    path: &str,
+) -> Result<(String, i64), String> {
+    sqlx::query_as::<_, (serde_json::Value, i64)>(
+        r#"
+        SELECT d.metadata,d.revision FROM documents d
+        JOIN projects p ON p.id=d.project_id AND p.active_generation=d.generation
+        JOIN sources s ON s.id=d.source_id AND s.project_id=d.project_id
+        WHERE d.project_id=$1 AND d.path=$2 AND s.kind='managed_vault'
+        "#,
+    )
+    .bind(project_id)
+    .bind(path)
+    .fetch_optional(context.pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .and_then(|(metadata, revision)| {
+        metadata
+            .get("content")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .map(|content| (content, revision))
+    })
+    .ok_or_else(|| "managed vault note source content not found".into())
+}
+
+fn heading_level(line: &str) -> usize {
+    line.chars().take_while(|c| *c == '#').count()
+}
+
+fn replace_markdown_section(content: &str, heading: &str, replacement: &str) -> String {
+    let lines = content.lines().collect::<Vec<_>>();
+    let mut output = Vec::new();
+    let mut index = 0usize;
+    let mut replaced = false;
+    while index < lines.len() {
+        let line = lines[index];
+        let level = heading_level(line);
+        let title = line.trim_start_matches('#').trim();
+        if level > 0 && title.eq_ignore_ascii_case(heading) {
+            replaced = true;
+            output.push(line.to_string());
+            output.push(String::new());
+            output.extend(replacement.trim().lines().map(str::to_string));
+            output.push(String::new());
+            index += 1;
+            while index < lines.len() {
+                let next_level = heading_level(lines[index]);
+                if next_level > 0 && next_level <= level {
+                    break;
+                }
+                index += 1;
+            }
+        } else {
+            output.push(line.to_string());
+            index += 1;
+        }
+    }
+    if !replaced {
+        if !output.last().map(|line| line.is_empty()).unwrap_or(true) {
+            output.push(String::new());
+        }
+        output.push(format!("## {heading}"));
+        output.push(String::new());
+        output.extend(replacement.trim().lines().map(str::to_string));
+        output.push(String::new());
+    }
+    output.join("\n")
+}
+
+async fn tool_store_context(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_VAULT_WRITE,
+    )
+    .await?;
+    let title = argument(arguments, "title")?;
+    let content = argument(arguments, "content")?;
+    let path = optional_argument(arguments, "path")
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("notes/{}.md", slugify(title)));
+    let content = if content.trim_start().starts_with('#') {
+        content.to_string()
+    } else {
+        format!("# {title}\n\n{content}\n")
+    };
+    write_vault_note(
+        context,
+        &project,
+        optional_argument(arguments, "source_id").and_then(|v| uuid::Uuid::parse_str(v).ok()),
+        path,
+        content,
+        arguments.get("expected_revision").and_then(Value::as_i64),
+    )
+    .await
+}
+
+async fn tool_update_section(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_VAULT_WRITE,
+    )
+    .await?;
+    let path = argument(arguments, "path")?;
+    let (content, revision) = vault_note_source_content(context, project.id, path).await?;
+    let expected = arguments
+        .get("expected_revision")
+        .and_then(Value::as_i64)
+        .unwrap_or(revision);
+    let updated = replace_markdown_section(
+        &content,
+        argument(arguments, "heading")?,
+        argument(arguments, "content")?,
+    );
+    write_vault_note(
+        context,
+        &project,
+        None,
+        path.to_string(),
+        updated,
+        Some(expected),
+    )
+    .await
+}
+
+async fn tool_link_notes(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_VAULT_WRITE,
+    )
+    .await?;
+    let path = argument(arguments, "source_path")?;
+    let target = argument(arguments, "target")?;
+    let (mut content, revision) = vault_note_source_content(context, project.id, path).await?;
+    let expected = arguments
+        .get("expected_revision")
+        .and_then(Value::as_i64)
+        .unwrap_or(revision);
+    let link = format!("[[{target}]]");
+    if !content.contains(&link) {
+        content.push_str(&format!("\n\n## Links\n\n- {link}\n"));
+    }
+    write_vault_note(
+        context,
+        &project,
+        None,
+        path.to_string(),
+        content,
+        Some(expected),
+    )
+    .await
+}
+
+async fn tool_delete_note(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_VAULT_DELETE,
+    )
+    .await?;
+    let deleted = gf_storage::delete_vault_document(
+        context.pool,
+        project.id,
+        argument(arguments, "path")?,
+        arguments.get("expected_revision").and_then(Value::as_i64),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if deleted {
+        let _ = gf_storage::record_audit_event(
+            context.pool,
+            context.principal,
+            Some(project.id),
+            "delete",
+            "vault_document",
+            None,
+            json!({"path":argument(arguments,"path")?}),
+        )
+        .await;
+    }
+    Ok(json!({"deleted":deleted,"project":project.slug}))
+}
+
+async fn call_tool(
+    context: &McpContext<'_>,
+    name: &str,
+    arguments: &Value,
+) -> Result<Value, String> {
+    match name {
+        "list_projects" => tool_list_projects(context).await,
+        "search_semantic" => {
+            let project = resolve_project(
+                context,
+                argument(arguments, "project")?,
+                gf_storage::SCOPE_SEARCH_READ,
+            )
+            .await?;
+            search_hits(
+                context,
+                &project,
+                argument(arguments, "query")?,
+                gf_storage::SearchFilters::default(),
+                argument_limit(arguments, 5, 20),
+            )
+            .await
+        }
+        "search_code" => {
+            let project = resolve_project(
+                context,
+                argument(arguments, "project")?,
+                gf_storage::SCOPE_CODE_READ,
+            )
+            .await?;
+            search_hits(
+                context,
+                &project,
+                argument(arguments, "query")?,
+                gf_storage::SearchFilters {
+                    language: arguments
+                        .get("language")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    document_type: Some("code".into()),
+                },
+                argument_limit(arguments, 5, 20),
+            )
+            .await
+        }
+        "find_files" => tool_find_files(context, arguments).await,
+        "get_file_context" => tool_get_file_context(context, arguments).await,
+        "read_code_chunk" => tool_read_code_chunk(context, arguments).await,
+        "get_compressed_context" => tool_get_compressed_context(context, arguments).await,
+        "get_code_dependencies" => tool_get_code_dependencies(context, arguments).await,
+        "get_graph_neighborhood" => tool_get_graph_neighborhood(context, arguments).await,
+        "find_path" => tool_find_path(context, arguments).await,
+        "explain_node" => tool_explain_node(context, arguments).await,
+        "store_context" => tool_store_context(context, arguments).await,
+        "update_section" => tool_update_section(context, arguments).await,
+        "link_notes" => tool_link_notes(context, arguments).await,
+        "delete_note" => tool_delete_note(context, arguments).await,
+        "create_project" => tool_create_project(context, arguments).await,
+        "trigger_index" | "sync_vault" => trigger_index_impl(context, arguments).await,
+        "get_index_status" => tool_get_index_status(context, arguments).await,
+        _ => Err("unknown tool".into()),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DocumentEdge {
+    source: String,
+    target: String,
+    kind: String,
+}
+
+async fn active_documents(
+    context: &McpContext<'_>,
+    project_id: uuid::Uuid,
+) -> Result<Vec<gf_storage::models::Document>, String> {
+    sqlx::query_as::<_, gf_storage::models::Document>(
+        r#"
+        SELECT d.* FROM documents d
+        JOIN projects p ON p.id=d.project_id AND p.active_generation=d.generation
+        WHERE d.project_id=$1 ORDER BY d.path
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(context.pool)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+fn file_stem(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.split('.').next().unwrap_or(name).to_string()
+}
+
+fn normalize_key(value: &str) -> String {
+    value
+        .split('#')
+        .next()
+        .unwrap_or(value)
+        .trim()
+        .trim_end_matches(".md")
+        .to_ascii_lowercase()
+        .replace(['-', '_'], " ")
+}
+
+fn document_keys(document: &gf_storage::models::Document) -> HashSet<String> {
+    let mut keys = HashSet::from([
+        normalize_key(&document.path),
+        normalize_key(&file_stem(&document.path)),
+    ]);
+    if let Some(title) = &document.title {
+        keys.insert(normalize_key(title));
+    }
+    keys
+}
+
+fn metadata_strings(metadata: &Value, key: &str) -> Vec<String> {
+    metadata
+        .get(key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn resolve_reference(
+    documents: &[gf_storage::models::Document],
+    reference: &str,
+) -> Option<String> {
+    let reference = reference.trim();
+    if reference.is_empty() {
+        return None;
+    }
+    if let Some(document) = documents.iter().find(|document| document.path == reference) {
+        return Some(document.path.clone());
+    }
+    let normalized = normalize_key(reference);
+    documents
+        .iter()
+        .find(|document| document_keys(document).contains(&normalized))
+        .or_else(|| {
+            documents.iter().find(|document| {
+                document.path.ends_with(reference)
+                    || reference.ends_with(&file_stem(&document.path))
+            })
+        })
+        .map(|document| document.path.clone())
+}
+
+fn module_specifier(import: &str) -> &str {
+    let import = import.trim();
+    if let Some(start) = import.find(['\'', '"']) {
+        let quote = import.as_bytes()[start] as char;
+        let rest = &import[start + 1..];
+        if let Some(end) = rest.find(quote) {
+            return &rest[..end];
+        }
+    }
+    import
+}
+
+fn normalize_relative_path(base_path: &str, reference: &str) -> String {
+    let mut segments = base_path
+        .rsplit_once('/')
+        .map(|(directory, _)| directory)
+        .unwrap_or("")
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    for segment in reference.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            segment => segments.push(segment.to_string()),
+        }
+    }
+    segments.join("/")
+}
+
+fn module_path_candidates(path: &str) -> Vec<String> {
+    let mut candidates = vec![path.to_string()];
+    if let Some(stem) = path.strip_suffix(".js") {
+        candidates.push(format!("{stem}.ts"));
+        candidates.push(format!("{stem}.tsx"));
+        candidates.push(format!("{stem}.jsx"));
+    }
+    if path
+        .rsplit('/')
+        .next()
+        .is_some_and(|name| !name.contains('.'))
+    {
+        for extension in ["ts", "tsx", "js", "jsx", "rs", "py", "go"] {
+            candidates.push(format!("{path}.{extension}"));
+        }
+        for extension in ["ts", "tsx", "js", "jsx"] {
+            candidates.push(format!("{path}/index.{extension}"));
+        }
+    }
+    candidates
+}
+
+fn resolve_import_reference(
+    documents: &[gf_storage::models::Document],
+    source_path: &str,
+    import: &str,
+) -> Option<String> {
+    let reference = module_specifier(import);
+    if reference.starts_with("./") || reference.starts_with("../") {
+        let normalized = normalize_relative_path(source_path, reference);
+        return module_path_candidates(&normalized)
+            .iter()
+            .find_map(|candidate| {
+                documents
+                    .iter()
+                    .find(|document| document.path == *candidate)
+                    .map(|document| document.path.clone())
+            });
+    }
+    resolve_reference(documents, reference)
+}
+
+fn infer_document_edges(documents: &[gf_storage::models::Document]) -> Vec<DocumentEdge> {
+    let mut seen = HashSet::new();
+    let mut edges = Vec::new();
+    for document in documents {
+        for link in metadata_strings(&document.metadata, "links") {
+            if let Some(target) = resolve_reference(documents, &link) {
+                if target != document.path {
+                    let edge = DocumentEdge {
+                        source: document.path.clone(),
+                        target,
+                        kind: "link".into(),
+                    };
+                    if seen.insert(edge.clone()) {
+                        edges.push(edge);
+                    }
+                }
+            }
+        }
+        for import in metadata_strings(&document.metadata, "imports") {
+            if let Some(target) = resolve_import_reference(documents, &document.path, &import) {
+                if target != document.path {
+                    let edge = DocumentEdge {
+                        source: document.path.clone(),
+                        target,
+                        kind: "import".into(),
+                    };
+                    if seen.insert(edge.clone()) {
+                        edges.push(edge);
+                    }
+                }
+            }
+        }
+    }
+    edges
+}
+
+fn undirected_adjacency(edges: &[DocumentEdge]) -> HashMap<String, Vec<String>> {
+    let mut adjacency: HashMap<String, Vec<String>> = HashMap::new();
+    for edge in edges {
+        adjacency
+            .entry(edge.source.clone())
+            .or_default()
+            .push(edge.target.clone());
+        adjacency
+            .entry(edge.target.clone())
+            .or_default()
+            .push(edge.source.clone());
+    }
+    for neighbors in adjacency.values_mut() {
+        neighbors.sort();
+        neighbors.dedup();
+    }
+    adjacency
+}
+
+async fn tool_get_compressed_context(
+    context: &McpContext<'_>,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    let path = argument(arguments, "path")?;
+    let document = active_document(context, project.id, path).await?;
+    let chunks = gf_storage::list_chunks(context.pool, document.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let total_tokens: i32 = chunks.iter().map(|chunk| chunk.token_count).sum();
+    Ok(json!({
+        "project": project.slug,
+        "path": document.path,
+        "type": document.document_type,
+        "language": document.language,
+        "title": document.title,
+        "total_tokens": total_tokens,
+        "links": metadata_strings(&document.metadata, "links"),
+        "tags": metadata_strings(&document.metadata, "tags"),
+        "sections": chunks.iter().take(40).map(|chunk| json!({
+            "heading": chunk.heading_path.last(),
+            "tokens": chunk.token_count,
+            "lines": [chunk.start_line, chunk.end_line]
+        })).collect::<Vec<_>>(),
+        "section_count": chunks.len()
+    }))
+}
+
+async fn tool_get_code_dependencies(
+    context: &McpContext<'_>,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_CODE_READ,
+    )
+    .await?;
+    let path = argument(arguments, "path")?;
+    let document = active_document(context, project.id, path).await?;
+    let documents = active_documents(context, project.id).await?;
+    let edges = infer_document_edges(&documents);
+    let imports = metadata_strings(&document.metadata, "imports");
+    let internal = imports
+        .iter()
+        .filter_map(|import| resolve_import_reference(&documents, &document.path, import))
+        .collect::<Vec<_>>();
+    let external = imports
+        .iter()
+        .filter(|import| resolve_import_reference(&documents, &document.path, import).is_none())
+        .cloned()
+        .collect::<Vec<_>>();
+    let dependents = edges
+        .iter()
+        .filter(|edge| edge.target == document.path)
+        .map(|edge| edge.source.clone())
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "project": project.slug,
+        "path": document.path,
+        "imports": imports,
+        "internal_dependencies": internal,
+        "external_dependencies": external,
+        "dependents": dependents,
+        "dependency_count": edges.iter().filter(|edge| edge.source == document.path).count(),
+        "dependent_count": dependents.len()
+    }))
+}
+
+async fn load_project_graph(
+    context: &McpContext<'_>,
+    project: &gf_storage::models::Project,
+) -> Result<(Vec<gf_storage::models::Document>, Vec<DocumentEdge>), String> {
+    let documents = active_documents(context, project.id).await?;
+    let edges = infer_document_edges(&documents);
+    Ok((documents, edges))
+}
+
+fn graph_node_json(document: &gf_storage::models::Document) -> Value {
+    json!({
+        "id": document.path,
+        "path": document.path,
+        "type": document.document_type,
+        "language": document.language,
+        "title": document.title
+    })
+}
+
+fn edge_json(edge: &DocumentEdge) -> Value {
+    json!({"source": edge.source, "target": edge.target, "kind": edge.kind})
+}
+
+async fn tool_get_graph_neighborhood(
+    context: &McpContext<'_>,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    let target_input = argument(arguments, "target")?;
+    let depth = arguments
+        .get("depth")
+        .and_then(Value::as_i64)
+        .unwrap_or(1)
+        .clamp(1, 3) as usize;
+    let (documents, edges) = load_project_graph(context, &project).await?;
+    let target = resolve_reference(&documents, target_input)
+        .ok_or_else(|| "target node not found in active generation".to_string())?;
+    let adjacency = undirected_adjacency(&edges);
+    let mut seen = HashSet::from([target.clone()]);
+    let mut frontier = vec![target.clone()];
+    for _ in 0..depth {
+        let mut next = Vec::new();
+        for node in frontier {
+            for neighbor in adjacency.get(&node).into_iter().flatten() {
+                if seen.insert(neighbor.clone()) {
+                    next.push(neighbor.clone());
+                }
+            }
+        }
+        frontier = next;
+    }
+    let nodes = documents
+        .iter()
+        .filter(|document| seen.contains(&document.path))
+        .map(graph_node_json)
+        .collect::<Vec<_>>();
+    let neighborhood_edges = edges
+        .iter()
+        .filter(|edge| seen.contains(&edge.source) && seen.contains(&edge.target))
+        .map(edge_json)
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "project": project.slug,
+        "target": target,
+        "depth": depth,
+        "nodes": nodes,
+        "edges": neighborhood_edges,
+        "node_count": nodes.len(),
+        "edge_count": neighborhood_edges.len()
+    }))
+}
+
+fn shortest_path(
+    adjacency: &HashMap<String, Vec<String>>,
+    source: &str,
+    target: &str,
+) -> Option<Vec<String>> {
+    if source == target {
+        return Some(vec![source.to_string()]);
+    }
+    let mut visited = HashSet::from([source.to_string()]);
+    let mut parent = HashMap::new();
+    let mut queue = VecDeque::from([source.to_string()]);
+    while let Some(current) = queue.pop_front() {
+        for next in adjacency.get(&current).into_iter().flatten() {
+            if !visited.insert(next.clone()) {
+                continue;
+            }
+            parent.insert(next.clone(), current.clone());
+            if next == target {
+                let mut path = vec![target.to_string()];
+                let mut cursor = target;
+                while let Some(previous) = parent.get(cursor) {
+                    path.push(previous.clone());
+                    cursor = previous;
+                }
+                path.reverse();
+                return Some(path);
+            }
+            queue.push_back(next.clone());
+        }
+    }
+    None
+}
+
+async fn tool_find_path(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    let (documents, edges) = load_project_graph(context, &project).await?;
+    let source = resolve_reference(&documents, argument(arguments, "source")?)
+        .ok_or_else(|| "source node not found in active generation".to_string())?;
+    let target = resolve_reference(&documents, argument(arguments, "target")?)
+        .ok_or_else(|| "target node not found in active generation".to_string())?;
+    let adjacency = undirected_adjacency(&edges);
+    let path = shortest_path(&adjacency, &source, &target)
+        .ok_or_else(|| "no path found in active generation graph".to_string())?;
+    Ok(json!({
+        "project": project.slug,
+        "source": source,
+        "target": target,
+        "path": path,
+        "length": path.len().saturating_sub(1)
+    }))
+}
+
+async fn tool_explain_node(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    let target_input = argument(arguments, "target")?;
+    let (documents, edges) = load_project_graph(context, &project).await?;
+    let target = resolve_reference(&documents, target_input)
+        .ok_or_else(|| "target node not found in active generation".to_string())?;
+    let document = documents
+        .iter()
+        .find(|document| document.path == target)
+        .ok_or_else(|| "target document not found".to_string())?;
+    let outgoing = edges
+        .iter()
+        .filter(|edge| edge.source == target)
+        .map(|edge| edge.target.clone())
+        .collect::<Vec<_>>();
+    let incoming = edges
+        .iter()
+        .filter(|edge| edge.target == target)
+        .map(|edge| edge.source.clone())
+        .collect::<Vec<_>>();
+    let degree = outgoing.len() + incoming.len();
+    let centrality = if documents.len() > 1 {
+        degree as f32 / (documents.len() - 1) as f32
+    } else {
+        0.0
+    };
+    let role = if degree >= 5 {
+        "hub"
+    } else if incoming.len() >= 2 {
+        "shared_dependency"
+    } else if outgoing.len() >= 2 {
+        "integrator"
+    } else if degree == 0 {
+        "isolated"
+    } else {
+        "peripheral"
+    };
+    Ok(json!({
+        "project": project.slug,
+        "node": graph_node_json(document),
+        "degree": degree,
+        "degree_centrality": centrality,
+        "incoming": incoming,
+        "outgoing": outgoing,
+        "role": role,
+        "explanation": format!(
+            "{} has {} incoming and {} outgoing active-generation graph connections; role={role}",
+            document.path,
+            incoming.len(),
+            outgoing.len()
+        )
+    }))
+}
+
+fn optional_argument<'a>(arguments: &'a Value, name: &str) -> Option<&'a str> {
+    arguments.get(name).and_then(Value::as_str)
+}
+
+fn job_json(job: &gf_storage::IndexJob) -> Value {
+    json!({
+        "id": job.id,
+        "project_id": job.project_id,
+        "source_id": job.source_id,
+        "generation": job.generation,
+        "status": job.status,
+        "priority": job.priority,
+        "attempts": job.attempts,
+        "max_attempts": job.max_attempts,
+        "progress_percent": job.progress_percent,
+        "current_stage": job.current_stage,
+        "error": job.error,
+        "created_at": job.created_at.to_rfc3339(),
+        "started_at": job.started_at.map(|value| value.to_rfc3339()),
+        "finished_at": job.finished_at.map(|value| value.to_rfc3339())
+    })
+}
+
+async fn tool_create_project(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let allowed = gf_storage::authorize_tenant_scope(
+        context.pool,
+        context.principal,
+        gf_storage::SCOPE_PROJECT_WRITE,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if !allowed {
+        return Err("insufficient tenant scope".into());
+    }
+    let project = gf_storage::create_project(
+        context.pool,
+        gf_storage::models::NewProject {
+            tenant_id: context.principal.tenant_id,
+            slug: argument(arguments, "slug")?.to_string(),
+            name: argument(arguments, "name")?.to_string(),
+            description: optional_argument(arguments, "description").map(str::to_string),
+            created_by: context.principal.user_id,
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if let Some(user_id) = context.principal.user_id {
+        let _ =
+            gf_storage::ensure_project_membership(context.pool, project.id, user_id, "maintainer")
+                .await;
+    }
+    Ok(json!({
+        "id": project.id,
+        "slug": project.slug,
+        "name": project.name,
+        "active_generation": project.active_generation
+    }))
+}
+
+async fn trigger_index_impl(context: &McpContext<'_>, arguments: &Value) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_INDEX_TRIGGER,
+    )
+    .await?;
+    let source_id = optional_argument(arguments, "source_id")
+        .map(|value| uuid::Uuid::parse_str(value).map_err(|_| "invalid source_id".to_string()))
+        .transpose()?;
+    if let Some(source_id) = source_id {
+        let source = gf_storage::get_source(context.pool, source_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "source not found".to_string())?;
+        if source.project_id != project.id {
+            return Err("source does not belong to project".into());
+        }
+    }
+    let priority = arguments
+        .get("priority")
+        .and_then(Value::as_i64)
+        .unwrap_or(0)
+        .clamp(-100, 100) as i32;
+    let job = gf_storage::enqueue_index_job(
+        context.pool,
+        gf_storage::NewIndexJob {
+            project_id: project.id,
+            source_id,
+            priority,
+            max_attempts: 3,
+            payload: json!({"trigger":"mcp"}),
+            created_by: context.principal.user_id,
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "project": project.slug,
+        "job": job_json(&job),
+        "message": "indexing job enqueued"
+    }))
+}
+
+async fn tool_get_index_status(
+    context: &McpContext<'_>,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let project = resolve_project(
+        context,
+        argument(arguments, "project")?,
+        gf_storage::SCOPE_SEARCH_READ,
+    )
+    .await?;
+    if let Some(job_id) = optional_argument(arguments, "job_id") {
+        let job_id = uuid::Uuid::parse_str(job_id).map_err(|_| "invalid job_id".to_string())?;
+        let job = gf_storage::get_index_job(context.pool, job_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .filter(|job| job.project_id == project.id)
+            .ok_or_else(|| "job not found".to_string())?;
+        return Ok(json!({"project": project.slug, "job": job_json(&job)}));
+    }
+    let jobs = gf_storage::list_index_jobs(context.pool, project.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "project": project.slug,
+        "jobs": jobs.iter().take(20).map(job_json).collect::<Vec<_>>(),
+        "count": jobs.len().min(20)
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn document(path: &str, metadata: Value) -> gf_storage::models::Document {
+        gf_storage::models::Document {
+            id: uuid::Uuid::new_v4(),
+            project_id: uuid::Uuid::new_v4(),
+            generation: 1,
+            source_id: None,
+            path: path.to_string(),
+            document_type: "code".into(),
+            language: Some("typescript".into()),
+            title: None,
+            content_hash: path.into(),
+            size_bytes: 1,
+            metadata,
+            revision: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn resolves_typescript_js_specifier_to_source_file() {
+        let app = document(
+            "server/src/app.ts",
+            json!({"imports": ["import { RealtimeBus } from \"./realtime.js\""]}),
+        );
+        let realtime = document("server/src/realtime.ts", json!({}));
+        let documents = vec![app, realtime];
+        assert_eq!(
+            resolve_import_reference(
+                &documents,
+                "server/src/app.ts",
+                "import { RealtimeBus } from \"./realtime.js\""
+            ),
+            Some("server/src/realtime.ts".to_string())
+        );
+        let edges = infer_document_edges(&documents);
+        assert!(edges.iter().any(|edge| edge.source == "server/src/app.ts"
+            && edge.target == "server/src/realtime.ts"
+            && edge.kind == "import"));
+    }
+
+    #[test]
+    fn normalizes_parent_relative_imports() {
+        assert_eq!(
+            normalize_relative_path("server/src/routes/app.ts", "../shared/config.js"),
+            "server/src/shared/config.js"
+        );
+    }
+}
