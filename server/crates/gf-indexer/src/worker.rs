@@ -7,6 +7,7 @@ use gf_storage::{
     acquire_index_job, complete_index_job, fail_index_job, get_source, update_index_job_progress,
     IndexJob,
 };
+use serde_json::{json, Value};
 use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
@@ -43,6 +44,51 @@ pub enum WorkerError {
     Credential(String),
 }
 
+fn worker_error_details(error: &WorkerError) -> Value {
+    match error {
+        WorkerError::Clone(GitCloneError::Git {
+            command,
+            status,
+            stderr,
+            diagnostic,
+        }) => json!({
+            "category": &diagnostic.category,
+            "summary": &diagnostic.summary,
+            "auth": {
+                "configured": diagnostic.auth_configured,
+                "username": &diagnostic.auth_username,
+                "token_type": &diagnostic.token_type,
+                "token_had_surrounding_whitespace": diagnostic.token_had_surrounding_whitespace
+            },
+            "target": {
+                "host": &diagnostic.target_host,
+                "repository": &diagnostic.target_repository
+            },
+            "likely_causes": &diagnostic.likely_causes,
+            "recommended_actions": &diagnostic.recommended_actions,
+            "technical": {
+                "command": command,
+                "status": status,
+                "stderr": stderr
+            }
+        }),
+        WorkerError::Credential(message) => json!({
+            "category": "git_credential_configuration_error",
+            "summary": "GraphFinder could not load or validate the configured git provider credential before cloning.",
+            "likely_causes": [message],
+            "recommended_actions": [
+                "check that the source references the correct provider credential",
+                "check that the provider host matches the repository host",
+                "check that GF_CREDENTIALS_ENCRYPTION_KEY is unchanged and correctly configured"
+            ]
+        }),
+        _ => json!({
+            "category": "indexing_error",
+            "summary": error.to_string()
+        }),
+    }
+}
+
 pub async fn process_next_index_job(
     pool: &PgPool,
     config: &WorkerConfig,
@@ -55,7 +101,8 @@ pub async fn process_next_index_job(
     let generation = match process_job(pool, &job, config, embedder).await {
         Ok(generation) => generation,
         Err(error) => {
-            let _ = fail_index_job(pool, job.id, &error.to_string()).await;
+            let details = worker_error_details(&error);
+            let _ = fail_index_job(pool, job.id, &error.to_string(), &details).await;
             return Err(error);
         }
     };
@@ -74,6 +121,17 @@ async fn process_job(
         .await?
         .ok_or(WorkerError::SourceNotFound(source_id))?;
     process_source(pool, job, &source, config, embedder).await
+}
+
+fn effective_git_username(provider_type: &str, username: &str, secret: &str) -> String {
+    if provider_type == "github"
+        && secret.starts_with("github_pat_")
+        && username.eq_ignore_ascii_case("x-access-token")
+    {
+        "oauth2".to_string()
+    } else {
+        username.to_string()
+    }
 }
 
 async fn git_auth_for_source(
@@ -101,12 +159,12 @@ async fn git_auth_for_source(
     let key = gf_storage::credential_key_from_env().map_err(WorkerError::Credential)?;
     let secret =
         gf_storage::decrypt_secret(&key, &provider.secret_ciphertext, &provider.secret_nonce)
-            .map_err(|error| WorkerError::Credential(error.to_string()))?;
+            .map_err(|error| WorkerError::Credential(error.to_string()))?
+            .trim()
+            .to_string();
     let _ = gf_storage::touch_git_provider(pool, provider.id).await;
-    Ok(Some(GitAuth {
-        username: provider.username,
-        secret,
-    }))
+    let username = effective_git_username(&provider.provider, &provider.username, &secret);
+    Ok(Some(GitAuth { username, secret }))
 }
 
 async fn process_source(
@@ -163,4 +221,33 @@ async fn process_source(
     .await?;
     update_index_job_progress(pool, job.id, 95, "published_generation").await?;
     Ok(report.generation)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::effective_git_username;
+
+    #[test]
+    fn fine_grained_github_pat_uses_oauth2_username_when_default_was_stored() {
+        assert_eq!(
+            effective_git_username("github", "x-access-token", "github_pat_test"),
+            "oauth2"
+        );
+    }
+
+    #[test]
+    fn custom_usernames_and_other_token_types_are_preserved() {
+        assert_eq!(
+            effective_git_username("github", "custom-user", "github_pat_test"),
+            "custom-user"
+        );
+        assert_eq!(
+            effective_git_username("github", "x-access-token", "ghs_app_token"),
+            "x-access-token"
+        );
+        assert_eq!(
+            effective_git_username("gitlab", "oauth2", "token"),
+            "oauth2"
+        );
+    }
 }

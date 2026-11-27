@@ -402,7 +402,7 @@ fn provider_username(
         return Ok(username);
     }
     match provider {
-        "github" => Ok("x-access-token".into()),
+        "github" => Ok("oauth2".into()),
         "gitlab" => Ok("oauth2".into()),
         "azure_devops" => Ok("pat".into()),
         _ => Err((
@@ -466,7 +466,8 @@ async fn create_git_provider(
 ) -> Result<axum::Json<GitProviderResponse>, (StatusCode, &'static str)> {
     let principal = require_git_provider_admin(&pool, &headers).await?;
     validate_git_provider_kind(&request.provider)?;
-    if request.token.len() < 8 {
+    let token = request.token.trim().to_string();
+    if token.len() < 8 {
         return Err((StatusCode::BAD_REQUEST, "provider token is too short"));
     }
     let host = normalize_git_provider_host(&request.host)?;
@@ -481,7 +482,7 @@ async fn create_git_provider(
             provider: request.provider,
             host,
             username,
-            secret: request.token,
+            secret: token,
         },
     )
     .await
@@ -511,11 +512,8 @@ async fn update_git_provider(
     axum::Json(request): axum::Json<UpdateGitProviderRequest>,
 ) -> Result<axum::Json<GitProviderResponse>, (StatusCode, &'static str)> {
     let principal = require_git_provider_admin(&pool, &headers).await?;
-    if request
-        .token
-        .as_deref()
-        .is_some_and(|token| token.len() < 8)
-    {
+    let token = request.token.map(|token| token.trim().to_string());
+    if token.as_deref().is_some_and(|token| token.len() < 8) {
         return Err((StatusCode::BAD_REQUEST, "provider token is too short"));
     }
     let key = credential_key_or_error()?;
@@ -527,7 +525,7 @@ async fn update_git_provider(
         gf_storage::GitProviderUpdate {
             name: request.name,
             username: request.username,
-            secret: request.token,
+            secret: token,
         },
     )
     .await
@@ -1979,6 +1977,7 @@ struct IndexJobResponse {
     max_attempts: i32,
     payload: serde_json::Value,
     error: Option<String>,
+    error_details: serde_json::Value,
     progress_percent: i32,
     current_stage: Option<String>,
     run_at: String,
@@ -2001,6 +2000,7 @@ impl From<gf_storage::IndexJob> for IndexJobResponse {
             max_attempts: job.max_attempts,
             payload: job.payload,
             error: job.error,
+            error_details: job.error_details,
             progress_percent: job.progress_percent,
             current_stage: job.current_stage,
             run_at: job.run_at.to_rfc3339(),

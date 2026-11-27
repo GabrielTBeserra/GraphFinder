@@ -722,6 +722,7 @@ function ProvidersManager({ session }: { session: Session }) {
           <input placeholder="username (optional for known providers)" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
           <input type="password" placeholder="personal access token" value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} required />
           <small className="field-hint">Tokens are encrypted at rest with GF_CREDENTIALS_ENCRYPTION_KEY and are never returned by the API.</small>
+          <small className="field-hint">GitHub fine-grained PAT: leave username empty (GraphFinder uses `oauth2`), include this repository in Repository access, grant Contents: Read-only, and authorize org SSO when required. Cloning does not need write access.</small>
           <button>Store provider credential</button>
         </form>
         {message && <p className="operation-message">{message}</p>}
@@ -730,6 +731,48 @@ function ProvidersManager({ session }: { session: Session }) {
   );
 }
 
+
+function JobError({ job }: { job: IndexJob }) {
+  if (!job.error) return null;
+  const details = job.error_details;
+  const causes = details?.likely_causes?.filter(Boolean) ?? [];
+  const actions = details?.recommended_actions?.filter(Boolean) ?? [];
+  if (!details?.summary) return <p className="job-error">{job.error}</p>;
+
+  return (
+    <div className="job-error-panel">
+      <div className="job-error-heading">
+        <strong>{details.category ?? 'indexing_error'}</strong>
+        {details.target?.host && <span>{details.target.host}{details.target.repository ? ` · ${details.target.repository}` : ''}</span>}
+      </div>
+      <p>{details.summary}</p>
+      {details.auth && (
+        <div className="job-error-meta">
+          <span>credential {details.auth.configured ? 'configured' : 'not configured'}</span>
+          {details.auth.username && <span>username {details.auth.username}</span>}
+          {details.auth.token_type && <span>{details.auth.token_type}</span>}
+          {details.auth.token_had_surrounding_whitespace && <span>token whitespace detected</span>}
+        </div>
+      )}
+      {causes.length > 0 && (
+        <div className="job-error-section">
+          <strong>Most likely causes</strong>
+          <ul>{causes.map((cause) => <li key={cause}>{cause}</li>)}</ul>
+        </div>
+      )}
+      {actions.length > 0 && (
+        <div className="job-error-section">
+          <strong>How to fix</strong>
+          <ol>{actions.map((action) => <li key={action}>{action}</li>)}</ol>
+        </div>
+      )}
+      <details className="job-error-technical">
+        <summary>Technical git output</summary>
+        <pre>{job.error}</pre>
+      </details>
+    </div>
+  );
+}
 
 function JobsManager({ session, projects, setProjects }: { session: Session; projects: Project[]; setProjects: (projects: Project[]) => void }) {
   const [projectId, setProjectId] = useState('');
@@ -903,7 +946,7 @@ function JobsManager({ session, projects, setProjects }: { session: Session; pro
                 <span>{duration(job)}</span>
                 {job.generation && <span>gen {job.generation}</span>}
               </div>
-              {job.error && <p className="job-error">{job.error}</p>}
+              <JobError job={job} />
             </div>
             <div className="job-actions">
               {(job.status === 'queued' || job.status === 'running') && <button onClick={() => cancel(job)}>Cancel</button>}
