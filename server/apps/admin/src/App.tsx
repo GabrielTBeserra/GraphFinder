@@ -125,6 +125,11 @@ function formatCompactDate(value?: string | null) {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
 
+function localDayKey(value: string | Date) {
+  const date = typeof value === 'string' ? new Date(value) : value;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 function formatDuration(startedAt?: string | null, finishedAt?: string | null) {
   if (!startedAt) return '—';
   const start = Date.parse(startedAt);
@@ -195,6 +200,7 @@ function OverviewDashboard({ session, projects, status }: { session: Session; pr
   const cancelledCount = countByStatus('cancelled');
   const terminalCount = succeededCount + failedCount + cancelledCount;
   const successRate = terminalCount ? Math.round((succeededCount / terminalCount) * 100) : 0;
+  const successRateLabel = terminalCount ? `${successRate}%` : '—';
   const indexedProjects = projects.filter((project) => project.active_generation > 0).length;
   const indexedSources = allSources.filter((source) => Boolean(source.last_indexed_commit)).length;
   const sourceCoverage = allSources.length ? Math.round((indexedSources / allSources.length) * 100) : 0;
@@ -208,14 +214,14 @@ function OverviewDashboard({ session, projects, status }: { session: Session; pr
       day.setDate(day.getDate() - (6 - index));
       day.setHours(0, 0, 0, 0);
       return {
-        key: day.toISOString().slice(0, 10),
+        key: localDayKey(day),
         label: new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(day),
         count: 0,
       };
     });
     const counts = new Map(days.map((day) => [day.key, day]));
     allJobs.forEach((job) => {
-      const day = counts.get(job.created_at.slice(0, 10));
+      const day = counts.get(localDayKey(job.created_at));
       if (day) day.count += 1;
     });
     return { days, max: Math.max(1, ...days.map((day) => day.count)) };
@@ -278,9 +284,9 @@ function OverviewDashboard({ session, projects, status }: { session: Session; pr
         <article className="overview-panel success-panel">
           <div className="panel-heading compact-heading"><h2>Success rate</h2><span>{terminalCount} terminal</span></div>
           <div className="success-orbit" style={{ background: `conic-gradient(var(--accent) 0 ${successRate * 3.6}deg, rgba(255,255,255,.08) ${successRate * 3.6}deg 360deg)` }}>
-            <div><strong>{successRate}%</strong><span>succeeded</span></div>
+            <div><strong>{successRateLabel}</strong><span>succeeded</span></div>
           </div>
-          <p>{succeededCount} successful · {failedCount} failed · {cancelledCount} cancelled</p>
+          <p>{terminalCount ? `${succeededCount} successful · ${failedCount} failed · ${cancelledCount} cancelled` : 'No terminal executions yet'}</p>
         </article>
 
         <article className="overview-panel">
