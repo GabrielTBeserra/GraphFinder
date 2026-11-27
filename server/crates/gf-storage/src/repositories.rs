@@ -229,6 +229,105 @@ pub async fn get_document(pool: &PgPool, id: Uuid) -> StorageResult<Option<Docum
     )
 }
 
+/// Lightweight projection for graph construction — avoids transferring the
+/// full `metadata` jsonb (which carries complete symbol tables for code
+/// files) when only link/import/tag edges are needed.
+#[derive(Debug, sqlx::FromRow)]
+pub struct DocumentGraphRow {
+    pub id: Uuid,
+    pub path: String,
+    pub document_type: String,
+    pub language: Option<String>,
+    pub title: Option<String>,
+    pub size_bytes: i64,
+    pub links: serde_json::Value,
+    pub imports: serde_json::Value,
+    pub tags: serde_json::Value,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct LinkRow {
+    pub id: Uuid,
+    pub source_document_id: Uuid,
+    pub target_document_id: Option<Uuid>,
+    pub target_path: String,
+    pub kind: String,
+}
+
+/// Lists resolved document-to-document edges for one generation. Rows with a
+/// null `target_document_id` are unresolved references kept for diagnostics.
+pub async fn list_link_rows(
+    pool: &PgPool,
+    project_id: Uuid,
+    generation: i64,
+) -> StorageResult<Vec<LinkRow>> {
+    Ok(sqlx::query_as::<_, LinkRow>(
+        r#"
+        SELECT id, source_document_id, target_document_id, target_path, kind
+        FROM links
+        WHERE project_id = $1 AND generation = $2
+        "#,
+    )
+    .bind(project_id)
+    .bind(generation)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub struct NewLinkRow {
+    pub project_id: Uuid,
+    pub generation: i64,
+    pub source_document_id: Uuid,
+    pub target_document_id: Option<Uuid>,
+    pub target_path: String,
+    pub kind: String,
+}
+
+/// Bulk-inserts resolved graph edges for one generation in batches. Called by
+/// the indexer after all documents exist, so source/target foreign keys are
+/// always satisfied within the same generation.
+pub async fn insert_link_rows(pool: &PgPool, rows: &[NewLinkRow]) -> StorageResult<usize> {
+    let mut inserted = 0;
+    for batch in rows.chunks(500) {
+        let mut builder = sqlx::QueryBuilder::new(
+            "INSERT INTO links (project_id, generation, source_document_id, target_document_id, target_path, kind) ",
+        );
+        builder.push_values(batch, |mut b, row| {
+            b.push_bind(row.project_id)
+                .push_bind(row.generation)
+                .push_bind(row.source_document_id)
+                .push_bind(row.target_document_id)
+                .push_bind(&row.target_path)
+                .push_bind(&row.kind);
+        });
+        builder.build().execute(pool).await?;
+        inserted += batch.len();
+    }
+    Ok(inserted)
+}
+
+pub async fn list_document_graph_rows(
+    pool: &PgPool,
+    project_id: Uuid,
+    generation: i64,
+) -> StorageResult<Vec<DocumentGraphRow>> {
+    Ok(sqlx::query_as::<_, DocumentGraphRow>(
+        r#"
+        SELECT id, path, document_type, language, title, size_bytes,
+            COALESCE(metadata->'links', 'null'::jsonb) AS links,
+            COALESCE(metadata->'imports', 'null'::jsonb) AS imports,
+            COALESCE(metadata->'tags', 'null'::jsonb) AS tags
+        FROM documents
+        WHERE project_id = $1 AND generation = $2
+        ORDER BY path
+        "#,
+    )
+    .bind(project_id)
+    .bind(generation)
+    .fetch_all(pool)
+    .await?)
+}
+
 pub async fn list_documents(
     pool: &PgPool,
     project_id: Uuid,

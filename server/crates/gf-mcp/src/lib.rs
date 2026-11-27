@@ -1012,40 +1012,47 @@ fn resolve_import_reference(
     resolve_reference(documents, reference)
 }
 
-fn infer_document_edges(documents: &[gf_storage::models::Document]) -> Vec<DocumentEdge> {
-    let mut seen = HashSet::new();
-    let mut edges = Vec::new();
-    for document in documents {
-        for link in metadata_strings(&document.metadata, "links") {
-            if let Some(target) = resolve_reference(documents, &link) {
-                if target != document.path {
-                    let edge = DocumentEdge {
-                        source: document.path.clone(),
-                        target,
-                        kind: "link".into(),
-                    };
-                    if seen.insert(edge.clone()) {
-                        edges.push(edge);
-                    }
-                }
-            }
-        }
-        for import in metadata_strings(&document.metadata, "imports") {
-            if let Some(target) = resolve_import_reference(documents, &document.path, &import) {
-                if target != document.path {
-                    let edge = DocumentEdge {
-                        source: document.path.clone(),
-                        target,
-                        kind: "import".into(),
-                    };
-                    if seen.insert(edge.clone()) {
-                        edges.push(edge);
-                    }
-                }
-            }
-        }
+/// Adapter exposing storage documents to the shared gf-core resolution
+/// engine — the single source of truth for edge inference across server,
+/// panel and MCP tools.
+struct McpGraphDocument<'a> {
+    document: &'a gf_storage::models::Document,
+}
+
+impl gf_core::graph_build::GraphDocument for McpGraphDocument<'_> {
+    fn id_key(&self) -> &str {
+        &self.document.path
     }
-    edges
+    fn path(&self) -> &str {
+        &self.document.path
+    }
+    fn title(&self) -> Option<&str> {
+        self.document.title.as_deref()
+    }
+    fn is_markdown(&self) -> bool {
+        self.document.document_type == "markdown"
+    }
+    fn links(&self) -> Vec<String> {
+        metadata_strings(&self.document.metadata, "links")
+    }
+    fn imports(&self) -> Vec<String> {
+        metadata_strings(&self.document.metadata, "imports")
+    }
+}
+
+fn infer_document_edges(documents: &[gf_storage::models::Document]) -> Vec<DocumentEdge> {
+    let rows: Vec<McpGraphDocument> = documents
+        .iter()
+        .map(|document| McpGraphDocument { document })
+        .collect();
+    gf_core::graph_build::infer_edges(&rows)
+        .into_iter()
+        .map(|edge| DocumentEdge {
+            source: edge.source,
+            target: edge.target,
+            kind: edge.kind,
+        })
+        .collect()
 }
 
 fn undirected_adjacency(edges: &[DocumentEdge]) -> HashMap<String, Vec<String>> {

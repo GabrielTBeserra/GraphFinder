@@ -43,6 +43,7 @@ async fn jobs_are_acquired_atomically_and_locked_by_source() {
             include_patterns: vec![],
             exclude_patterns: vec![],
             config: json!({}),
+            auto_index_interval_seconds: None,
         },
     )
     .await

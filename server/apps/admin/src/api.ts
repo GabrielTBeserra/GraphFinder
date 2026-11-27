@@ -318,3 +318,75 @@ export type AuditEvent = {
 export function listAuditEvents(token: string) {
   return request<AuditEvent[]>('/api/v1/audit-events', {}, token);
 }
+
+export type UpdateStatus = {
+  current_version: string;
+  latest_version?: string | null;
+  tag_name?: string | null;
+  name?: string | null;
+  has_update: boolean;
+  severity?: string | null;
+  release_url?: string | null;
+  release_notes?: string | null;
+  published_at?: string | null;
+  checked_at: string;
+  check_failed: boolean;
+  channel: string;
+};
+
+export function getUpdateStatus(token: string, force = false) {
+  const suffix = force ? '?force=true' : '';
+  return request<UpdateStatus>(`/api/v1/system/update-status${suffix}`, {}, token);
+}
+
+export type ProjectGraphNode = {
+  id: string;
+  path: string;
+  title?: string | null;
+  document_type: string;
+  language?: string | null;
+  size_bytes: number;
+  degree: number;
+  community: number;
+  is_god_node: boolean;
+  tags: string[];
+};
+
+export type ProjectGraphEdge = {
+  source: string;
+  target: string;
+  kind: string;
+};
+
+export type GodNode = {
+  id: string;
+  path: string;
+  title?: string | null;
+  degree: number;
+  centrality: number;
+  community: number;
+  role: string;
+};
+
+export type ProjectGraph = {
+  project_id: string;
+  generation: number;
+  nodes: ProjectGraphNode[];
+  edges: ProjectGraphEdge[];
+  analytics: {
+    god_nodes: GodNode[];
+    cycles: { nodes: string[]; length: number }[];
+    cross_community_edges: number;
+    isolated_count: number;
+  };
+  truncated: boolean;
+  total_documents: number;
+  total_edges: number;
+  community_count: number;
+  edge_source: string;
+};
+
+export function getProjectGraph(token: string, projectId: string, limit?: number) {
+  const suffix = limit ? `?limit=${limit}` : '';
+  return request<ProjectGraph>(`/api/v1/projects/${projectId}/graph${suffix}`, {}, token);
+}

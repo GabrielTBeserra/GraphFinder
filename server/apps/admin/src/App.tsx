@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiToken,
   AuditEvent,
@@ -10,6 +10,7 @@ import {
   createGitProvider,
   configureSourceWebhook,
   getOidcConfig,
+  getUpdateStatus,
   createSource,
   deleteSource,
   deleteGitProvider,
@@ -37,9 +38,12 @@ import {
   Source,
   TenantUser,
   OidcPublicConfig,
+  UpdateStatus,
   updateProject,
   updateUserRole,
 } from './api';
+import { GraphViewer } from './GraphViewer';
+import { UpdatesPanel } from './UpdatesPanel';
 
 function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
   const [email, setEmail] = useState('admin@example.com');
@@ -1158,13 +1162,16 @@ function AuditViewer({ session }: { session: Session }) {
   );
 }
 
-const navItems = ['Overview', 'Projects', 'Sources', 'Providers', 'Index jobs', 'API tokens', 'Search lab', 'Audit'];
+const navItems = ['Overview', 'Graph', 'Projects', 'Sources', 'Providers', 'Index jobs', 'Search lab', 'API tokens', 'Audit', 'Updates'];
 
 function App() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
   const [active, setActive] = useState('Overview');
   const [projects, setProjects] = useState<Project[]>([]);
   const [status, setStatus] = useState('idle');
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [updateToast, setUpdateToast] = useState(false);
+  const updateToastShown = useRef(false);
 
   useEffect(() => {
     if (!session) return;
@@ -1175,6 +1182,27 @@ function App() {
         setStatus('ready');
       })
       .catch(() => setStatus('error'));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session || updateToastShown.current) return;
+    getUpdateStatus(session.token)
+      .then((info) => {
+        setUpdateStatus(info);
+        if (!info.has_update || !info.tag_name) return;
+        // Notify once per release tag — afterwards the persistent header
+        // badge keeps the update visible without nagging.
+        const key = 'gf_admin_update_notified';
+        try {
+          if (localStorage.getItem(key) === info.tag_name) return;
+          localStorage.setItem(key, info.tag_name);
+        } catch {
+          // storage unavailable — the toast still appears this session
+        }
+        updateToastShown.current = true;
+        setUpdateToast(true);
+      })
+      .catch(() => undefined);
   }, [session]);
 
   const metrics = useMemo(() => [
@@ -1210,7 +1238,14 @@ function App() {
             <p className="eyebrow">{active}</p>
             <h1>{active === 'Overview' ? 'Indexing operations at a glance.' : `${active} workspace`}</h1>
           </div>
-          <div className="session-chip">private server</div>
+          <button
+            className={`session-chip version-chip ${updateStatus?.has_update ? 'has-update' : ''}`}
+            onClick={() => setActive('Updates')}
+            title={updateStatus?.has_update ? `Update available — ${updateStatus.tag_name}` : 'Release center'}
+          >
+            {updateStatus?.has_update && <i className="update-dot" />}
+            private server · v{updateStatus?.current_version ?? '…'}
+          </button>
         </header>
         <section className="metric-grid">
           {metrics.map(([label, value]) => (
@@ -1221,7 +1256,11 @@ function App() {
           ))}
         </section>
         <section className="content-panel">
-          {active === 'Audit' ? (
+          {active === 'Graph' ? (
+            <GraphViewer session={session} projects={projects} />
+          ) : active === 'Updates' ? (
+            <UpdatesPanel session={session} status={updateStatus} onStatus={setUpdateStatus} />
+          ) : active === 'Audit' ? (
             <AuditViewer session={session} />
           ) : active === 'Search lab' ? (
             <SearchLab session={session} projects={projects} />
@@ -1242,6 +1281,18 @@ function App() {
           )}
         </section>
       </section>
+      {updateToast && updateStatus?.has_update && (
+        <div className="update-toast" role="status">
+          <div>
+            <strong>GraphFinder {updateStatus.tag_name} available</strong>
+            <span>{updateStatus.severity === 'security' ? 'Security release — review soon.' : 'A new release is ready to deploy.'}</span>
+          </div>
+          <button className="update-toast-review" onClick={() => { setActive('Updates'); setUpdateToast(false); }}>
+            Review
+          </button>
+          <button className="update-toast-dismiss" aria-label="Dismiss" onClick={() => setUpdateToast(false)}>×</button>
+        </div>
+      )}
     </main>
   );
 }

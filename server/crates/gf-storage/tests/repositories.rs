@@ -86,6 +86,7 @@ async fn project_source_document_and_chunk_crud_work() {
             include_patterns: Some(vec!["**/*.md".into()]),
             exclude_patterns: None,
             config: Some(json!({"shallow": true})),
+            auto_index_interval_seconds: None,
         },
     )
     .await

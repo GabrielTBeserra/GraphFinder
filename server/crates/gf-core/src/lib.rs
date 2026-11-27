@@ -5,6 +5,7 @@
 pub mod code;
 pub mod embeddings;
 pub mod graph;
+pub mod graph_build;
 pub mod markdown;
 
 pub use code::{detect_language, parse_code, CodeSymbol, ParsedCode};
