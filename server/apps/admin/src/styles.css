@@ -449,3 +449,7 @@ select { border: 1px solid var(--line); background: #080d0f; color: var(--ink); 
   .project-stat-row { grid-template-columns: 1fr; gap: 10px; }
   .project-stat-numbers { grid-template-columns: repeat(2, auto); justify-content: start; text-align: left; }
 }
+.scope-select { min-height: 138px; padding: 6px; }
+.scope-select option { padding: 7px 8px; border-bottom: 1px solid rgba(38,51,58,.45); }
+.scope-select option:checked { background: rgba(143,255,189,.18); color: var(--accent); }
+.field-hint { color: var(--muted); font-size: 11px; margin-top: -4px; }

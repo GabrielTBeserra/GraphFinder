@@ -711,10 +711,20 @@ function JobsManager({ session, projects, setProjects }: { session: Session; pro
   );
 }
 
+const tokenScopeOptions = [
+  ['search:read', 'search:read — semantic and vault search'],
+  ['code:read', 'code:read — code search and file inspection'],
+  ['index:trigger', 'index:trigger — enqueue indexing jobs'],
+  ['vault:write', 'vault:write — create and update managed notes'],
+  ['vault:delete', 'vault:delete — delete managed notes'],
+  ['project:write', 'project:write — manage projects and sources'],
+  ['tokens:manage', 'tokens:manage — manage API tokens'],
+] as const;
+
 function TokensUsersManager({ session, projects }: { session: Session; projects: Project[] }) {
   const [tokens, setTokens] = useState<ApiToken[]>([]);
   const [users, setUsers] = useState<TenantUser[]>([]);
-  const [tokenForm, setTokenForm] = useState({ name: 'mcp-client', scopes: 'search:read,code:read', projectId: '', days: '30' });
+  const [tokenForm, setTokenForm] = useState({ name: 'mcp-client', scopes: ['search:read', 'code:read'], projectId: '', days: '30' });
   const [userForm, setUserForm] = useState({ email: '', display_name: '', password: '', role: 'viewer' });
   const [createdToken, setCreatedToken] = useState('');
   const [message, setMessage] = useState('');
@@ -729,10 +739,14 @@ function TokensUsersManager({ session, projects }: { session: Session; projects:
 
   async function submitToken(event: FormEvent) {
     event.preventDefault();
+    if (tokenForm.scopes.length === 0) {
+      setMessage('select at least one scope');
+      return;
+    }
     const projectIds = tokenForm.projectId ? [tokenForm.projectId] : undefined;
     const created = await createApiToken(session.token, {
       name: tokenForm.name,
-      scopes: tokenForm.scopes.split(',').map((scope) => scope.trim()).filter(Boolean),
+      scopes: tokenForm.scopes,
       project_ids: projectIds,
       expires_in_days: tokenForm.days ? Number(tokenForm.days) : undefined,
     }).catch(() => undefined);
@@ -761,7 +775,16 @@ function TokensUsersManager({ session, projects }: { session: Session; projects:
         <div className="panel-heading"><h2>API tokens</h2><span>{tokens.length} registered</span></div>
         <form className="inline-form compact" onSubmit={submitToken}>
           <input placeholder="token name" value={tokenForm.name} onChange={(e) => setTokenForm({ ...tokenForm, name: e.target.value })} required />
-          <input placeholder="scopes comma-separated" value={tokenForm.scopes} onChange={(e) => setTokenForm({ ...tokenForm, scopes: e.target.value })} />
+          <select
+            className="scope-select"
+            multiple
+            required
+            value={tokenForm.scopes}
+            onChange={(e) => setTokenForm({ ...tokenForm, scopes: Array.from(e.target.selectedOptions, (option) => option.value) })}
+          >
+            {tokenScopeOptions.map(([scope, label]) => <option key={scope} value={scope}>{label}</option>)}
+          </select>
+          <small className="field-hint">Hold Ctrl/Cmd to select multiple scopes.</small>
           <select value={tokenForm.projectId} onChange={(e) => setTokenForm({ ...tokenForm, projectId: e.target.value })}>
             <option value="">all allowed projects</option>
             {projects.map((project) => <option key={project.id} value={project.id}>{project.slug}</option>)}
