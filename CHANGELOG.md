@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-27
+
+### Added
+* **Private multi-user GraphFinder Server**: new independent Rust workspace under `server/` with PostgreSQL/pgvector storage, tenant/user identity, scoped API tokens, RBAC/project ACLs, REST API, authenticated remote MCP endpoint, indexing queue and background workers.
+* **Server indexing pipeline**: safe Git clone/fetch, private-host allowlists, incremental repository scanning, Markdown/code parsing, embedding generation, hybrid lexical/vector indexing, atomic generation publishing and job progress tracking.
+* **Remote MCP server**: authenticated Streamable HTTP transport with project/search/code/graph tools, compressed context, dependency navigation, shortest paths, managed-vault tools, indexing status and index triggering.
+* **Admin web application**: authenticated panel with operational overview, projects, Git sources, providers, indexing jobs, search inspection, users, API tokens and generation rollback.
+* **Operations dashboard**: read-only overview with indexed projects, source coverage, queue pressure, failed jobs, seven-day indexing activity, success rate, status distribution, generation map and latest executions.
+* **Private Git providers**: encrypted credential management for GitHub, GitLab, Azure DevOps and generic/self-hosted HTTPS Git servers. Provider tokens are encrypted at rest with AES-256-GCM and never returned by the API.
+* **Automatic indexing modes**: manual indexing, interval scheduling from 5 minutes to 24 hours, and after-push webhook indexing with duplicate active-job suppression.
+* **Webhook integrations**: GitHub `X-Hub-Signature-256`, GitLab `X-Gitlab-Token`, Azure DevOps service-hook authentication and generic HMAC validation, including repository URL, branch and deletion-marker checks.
+* **Authentication and authorization**: password login, PostgreSQL-backed rate limiting, scoped personal access tokens, optional OIDC/SSO, role mapping, tenant membership and mutation audit trail.
+* **Managed vault source type**: server-side vault notes with write/delete MCP scopes in addition to Git repository sources.
+* **Docker deployment**: production server Dockerfile, admin Dockerfile, Docker Compose stack, Caddy reverse proxy, health/readiness routing, persistent PostgreSQL/model/repository caches and environment template.
+* **Backup and restore procedures**: compressed PostgreSQL backup script, explicitly confirmed restore script and operational retention guidance.
+* **React documentation application**: documentation moved to Vite + React + TypeScript with Git-derived release data, modular client manual content, separate Client/Server/Releases tracks and preserved EN/PT routes.
+* **React documentation component system**: server manual, graph canvas, code blocks, tabs, copy buttons, hooks and interactive behavior implemented with React components using `html-react-parser`, Radix Tabs, `clsx` and `lucide-react`.
+* **Detailed private-server manual**: bilingual installation, first-admin bootstrap, configuration reference, project/source setup, private providers, automatic indexing, token scopes, remote MCP, observability, backup/restore, security and troubleshooting.
+
+### Changed
+* **Server parser coverage**: markdown chunking, source-code parsing, local embedding provider and graph model moved into reusable server core crates.
+* **Admin project/source separation**: Projects now manages only projects; Sources now manages only Git sources for the selected project.
+* **Token creation UX**: token scopes are selected from valid scope options instead of typed manually.
+* **Job progress visibility**: indexing progress refreshes approximately every second and successful jobs complete at 100%.
+* **Documentation versioning**: release data is generated at build time directly from Git tags and `CHANGELOG.md` instead of hard-coded release content.
+* **SQL migration normalization**: `.gitattributes` enforces LF line endings for migrations because sqlx checksums are byte-sensitive.
+
+### Fixed
+* **TypeScript dependency graph resolution**: multiline/ESM imports and relative `.js` specifiers now resolve correctly to indexed `.ts`/`.tsx` files, restoring dependency graphs, hubs and path finding.
+* **MCP tool-error protocol behavior**: authorization/tool failures are returned as tool errors instead of breaking the MCP connection.
+* **Automatic indexing cancellation**: explicitly clearing `auto_index_interval_seconds` now clears both the interval and `next_index_at`.
+* **Webhook security behavior**: bad signatures return 401, branch mismatches are ignored without indexing, and duplicate active jobs are not enqueued.
+* **Empty overview success metrics**: the success-rate panel no longer presents a misleading zero value when there are no terminal jobs.
+* **GitGuardian false-positive cleanup**: predictable test encryption-key literals were removed from storage tests.
+
+### Security
+* Provider credentials are encrypted at rest; plaintext tokens are redacted from logs and never exposed in provider API responses.
+* Self-hosted/private-network Git hosts remain denied unless explicitly enabled through exact host allowlists or a deliberate private-network setting.
+* Password authentication has database-backed rate limiting; personal access tokens use least-privilege scopes and optional project restrictions.
+* Operational guidance now covers secret storage, HTTPS/private-network exposure, credential rotation and backup protection.
+
 ## [0.22.0] - 2026-11-23
 
 ### Changed
