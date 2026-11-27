@@ -105,6 +105,275 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
 }
 
 
+type OverviewProjectData = {
+  project: Project;
+  sources: Source[];
+  jobs: IndexJob[];
+  generations: IndexGeneration[];
+};
+
+const overviewStatuses = [
+  ['running', 'Running'],
+  ['queued', 'Queued'],
+  ['succeeded', 'Succeeded'],
+  ['failed', 'Failed'],
+  ['cancelled', 'Cancelled'],
+] as const;
+
+function formatCompactDate(value?: string | null) {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+}
+
+function formatDuration(startedAt?: string | null, finishedAt?: string | null) {
+  if (!startedAt) return '—';
+  const start = Date.parse(startedAt);
+  const end = finishedAt ? Date.parse(finishedAt) : Date.now();
+  const minutes = Math.max(0, Math.round((end - start) / 60000));
+  if (minutes < 1) return '<1m';
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function OverviewDashboard({ session, projects, status }: { session: Session; projects: Project[]; status: string }) {
+  const [rows, setRows] = useState<OverviewProjectData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function load(initial = false) {
+      if (initial) setLoading(true);
+      if (projects.length === 0) {
+        if (!cancelled) {
+          setRows([]);
+          setError('');
+          setLoading(false);
+          timer = window.setTimeout(() => void load(), 5000);
+        }
+        return;
+      }
+      try {
+        const data = await Promise.all(projects.map(async (project) => {
+          const [sources, jobs, generations] = await Promise.all([
+            listSources(session.token, project.id),
+            listIndexJobs(session.token, project.id),
+            listIndexGenerations(session.token, project.id),
+          ]);
+          return { project, sources, jobs, generations };
+        }));
+        if (!cancelled) {
+          setRows(data);
+          setError('');
+        }
+      } catch {
+        if (!cancelled) setError('overview telemetry unavailable');
+      } finally {
+        if (!cancelled) {
+          if (initial) setLoading(false);
+          timer = window.setTimeout(() => void load(), 5000);
+        }
+      }
+    }
+
+    void load(true);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [session.token, projects]);
+
+  const allJobs = rows.flatMap((row) => row.jobs);
+  const allSources = rows.flatMap((row) => row.sources);
+  const countByStatus = (jobStatus: string) => allJobs.filter((job) => job.status === jobStatus).length;
+  const runningCount = countByStatus('running');
+  const queuedCount = countByStatus('queued');
+  const succeededCount = countByStatus('succeeded');
+  const failedCount = countByStatus('failed');
+  const cancelledCount = countByStatus('cancelled');
+  const terminalCount = succeededCount + failedCount + cancelledCount;
+  const successRate = terminalCount ? Math.round((succeededCount / terminalCount) * 100) : 0;
+  const indexedProjects = projects.filter((project) => project.active_generation > 0).length;
+  const indexedSources = allSources.filter((source) => Boolean(source.last_indexed_commit)).length;
+  const sourceCoverage = allSources.length ? Math.round((indexedSources / allSources.length) * 100) : 0;
+  const maxGeneration = Math.max(1, ...projects.map((project) => project.active_generation));
+  const projectNames = new Map(rows.map((row) => [row.project.id, row.project.name]));
+  const recentJobs = [...allJobs].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, 5);
+
+  const activity = (() => {
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const day = new Date();
+      day.setDate(day.getDate() - (6 - index));
+      day.setHours(0, 0, 0, 0);
+      return {
+        key: day.toISOString().slice(0, 10),
+        label: new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(day),
+        count: 0,
+      };
+    });
+    const counts = new Map(days.map((day) => [day.key, day]));
+    allJobs.forEach((job) => {
+      const day = counts.get(job.created_at.slice(0, 10));
+      if (day) day.count += 1;
+    });
+    return { days, max: Math.max(1, ...days.map((day) => day.count)) };
+  })();
+
+  if (loading) return <div className="empty-state large">Collecting operational telemetry…</div>;
+
+  if (projects.length === 0) {
+    return (
+      <div className="overview-empty">
+        <span className="overview-empty-mark">GF</span>
+        <h2>No indexing telemetry yet</h2>
+        <p>Projects, sources, generations and execution health will appear here as soon as the private server starts indexing.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overview-dashboard">
+      {error && <p className="operation-message">{error}</p>}
+      <section className="overview-stat-grid" aria-label="Operational statistics">
+        <article className="overview-stat hero">
+          <span>Indexed projects</span>
+          <strong>{indexedProjects}<small>/{projects.length}</small></strong>
+          <em>{projects.length - indexedProjects} awaiting publication</em>
+        </article>
+        <article className="overview-stat">
+          <span>Git sources</span>
+          <strong>{allSources.length}</strong>
+          <em>{sourceCoverage}% already indexed</em>
+        </article>
+        <article className="overview-stat">
+          <span>Execution pressure</span>
+          <strong>{runningCount + queuedCount}</strong>
+          <em>{runningCount} running · {queuedCount} queued</em>
+        </article>
+        <article className={`overview-stat ${failedCount ? 'danger' : ''}`}>
+          <span>Attention</span>
+          <strong>{failedCount}</strong>
+          <em>{failedCount === 1 ? 'failed job' : 'failed jobs'} need review</em>
+        </article>
+      </section>
+
+      <section className="overview-chart-grid">
+        <article className="overview-panel large-panel">
+          <div className="panel-heading compact-heading"><h2>Indexing activity · 7 days</h2><span>live · 5s</span></div>
+          <div className="activity-chart" role="img" aria-label={`${allJobs.length} indexing jobs in the last seven days`}>
+            {activity.days.map((day) => (
+              <div className="activity-column" key={day.key}>
+                <div className="activity-bar-shell">
+                  <span style={{ height: `${Math.max(day.count ? 10 : 2, (day.count / activity.max) * 100)}%` }} />
+                </div>
+                <strong>{day.count}</strong>
+                <small>{day.label}</small>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="overview-panel success-panel">
+          <div className="panel-heading compact-heading"><h2>Success rate</h2><span>{terminalCount} terminal</span></div>
+          <div className="success-orbit" style={{ background: `conic-gradient(var(--accent) 0 ${successRate * 3.6}deg, rgba(255,255,255,.08) ${successRate * 3.6}deg 360deg)` }}>
+            <div><strong>{successRate}%</strong><span>succeeded</span></div>
+          </div>
+          <p>{succeededCount} successful · {failedCount} failed · {cancelledCount} cancelled</p>
+        </article>
+
+        <article className="overview-panel">
+          <div className="panel-heading compact-heading"><h2>Job status mix</h2><span>{allJobs.length} total</span></div>
+          <div className="status-bars">
+            {overviewStatuses.map(([jobStatus, label]) => {
+              const count = countByStatus(jobStatus);
+              const width = allJobs.length ? (count / allJobs.length) * 100 : 0;
+              return (
+                <div className="status-bar-row" key={jobStatus}>
+                  <span>{label}</span>
+                  <div className="status-track"><i className={`status-fill ${jobStatus}`} style={{ width: `${width}%` }} /></div>
+                  <strong>{count}</strong>
+                </div>
+              );
+            })}
+          </div>
+        </article>
+
+        <article className="overview-panel">
+          <div className="panel-heading compact-heading"><h2>System signals</h2><span>{status}</span></div>
+          <div className="signal-list">
+            <div className="signal-row">
+              <i className={runningCount || queuedCount ? 'signal active' : 'signal'} />
+              <div><strong>Worker queue</strong><span>{runningCount || queuedCount ? 'processing index jobs' : 'idle and ready'}</span></div>
+              <code>{runningCount + queuedCount}</code>
+            </div>
+            <div className="signal-row">
+              <i className={sourceCoverage === 100 && allSources.length ? 'signal good' : 'signal active'} />
+              <div><strong>Source coverage</strong><span>{indexedSources} of {allSources.length} sources indexed</span></div>
+              <code>{sourceCoverage}%</code>
+            </div>
+            <div className="signal-row">
+              <i className={failedCount ? 'signal danger' : 'signal good'} />
+              <div><strong>Error surface</strong><span>{failedCount ? 'review failed executions' : 'no failed jobs detected'}</span></div>
+              <code>{failedCount}</code>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section className="overview-bottom-grid">
+        <article className="overview-panel large-panel">
+          <div className="panel-heading compact-heading"><h2>Project generation map</h2><span>{projects.length} projects</span></div>
+          <div className="project-stat-list">
+            {rows.map((row) => {
+              const rowJobs = row.jobs.length;
+              const rowFailed = row.jobs.filter((job) => job.status === 'failed').length;
+              return (
+                <div className="project-stat-row" key={row.project.id}>
+                  <div className="project-stat-name">
+                    <strong>{row.project.name}</strong>
+                    <span>{row.project.slug} · {row.sources.length} sources · {row.generations.length} generations</span>
+                  </div>
+                  <div className="generation-meter">
+                    <div><span style={{ width: `${(row.project.active_generation / maxGeneration) * 100}%` }} /></div>
+                    <code>gen {row.project.active_generation}</code>
+                  </div>
+                  <div className="project-stat-numbers">
+                    <span>{rowJobs} jobs</span>
+                    <span className={rowFailed ? 'danger-text' : ''}>{rowFailed} failed</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </article>
+
+        <article className="overview-panel">
+          <div className="panel-heading compact-heading"><h2>Latest executions</h2><span>newest first</span></div>
+          <div className="recent-job-list">
+            {recentJobs.map((job) => (
+              <div className="recent-job" key={job.id}>
+                <div>
+                  <strong>{projectNames.get(job.project_id) ?? 'unknown project'}</strong>
+                  <span>{job.id.slice(0, 8)} · {job.current_stage ?? job.status}</span>
+                </div>
+                <div className="recent-job-meta">
+                  <code className={`job-status ${job.status}`}>{job.status}</code>
+                  <span>{formatCompactDate(job.created_at)}</span>
+                  <span>{formatDuration(job.started_at, job.finished_at)}</span>
+                </div>
+              </div>
+            ))}
+            {recentJobs.length === 0 && <p className="empty-state">No indexing executions recorded yet.</p>}
+          </div>
+        </article>
+      </section>
+    </div>
+  );
+}
+
+
 function ProjectsManager({ session, projects, setProjects, status }: {
   session: Session;
   projects: Project[];
@@ -728,7 +997,9 @@ function App() {
             <TokensUsersManager session={session} projects={projects} />
           ) : active === 'Index jobs' ? (
             <JobsManager session={session} projects={projects} setProjects={setProjects} />
-          ) : active === 'Projects' || active === 'Overview' || active === 'Sources' ? (
+          ) : active === 'Overview' ? (
+            <OverviewDashboard session={session} projects={projects} status={status} />
+          ) : active === 'Projects' || active === 'Sources' ? (
             <ProjectsManager session={session} projects={projects} setProjects={setProjects} status={status} />
           ) : (
             <div className="empty-state large">{active} module scaffolded. Data wiring arrives in the next implementation step.</div>
