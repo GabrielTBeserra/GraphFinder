@@ -610,7 +610,7 @@ select { border: 1px solid var(--line); background: #080d0f; color: var(--ink); 
   overflow: hidden;
   min-height: 560px;
 }
-.graph-canvas-wrap canvas { display: block; cursor: grab; }
+.graph-canvas-wrap canvas { position: absolute; inset: 0; display: block; cursor: grab; }
 .graph-tooltip {
   position: absolute;
   top: 12px;

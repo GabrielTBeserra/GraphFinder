@@ -88,7 +88,7 @@ export function GraphCanvas({ nodes, edges, selectedId, onSelectNode }: Props) {
         y: Math.sin(angle) * ring + (Math.random() - 0.5) * 40,
         vx: 0,
         vy: 0,
-        radius: Math.min(11, 3 + Math.sqrt(node.degree) * 1.6),
+        radius: Math.min(11, 4 + Math.sqrt(node.degree) * 1.7),
         pinned: false,
       };
     });
@@ -194,7 +194,7 @@ export function GraphCanvas({ nodes, edges, selectedId, onSelectNode }: Props) {
         st.alpha *= 0.985;
       }
 
-      // fit view once the layout has cooled a bit
+      // keep framing the graph until the user takes control (pan/zoom/drag)
       if (!st.fitted && n > 0 && width > 0) {
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         for (const node of sim) {
@@ -208,7 +208,6 @@ export function GraphCanvas({ nodes, edges, selectedId, onSelectNode }: Props) {
         st.zoom = Math.min(1.4, Math.max(0.08, Math.min((width - 80) / spanX, (height - 80) / spanY)));
         st.panX = width / 2 - ((minX + maxX) / 2) * st.zoom;
         st.panY = height / 2 - ((minY + maxY) / 2) * st.zoom;
-        st.fitted = true;
       }
 
       // ---- render ----
@@ -343,6 +342,7 @@ export function GraphCanvas({ nodes, edges, selectedId, onSelectNode }: Props) {
 
     const onDown = (event: MouseEvent) => {
       const st = stateRef.current;
+      st.fitted = true;
       const idx = nearestNode(event.clientX, event.clientY);
       if (idx !== null) {
         st.dragging = idx;
@@ -375,6 +375,7 @@ export function GraphCanvas({ nodes, edges, selectedId, onSelectNode }: Props) {
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const st = stateRef.current;
+      st.fitted = true;
       const rect = canvas.getBoundingClientRect();
       const mx = event.clientX - rect.left;
       const my = event.clientY - rect.top;
