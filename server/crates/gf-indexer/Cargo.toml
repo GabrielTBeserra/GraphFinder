@@ -1,0 +1,23 @@
+[package]
+name = "gf-indexer"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gf-core = { path = "../gf-core" }
+gf-storage = { path = "../gf-storage" }
+thiserror.workspace = true
+url.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+walkdir.workspace = true
+globset.workspace = true
+sha2.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,892 @@
+# GraphFinder Server — Checklist de implementação por etapas e commits
+
+Este documento é o plano operacional para construir o **GraphFinder Server** como uma variante aditiva do projeto, sem alterar o comportamento do GraphFinder desktop atual.
+
+## 0. Contrato de execução
+
+### Regras obrigatórias
+
+- [ ] Não modificar `src/`, `src-tauri/`, workflows existentes ou o pipeline de release desktop nesta etapa.
+- [ ] Todo código novo da versão servidor deve ficar dentro de `server/`.
+- [ ] O servidor não pode depender de Tauri, WebKit, X11, xvfb ou interface gráfica.
+- [ ] Cada commit deve deixar a branch em estado compilável ou explicitamente documentar o contrário antes do commit.
+- [ ] Nenhum endpoint fica público sem autenticação, TLS ou proxy reverso.
+- [ ] Tokens nunca são persistidos em plaintext.
+- [ ] Repositórios indexados por Git são tratados como entrada não confiável.
+- [ ] O índice publicado deve ser consistente durante buscas concorrentes; nenhuma consulta pode ler uma geração parcial.
+
+### Decisões-base assumidas
+
+- [ ] Banco principal: PostgreSQL 16 + pgvector.
+- [ ] Fila inicial: PostgreSQL com `SELECT ... FOR UPDATE SKIP LOCKED`.
+- [ ] Redis/Valkey: somente quando houver necessidade real de cache, rate limit distribuído ou pub/sub.
+- [ ] Object storage/S3: somente quando volume local não for suficiente.
+- [ ] Modelo inicial de embeddings: `multilingual-e5-small`, CPU por padrão.
+- [ ] Projetos podem ter fontes Git readonly; vault gerenciado/editável entra em fase posterior.
+- [ ] Multi-tenancy é modelado desde o início, mesmo que o primeiro deploy tenha um único tenant.
+- [ ] MCP inicial é readonly/search-first; ferramentas de escrita só entram depois de auth/RBAC estarem prontos.
+
+### Não-objetivos iniciais
+
+- [ ] Não migrar o desktop para PostgreSQL.
+- [ ] Não remover SQLite do produto desktop.
+- [ ] Não adicionar Neo4j, Elasticsearch ou Qdrant no MVP.
+- [ ] Não implementar multi-tenancy com banco separado por tenant no MVP.
+- [ ] Não executar código, scripts ou hooks de repositórios indexados.
+- [ ] Não expor PostgreSQL, Redis ou painel interno diretamente na rede pública.
+
+---
+
+## 1. Estrutura alvo
+
+```text
+server/
+├── Cargo.toml
+├── crates/
+│   ├── gf-core/
+│   ├── gf-storage/
+│   ├── gf-indexer/
+│   ├── gf-mcp/
+│   └── gf-server/
+├── apps/
+│   └── admin/
+├── migrations/
+├── fixtures/
+└── deploy/
+    ├── Dockerfile.server
+    ├── Dockerfile.admin
+    ├── docker-compose.yml
+    └── Caddyfile
+```
+
+### Comandos do binário servidor
+
+```text
+graphfinder-server migrate
+graphfinder-server api
+graphfinder-server worker
+```
+
+---
+
+## 2. Sequência de commits planejada
+
+Cada item abaixo representa um commit ou um pequeno grupo de commits coesos.
+
+### Fase 0 — Planejamento e fundação
+
+#### Commit 0 — planejamento
+
+- [x] Criar branch `feature/server`.
+- [x] Adicionar este checklist em `server/IMPLEMENTATION_CHECKLIST.md`.
+- [ ] Commit sugerido:
+  ```text
+  docs(server): add implementation checklist
+  ```
+
+**Critério de aceite**
+- [ ] Checklist versionado na branch.
+- [ ] Nenhum arquivo de `src/` ou `src-tauri/` alterado.
+
+#### Commit 1 — workspace independente
+
+- [x] Criar `server/Cargo.toml` como workspace independente.
+- [x] Criar crates vazios: `gf-core`, `gf-storage`, `gf-indexer`, `gf-mcp`, `gf-server`.
+- [x] Criar binário inicial `graphfinder-server` com subcomandos `migrate`, `api` e `worker` ainda retornando “not implemented”.
+- [x] Adicionar `server/README.md` com escopo e comandos básicos.
+- [ ] Commit sugerido:
+  ```text
+  chore(server): initialize independent rust workspace
+  ```
+
+**Critério de aceite**
+- [x] `cargo check --manifest-path server/Cargo.toml` passa.
+- [x] Nenhuma dependência de Tauri foi adicionada.
+
+#### Commit 2 — fixtures e testes de compatibilidade
+
+- [x] Criar `server/fixtures/` com exemplos Markdown, TypeScript, Rust, Python e repositório misto.
+- [x] Criar testes de chunking esperado para headings `##`/`###`.
+- [x] Criar testes de deep links no formato `[[Nota#Seção]]` e `[[arquivo#simbolo]]`.
+- [ ] Commit sugerido:
+  ```text
+  test(server): add parser compatibility fixtures
+  ```
+
+**Critério de aceite**
+- [ ] Fixtures cobrem Markdown, código e casos com links/tags.
+
+---
+
+### Fase 1 — Core de parsing, chunking e embeddings
+
+#### Commit 3 — parser Markdown
+
+- [x] Implementar parser CommonMark em `gf-core`.
+- [x] Extrair headings, seções, wikilinks e tags.
+- [x] Gerar chunks semânticos por `##` e `###`.
+- [x] Implementar estimativa de tokens.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-core): implement markdown parsing and chunking
+  ```
+
+**Critério de aceite**
+- [x] Fixtures Markdown passam.
+- [x] Chunks preservam heading, deep link, conteúdo e estimativa de tokens.
+
+#### Commit 4 — parser de código
+
+- [x] Implementar detecção de linguagens suportadas no MVP: Rust, TypeScript, JavaScript, Python, Go e Markdown/documentação.
+- [x] Extrair imports/includes/requires.
+- [x] Extrair símbolos principais: functions, classes, structs, impls/métodos quando possível.
+- [x] Preservar path, linguagem, linha inicial/final e nome do símbolo.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-core): implement source code parsing
+  ```
+
+**Critério de aceite**
+- [x] Fixtures de código passam.
+- [x] Nenhum arquivo é executado durante parsing.
+
+#### Commit 5 — grafo interno
+
+- [x] Criar representação de nós e links para notas, arquivos e símbolos.
+- [x] Implementar adjacências para wikilinks e imports.
+- [x] Implementar consultas básicas de neighborhood/path em memória ou via storage.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-core): implement graph model
+  ```
+
+**Critério de aceite**
+- [x] É possível construir grafo de fixture e encontrar caminho simples entre dois nós.
+
+#### Commit 6 — embeddings
+
+- [x] Implementar abstração `EmbeddingProvider`.
+- [x] Implementar provider FastEmbed CPU.
+- [x] Carregar modelo `multilingual-e5-small` por cache local configurável.
+- [x] Implementar batching com limite configurável.
+- [ ] Implementar timeout e tratamento de erro.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-core): add local embedding provider
+  ```
+
+**Critério de aceite**
+- [x] Teste gera embedding de dimensão esperada.
+- [x] Servidor não depende de API externa para embeddings.
+
+---
+
+### Fase 2 — PostgreSQL, schema e gerações de índice
+
+#### Commit 7 — migrations base
+
+- [x] Adicionar migrations SQL para tenants, users, projects, memberships e api_tokens.
+- [x] Adicionar índice único para slugs/emails quando aplicável.
+- [x] Usar hashes de senha/token, nunca plaintext.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-db): add identity and authorization schema
+  ```
+
+**Critério de aceite**
+- [x] `graphfinder-server migrate` aplica migrations em PostgreSQL limpo. *(validado via migrator em PostgreSQL/pgvector real no Ubuntu)*
+
+#### Commit 8 — schema de conteúdo
+
+- [x] Adicionar tabelas `sources`, `documents`, `chunks`, `chunk_embeddings`, `links`, `index_jobs` e `index_generations`.
+- [x] Habilitar extensão `vector`.
+- [x] Criar índices por `project_id`, `generation`, `source_id` e `content_hash`.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-db): add content and vector index schema
+  ```
+
+**Critério de aceite**
+- [x] pgvector está disponível.
+- [x] Schema suporta múltiplas gerações por projeto.
+
+#### Commit 9 — repositories de storage
+
+- [x] Implementar acesso a projetos, fontes, documentos, chunks e links em `gf-storage`.
+- [x] Implementar queries com `sqlx` ou ORM escolhido.
+- [x] Implementar testes de integração com PostgreSQL em Docker quando disponível. *(teste ignorado criado; Docker indisponível neste ambiente)*
+- [ ] Commit sugerido:
+  ```text
+  feat(server-db): implement storage repositories
+  ```
+
+**Critério de aceite**
+- [x] CRUD interno de projeto/fonte/documento/chunk funciona.
+
+#### Commit 10 — publicação atômica de gerações
+
+- [x] Implementar criação de geração `pending`.
+- [x] Implementar escrita de documentos/chunks/embeddings por geração.
+- [x] Implementar publicação atômica em `projects.active_generation`.
+- [x] Implementar limpeza de gerações antigas.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-db): implement atomic index generation publishing
+  ```
+
+**Critério de aceite**
+- [x] Busca nunca lê geração `pending`.
+- [x] Rollback manual para geração anterior é possível por operação administrativa interna.
+
+#### Commit 11 — busca híbrida
+
+- [x] Implementar busca lexical PostgreSQL FTS.
+- [x] Implementar busca vetorial pgvector com filtro por projeto/geração.
+- [x] Implementar fusão/Ranking inicial, preferencialmente RRF.
+- [x] Implementar filtros por linguagem e tipo de documento.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-db): implement hybrid lexical and vector search
+  ```
+
+**Critério de aceite**
+- [x] Consultas retornam apenas projeto autorizado e geração ativa.
+- [x] Busca lexical e vetorial produzem resultados consistentes em fixtures indexados.
+
+---
+
+### Fase 3 — Indexação Git e workers
+
+#### Commit 12 — validação segura de fontes Git
+
+- [x] Validar esquema `https` inicialmente; `ssh` pode entrar depois.
+- [x] Bloquear IPs privados, loopback e link-local por padrão.
+- [x] Criar configuração explícita para permitir hosts internos.
+- [x] Não permitir credenciais embutidas na URL.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-indexer): add safe git source validation
+  ```
+
+**Critério de aceite**
+- [x] URLs internas são rejeitadas por padrão.
+- [x] URLs com credenciais embutidas são rejeitadas.
+
+#### Commit 13 — clone/fetch seguro
+
+- [x] Implementar clone shallow/fetch usando CLI `git` sem shell interpolation ou `git2` com credenciais controladas.
+- [x] Resolver e armazenar commit SHA exato.
+- [x] Implementar cache de repositório por fonte.
+- [x] Implementar limite de tamanho e timeout.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-indexer): implement safe git clone and fetch
+  ```
+
+**Critério de aceite**
+- [x] Clone ocorre em diretório isolado.
+- [x] Nenhum hook/script do repositório é executado.
+- [x] Logs não contêm credenciais.
+
+#### Commit 14 — scan e incremental hashing
+
+- [x] Implementar scan respeitando include/exclude.
+- [x] Ignorar diretórios pesados por padrão: `.git`, `node_modules`, `target`, `dist`, `build`, `.venv`.
+- [x] Calcular hash por arquivo e por chunk.
+- [x] Implementar índice incremental baseado em hash.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-indexer): implement incremental repository scanning
+  ```
+
+**Critério de aceite**
+- [ ] Reindexação sem mudanças não reprocessa todos os chunks. *(será validado no pipeline completo)*
+- [ ] Arquivos removidos desaparecem da nova geração. *(será validado no pipeline completo)*
+
+#### Commit 15 — pipeline completo de indexação
+
+- [x] Integrar clone → scan → parse → chunk → embeddings → staging → publish.
+- [x] Registrar métricas de arquivos, chunks, erros e duração.
+- [x] Implementar modo dry-run para validar configuração da fonte.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-indexer): implement end-to-end indexing pipeline
+  ```
+
+**Critério de aceite**
+- [x] Fixture completo é indexado no PostgreSQL.
+- [ ] Segunda execução usa caminho incremental. *(diff_scan existe; falta reutilizar embeddings/chunks inalterados)*
+
+#### Commit 16 — fila de jobs no PostgreSQL
+
+- [x] Implementar estados `queued`, `running`, `succeeded`, `failed`, `cancelled`.
+- [x] Implementar aquisição com `FOR UPDATE SKIP LOCKED`.
+- [x] Implementar lock por `project_id + source_id`.
+- [x] Implementar retry com backoff simples.
+- [x] Implementar heartbeat/timeout de worker.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-indexer): implement postgres-backed job queue
+  ```
+
+**Critério de aceite**
+- [x] Dois workers não processam o mesmo job.
+- [x] Duas execuções simultâneas da mesma fonte são impedidas.
+
+#### Commit 17 — logs e progresso de jobs
+
+- [x] Persistir progresso percentual e etapa atual.
+- [ ] Persistir erros estruturados por arquivo/fase. *(schema criado; falta granularidade por arquivo)*
+- [x] Redigir segredos de URLs e logs.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-indexer): add job progress and redacted logs
+  ```
+
+**Critério de aceite**
+- [ ] Painel/API consegue acompanhar job sem ler logs de processo. *(pendente da API/painel)*
+
+---
+
+### Fase 4 — API REST e autenticação
+
+#### Commit 18 — bootstrap da API
+
+- [x] Criar servidor HTTP com Axum em `gf-server`.
+- [x] Adicionar `/health` e `/ready`.
+- [x] Adicionar middleware de request id, logging e métricas básicas.
+- [x] Implementar configuração por variáveis de ambiente.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-api): bootstrap http api server
+  ```
+
+**Critério de aceite**
+- [x] API inicia sem GUI e responde `/health`.
+
+#### Commit 19 — autenticação de usuários
+
+- [x] Implementar criação inicial de usuário admin por variável de ambiente ou comando bootstrap.
+- [x] Implementar login com senha hash Argon2/bcrypt.
+- [x] Implementar sessões seguras ou JWT curto para painel.
+- [x] Implementar logout/revogação de sessão.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-auth): implement user authentication
+  ```
+
+**Critério de aceite**
+- [x] Painel pode autenticar usuário admin inicial.
+- [x] Senha nunca é persistida em plaintext.
+
+#### Commit 20 — tokens PAT e service tokens
+
+- [x] Implementar criação de tokens com formato prefixado.
+- [x] Persistir somente hash.
+- [x] Implementar scopes, projetos permitidos e expiração.
+- [x] Implementar revogação e `last_used_at`.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-auth): implement scoped api tokens
+  ```
+
+**Critério de aceite**
+- [x] Token completo é exibido apenas uma vez.
+- [x] Token expirado/revogado é rejeitado.
+
+#### Commit 21 — RBAC e autorização
+
+- [x] Implementar roles de tenant e projeto.
+- [x] Implementar middleware de autorização.
+- [x] Validar acesso por projeto em todas as rotas.
+- [x] Implementar escopo `search:read`, `code:read`, `project:write`, `index:trigger`, `tokens:manage`.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-auth): enforce rbac and project acl
+  ```
+
+**Critério de aceite**
+- [x] Usuário sem acesso ao projeto recebe 403/404 consistente.
+- [x] Token com escopo restrito não executa operação fora do escopo.
+
+#### Commit 22 — endpoints REST de projetos e fontes
+
+- [x] `GET/POST /api/v1/projects`
+- [x] `GET/PATCH/DELETE /api/v1/projects/{id}`
+- [x] `GET/POST /api/v1/projects/{id}/sources`
+- [x] `GET/PATCH/DELETE /api/v1/sources/{id}`
+- [ ] Commit sugerido:
+  ```text
+  feat(server-api): add project and source endpoints
+  ```
+
+**Critério de aceite**
+- [x] CRUD de projeto/fonte respeita RBAC.
+
+#### Commit 23 — endpoints REST de jobs e busca
+
+- [x] `POST /api/v1/projects/{id}/index-jobs`
+- [x] `GET /api/v1/projects/{id}/index-jobs`
+- [x] `GET /api/v1/index-jobs/{id}`
+- [x] `POST /api/v1/index-jobs/{id}/cancel`
+- [x] `POST /api/v1/search`
+- [ ] Commit sugerido:
+  ```text
+  feat(server-api): add indexing and search endpoints
+  ```
+
+**Critério de aceite**
+- [x] É possível cadastrar fonte, disparar indexação e consultar resultados via REST.
+
+---
+
+### Fase 5 — MCP Server multiusuário
+
+#### Commit 24 — transporte MCP HTTP
+
+- [x] Implementar endpoint `/mcp` compatível com Streamable HTTP.
+- [x] Implementar initialize, tools/list e tools/call.
+- [x] Associar cada sessão/chamada ao principal autenticado.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-mcp): implement authenticated streamable http transport
+  ```
+
+**Critério de aceite**
+- [x] Cliente MCP consegue listar ferramentas usando Bearer token.
+
+#### Commit 25 — ferramentas readonly principais
+
+- [x] Implementar `list_projects`.
+- [x] Implementar `search_semantic`.
+- [x] Implementar `search_code`.
+- [x] Implementar `find_files`.
+- [x] Implementar `get_file_context`.
+- [x] Implementar `read_code_chunk`.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-mcp): add readonly project and code tools
+  ```
+
+**Critério de aceite**
+- [x] Ferramentas retornam apenas projetos autorizados.
+- [x] Resultados seguem formato compacto orientado a agentes.
+
+#### Commit 26 — ferramentas de contexto e grafo
+
+- [x] Implementar `get_compressed_context`.
+- [x] Implementar `get_code_dependencies`.
+- [x] Implementar `get_graph_neighborhood`.
+- [x] Implementar `find_path`.
+- [x] Implementar `explain_node`.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-mcp): add context and graph tools
+  ```
+
+**Critério de aceite**
+- [x] Consultas de grafo usam a geração ativa consistente.
+
+#### Commit 27 — ferramentas administrativas MCP
+
+- [x] Implementar `trigger_index`.
+- [x] Implementar `get_index_status`.
+- [x] Implementar `create_project` apenas com scope adequado.
+- [x] Definir compatibilidade ou alias para `sync_vault` como trigger de indexação.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-mcp): add administrative indexing tools
+  ```
+
+**Critério de aceite**
+- [x] Agentes autorizados podem disparar reindexação sem acesso administrativo completo.
+
+---
+
+### Fase 6 — Painel administrativo
+
+#### Commit 28 — bootstrap do painel
+
+- [x] Criar `server/apps/admin` com React + TypeScript + Vite.
+- [x] Criar layout base com navegação.
+- [x] Implementar cliente API com tratamento de autenticação.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-admin): bootstrap admin web application
+  ```
+
+**Critério de aceite**
+- [x] `npm run build` em `server/apps/admin` passa.
+
+#### Commit 29 — login e sessão
+
+- [x] Implementar tela de login.
+- [x] Implementar logout.
+- [x] Implementar guarda de rotas autenticadas.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-admin): add authentication flow
+  ```
+
+**Critério de aceite**
+- [x] Usuário autenticado acessa painel; não autenticado é redirecionado.
+
+#### Commit 30 — projetos e fontes
+
+- [x] Listar projetos.
+- [x] Criar/editar projeto.
+- [x] Adicionar fonte Git com validação básica.
+- [x] Exibir último commit, status e geração ativa.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-admin): add project and git source management
+  ```
+
+**Critério de aceite**
+- [x] Usuário consegue configurar um projeto completo pelo painel.
+
+#### Commit 31 — jobs de indexação
+
+- [x] Listar jobs por projeto.
+- [x] Exibir progresso, etapa, erros e duração.
+- [x] Implementar retry/cancel quando permitido.
+- [x] Implementar polling simples ou SSE.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-admin): add indexing job monitoring
+  ```
+
+**Critério de aceite**
+- [x] Operador acompanha indexação sem acessar logs do container.
+
+#### Commit 32 — tokens e usuários
+
+- [x] Criar/listar/revogar tokens.
+- [x] Exibir escopo, projetos, expiração e último uso.
+- [x] Gerar snippet MCP pronto para copiar.
+- [x] Gerenciar usuários e papéis básicos.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-admin): add token and user management
+  ```
+
+**Critério de aceite**
+- [x] Token criado no painel funciona em cliente MCP.
+
+#### Commit 33 — busca de teste
+
+- [x] Implementar página para testar busca semântica/código por projeto.
+- [x] Exibir deep links, scores e trechos.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-admin): add search inspection page
+  ```
+
+**Critério de aceite**
+- [x] Operador valida indexação sem depender de agente externo.
+
+---
+
+### Fase 7 — Docker, deploy e operação
+
+#### Commit 34 — Dockerfile do servidor
+
+- [x] Criar build multi-stage enxuto.
+- [x] Incluir `git` no runtime apenas se o worker usar CLI Git.
+- [x] Executar como usuário não-root.
+- [x] Preparar diretório de cache de modelos/repositórios.
+- [ ] Commit sugerido:
+  ```text
+  build(server): add production server dockerfile
+  ```
+
+**Critério de aceite**
+- [x] `docker build` da imagem servidor passa.
+- [x] Imagem executa `migrate`, `api` e `worker`.
+
+#### Commit 35 — Dockerfile do painel
+
+- [x] Criar build multi-stage do frontend.
+- [x] Servir assets estaticamente via imagem leve ou pelo proxy.
+- [ ] Commit sugerido:
+  ```text
+  build(server): add admin web dockerfile
+  ```
+
+**Critério de aceite**
+- [x] Painel é servido sem depender de Node em runtime.
+
+#### Commit 36 — Docker Compose
+
+- [x] Adicionar `server/deploy/docker-compose.yml`.
+- [x] Configurar PostgreSQL + pgvector, api, worker, admin e proxy.
+- [x] Adicionar volumes persistentes.
+- [x] Adicionar healthchecks.
+- [x] Expor publicamente apenas proxy.
+- [ ] Commit sugerido:
+  ```text
+  build(server): add docker compose deployment
+  ```
+
+**Critério de aceite**
+- [x] `docker compose config` é válido.
+- [x] Ambiente sobe com migrations, API, worker e painel.
+
+#### Commit 37 — proxy e TLS
+
+- [x] Adicionar `Caddyfile` ou configuração equivalente.
+- [x] Rotear `/api` para API, `/mcp` para API e `/` para painel.
+- [x] Configurar headers de segurança.
+- [x] Configurar timeouts adequados para MCP/streaming.
+- [ ] Commit sugerido:
+  ```text
+  build(server): add reverse proxy configuration
+  ```
+
+**Critério de aceite**
+- [x] Painel, API e MCP funcionam pelo mesmo domínio.
+
+#### Commit 38 — observabilidade
+
+- [x] Implementar logs estruturados JSON.
+- [x] Implementar métricas básicas: requests, jobs, duração, falhas, chunks, embeddings.
+- [x] Adicionar correlation/request ids.
+- [x] Implementar `/metrics` interno opcional.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-ops): add structured observability
+  ```
+
+**Critério de aceite**
+- [x] Logs não contêm tokens, senhas ou credenciais Git.
+
+#### Commit 39 — backup e restore
+
+- [x] Documentar backup PostgreSQL.
+- [x] Adicionar script ou procedimento de `pg_dump`.
+- [x] Definir política para cache repositório/modelos como artefatos reconstruíveis.
+- [x] Testar restore em ambiente limpo.
+- [ ] Commit sugerido:
+  ```text
+  docs(server): add backup and restore procedures
+  ```
+
+**Critério de aceite**
+- [x] Restore recria ambiente funcional a partir de backup.
+
+---
+
+### Fase 8 — Vault gerenciado e escrita controlada
+
+#### Commit 40 — modelo de vault gerenciado
+
+- [x] Adicionar fonte tipo `managed_vault`.
+- [x] Implementar documentos editáveis com revision/optimistic concurrency.
+- [x] Indexar alterações em nova geração ou incrementalmente.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-vault): add managed vault source type
+  ```
+
+**Critério de aceite**
+- [x] Fontes Git permanecem readonly.
+- [x] Edições concorrentes são detectadas.
+
+#### Commit 41 — ferramentas MCP de escrita
+
+- [x] Implementar `store_context`.
+- [x] Implementar `update_section`.
+- [x] Implementar `link_notes`.
+- [x] Implementar `delete_note` com scope específico.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-mcp): add managed vault write tools
+  ```
+
+**Critério de aceite**
+- [x] Escrita exige scope explícito.
+- [x] Repositórios Git readonly não podem ser modificados por essas ferramentas.
+
+#### Commit 42 — auditoria de mutações
+
+- [x] Registrar autor, token, ação, recurso e diff/resumo.
+- [x] Exibir eventos no painel.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-auth): add mutation audit trail
+  ```
+
+**Critério de aceite**
+- [x] Toda mutação possui evento auditável.
+
+---
+
+### Fase 9 — Recursos avançados
+
+#### Commit 43 — reindexação agendada
+
+- [x] Implementar schedule por fonte/projeto.
+- [x] Implementar política de deduplicação.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-indexer): add scheduled indexing
+  ```
+
+#### Commit 44 — webhooks Git
+
+- [x] Implementar endpoint assinado para webhooks.
+- [x] Validar assinatura por provider.
+- [x] Criar job incremental após push.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-indexer): add git webhook indexing
+  ```
+
+#### Commit 45 — rollback operacional de índice
+
+- [x] Expor rollback para geração anterior no painel.
+- [x] Implementar proteção contra rollback acidental.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-admin): add index generation rollback
+  ```
+
+#### Commit 46 — Redis/cache quando necessário
+
+- [x] Medir necessidade de Redis/Valkey antes de introduzir infraestrutura adicional.
+  - Medição local PostgreSQL/API, concorrência 8: projects p95 ~67 ms, sources p95 ~31 ms, generations p95 ~37 ms, audit p95 ~19 ms.
+  - Decisão: cache distribuído adiado; rotas medidas são de control plane e não há evidência de gargalo que justifique operar Redis/Valkey.
+- [ ] Implementar cache de metadados e invalidação por geração quando houver evidência de necessidade.
+- [x] Implementar rate limiting distribuído se necessário.
+  - Implementado com coordenação transacional em PostgreSQL, sem introduzir Redis: login por senha limitado a 10 tentativas/5 min por tenant+email e início OIDC a 30/min por tenant.
+  - Validação PostgreSQL/API: 10×401 seguidos de 429; teste concorrente com 20 requisições/paralelismo 8 resultou em exatamente 10×401 e 10×429.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-ops): add redis-backed caching and rate limiting
+  ```
+
+#### Commit 47 — OIDC/SSO
+
+- [x] Implementar login OIDC para humanos.
+- [x] Mapear grupos/claims para roles quando aplicável.
+- [x] Manter PATs para MCP/agentes.
+- [ ] Commit sugerido:
+  ```text
+  feat(server-auth): add oidc single sign-on
+  ```
+
+---
+
+## 3. Quality gates por commit
+
+Antes de cada commit Rust:
+
+```bash
+cargo fmt --manifest-path server/Cargo.toml --check
+cargo clippy --manifest-path server/Cargo.toml --workspace -- -D warnings
+cargo test --manifest-path server/Cargo.toml --workspace
+```
+
+Antes de commits do painel:
+
+```bash
+cd server/apps/admin
+npm ci
+npm run lint
+npm run build
+```
+
+Antes de commits de deploy:
+
+```bash
+cd server/deploy
+docker compose config
+```
+
+---
+
+## 4. Critérios de aceite por fase
+
+### Fase 1 concluída
+
+- [x] Parser Markdown/code gera chunks e links compatíveis em fixtures.
+- [x] Embeddings locais funcionam em CPU.
+
+### Fase 2 concluída
+
+- [x] PostgreSQL armazena projetos, chunks e embeddings.
+- [x] Busca híbrida respeita projeto e geração ativa.
+- [x] Publicação de índice é atômica.
+
+### Fase 3 concluída
+
+- [x] Uma URL Git pública pode ser indexada de ponta a ponta.
+- [x] Jobs concorrentes não corrompem estado nem duplicam trabalho.
+- [x] Logs são redigidos e progresso é persistido.
+
+### Fase 4 concluída
+
+- [x] Usuários e tokens têm autenticação e autorização funcionais.
+- [x] CRUD de projetos/fontes e disparo de jobs funcionam via REST.
+
+### Fase 5 concluída
+
+- [x] Cliente MCP externo conecta em `/mcp` com Bearer token.
+- [x] Ferramentas readonly retornam resultados apenas de projetos autorizados.
+
+### Fase 6 concluída
+
+- [x] Operador administra projetos, fontes, jobs, usuários e tokens pelo painel.
+- [x] Operador consegue testar busca sem usar cliente MCP externo.
+
+### Fase 7 concluída
+
+- [x] Docker Compose sobe ambiente completo.
+- [x] Somente proxy está exposto.
+- [x] Backup/restore documentado e testado.
+
+### Fase 8 concluída
+
+- [x] Vault gerenciado permite escrita segura via MCP.
+- [x] Mutações são auditáveis.
+
+### Fase 9 concluída
+
+- [x] Indexação pode ser contínua por schedule/webhook.
+- [x] Operação pode escalar com workers adicionais e cache quando necessário.
+
+---
+
+## 5. Demonstração final do MVP
+
+Validação executada no Ubuntu em Docker Compose com PostgreSQL/pgvector, API, worker, painel e proxy. Repositório público usado: `pallets/itsdangerous`.
+
+Evidências principais:
+
+- migrations aplicadas até `0011`;
+- proxy `/health` e painel retornaram 200;
+- bootstrap admin, login, projeto e fonte Git criados pela API;
+- primeira indexação publicou geração 1;
+- token readonly restrito ao projeto autenticou no MCP;
+- MCP expôs 19 ferramentas;
+- `list_projects`, `search_semantic` e `search_code` retornaram resultados;
+- token restrito viu exatamente 1 projeto; projeto anterior ficou oculto e busca nele foi rejeitada;
+- troca da fonte de `main` para `stable` e reindexação publicaram geração 2;
+- busca continuou disponível após a troca atômica de geração.
+
+
+O MVP pode ser considerado funcional quando este fluxo passar de ponta a ponta:
+
+- [x] Subir `docker compose`.
+- [x] Criar usuário admin.
+- [x] Criar projeto.
+- [x] Cadastrar repositório Git público.
+- [x] Disparar indexação.
+- [x] Ver job concluir com sucesso.
+- [x] Criar token MCP com escopo readonly.
+- [x] Configurar Cursor/Claude/outro cliente com URL única do servidor.
+- [x] Executar `list_projects`.
+- [x] Executar `search_code` e `search_semantic`.
+- [x] Confirmar que resultados retornam somente do projeto autorizado.
+- [x] Reindexar após commit novo no repositório.
+- [x] Confirmar que a nova geração foi publicada sem downtime.

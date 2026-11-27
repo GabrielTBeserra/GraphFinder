@@ -1,0 +1,21 @@
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	@api path /api/* /mcp /health /ready
+	reverse_proxy @api api:8080 {
+		flush_interval -1
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+
+	reverse_proxy admin:8080
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

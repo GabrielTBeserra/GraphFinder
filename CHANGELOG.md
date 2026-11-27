@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.22.0] - 2026-11-21
+## [0.22.0] - 2026-11-23
 
 ### Changed
 * **Compact MCP output (~26% fewer response tokens)**: all 26 tools now emit a uniform compact grammar — `N. [[link]] 73% ~60t` search hits, `L42-80` line ranges, comma-joined lists, `+more: offset=N` pagination, one-line confirmations for mutations, and `errors(N):`/`warnings(N):` audit reports. Deep links, `offset=`, `fields='ids'` and `read_code_chunk` hints are preserved as stable anchors.

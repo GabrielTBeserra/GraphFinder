@@ -1,0 +1,18 @@
+[package]
+name = "gf-mcp"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gf-core = { path = "../gf-core" }
+gf-storage = { path = "../gf-storage" }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true

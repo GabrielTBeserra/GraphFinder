@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/gf-core",
+    "crates/gf-storage",
+    "crates/gf-indexer",
+    "crates/gf-mcp",
+    "crates/gf-server",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+rust-version = "1.80"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+url = "2"
+walkdir = "2"
+globset = "0.4"
+sha2 = "0.10"
+base64 = "0.21"
+hmac = "0.12"
+axum = "0.8"
+tower-http = { version = "0.6", features = ["trace"] }
+argon2 = "0.5"
+openidconnect = "=4.0.1"
+aes-gcm = { version = "0.10.3", features = ["getrandom"] }
