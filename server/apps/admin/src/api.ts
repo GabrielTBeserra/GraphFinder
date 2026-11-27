@@ -82,6 +82,9 @@ export type Source = {
   kind: string;
   uri: string;
   branch?: string | null;
+  credential_ref?: string | null;
+  auto_index_interval_seconds?: number | null;
+  next_index_at?: string | null;
   include_patterns: string[];
   exclude_patterns: string[];
   created_at: string;
@@ -106,6 +109,8 @@ export function createSource(token: string, projectId: string, input: {
   kind: string;
   uri: string;
   branch?: string | null;
+  credential_ref?: string | null;
+  auto_index_interval_seconds?: number | null;
   include_patterns?: string[];
   exclude_patterns?: string[];
 }) {
@@ -116,6 +121,52 @@ export function deleteSource(token: string, sourceId: string) {
   return request<void>(`/api/v1/sources/${sourceId}`, { method: 'DELETE' }, token);
 }
 
+
+
+export type GitProvider = {
+  id: string;
+  name: string;
+  provider: string;
+  host: string;
+  username: string;
+  secret_hint: string;
+  sources_count: number;
+  last_used_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export function listGitProviders(token: string) {
+  return request<GitProvider[]>('/api/v1/git-providers', {}, token);
+}
+
+export function createGitProvider(token: string, input: {
+  name: string;
+  provider: string;
+  host: string;
+  username?: string;
+  token: string;
+}) {
+  return request<GitProvider>('/api/v1/git-providers', { method: 'POST', body: JSON.stringify(input) }, token);
+}
+
+export function deleteGitProvider(token: string, id: string) {
+  return request<void>(`/api/v1/git-providers/${id}`, { method: 'DELETE' }, token);
+}
+
+export type WebhookConfig = {
+  source_id: string;
+  project_id: string;
+  provider: string;
+  enabled: boolean;
+  endpoint_path: string;
+  last_delivery_at?: string | null;
+  last_status?: string | null;
+};
+
+export function configureSourceWebhook(token: string, sourceId: string, input: { provider: string; secret: string; enabled: boolean }) {
+  return request<WebhookConfig>(`/api/v1/sources/${sourceId}/webhook`, { method: 'PUT', body: JSON.stringify(input) }, token);
+}
 
 export type IndexGeneration = {
   project_id: string;

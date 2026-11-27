@@ -7,15 +7,20 @@ import {
   createIndexJob,
   createProject,
   createUser,
+  createGitProvider,
+  configureSourceWebhook,
   getOidcConfig,
   createSource,
   deleteSource,
+  deleteGitProvider,
+  GitProvider,
   IndexGeneration,
   IndexJob,
   listApiTokens,
   listAuditEvents,
   listIndexGenerations,
   listIndexJobs,
+  listGitProviders,
   listProjects,
   listUsers,
   listSources,
@@ -481,9 +486,16 @@ function ProjectsManager({ session, projects, setProjects, status }: {
 function SourcesManager({ session, projects }: { session: Session; projects: Project[] }) {
   const [projectId, setProjectId] = useState('');
   const [sources, setSources] = useState<Source[]>([]);
-  const [sourceForm, setSourceForm] = useState({ uri: '', branch: 'main', include: '', exclude: '' });
+  const [providers, setProviders] = useState<GitProvider[]>([]);
+  const [sourceForm, setSourceForm] = useState({ uri: '', branch: 'main', include: '', exclude: '', providerId: '', automation: 'manual', webhookProvider: 'github' });
+  const [pushForm, setPushForm] = useState({ sourceId: '', provider: 'github' });
+  const [webhookSetup, setWebhookSetup] = useState<{ endpoint: string; secret: string; provider: string } | null>(null);
   const [message, setMessage] = useState('');
   const project = projects.find((item) => item.id === projectId) ?? projects[0];
+
+  useEffect(() => {
+    listGitProviders(session.token).then(setProviders).catch(() => setProviders([]));
+  }, [session.token]);
 
   useEffect(() => {
     if (!project) {
@@ -494,23 +506,49 @@ function SourcesManager({ session, projects }: { session: Session; projects: Pro
     listSources(session.token, project.id).then(setSources).catch(() => setSources([]));
   }, [session.token, project?.id]);
 
+  function randomSecret() {
+    return Array.from(crypto.getRandomValues(new Uint8Array(24)), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function enablePush(sourceId: string, provider: string) {
+    const secret = randomSecret();
+    const config = await configureSourceWebhook(session.token, sourceId, { provider, secret, enabled: true });
+    setWebhookSetup({ endpoint: `${window.location.origin}${config.endpoint_path}`, secret, provider });
+    return config;
+  }
+
   async function submitSource(event: FormEvent) {
     event.preventDefault();
     if (!project) return;
     const split = (value: string) => value.split('\n').map((item) => item.trim()).filter(Boolean);
     try {
-      await createSource(session.token, project.id, {
+      const interval = /^\d+$/.test(sourceForm.automation) ? Number(sourceForm.automation) : null;
+      const created = await createSource(session.token, project.id, {
         kind: 'git',
         uri: sourceForm.uri,
         branch: sourceForm.branch || null,
+        credential_ref: sourceForm.providerId || null,
+        auto_index_interval_seconds: interval,
         include_patterns: split(sourceForm.include),
         exclude_patterns: split(sourceForm.exclude),
       });
-      setSourceForm({ uri: '', branch: 'main', include: '', exclude: '' });
+      if (sourceForm.automation === 'push') await enablePush(created.id, sourceForm.webhookProvider);
+      setSourceForm({ uri: '', branch: 'main', include: '', exclude: '', providerId: '', automation: 'manual', webhookProvider: 'github' });
       setSources(await listSources(session.token, project.id));
       setMessage('source created');
     } catch {
       setMessage('source creation failed');
+    }
+  }
+
+  async function submitPush(event: FormEvent) {
+    event.preventDefault();
+    if (!pushForm.sourceId) return;
+    try {
+      await enablePush(pushForm.sourceId, pushForm.provider);
+      setMessage('push webhook enabled — copy the secret below now');
+    } catch {
+      setMessage('webhook configuration failed');
     }
   }
 
@@ -521,6 +559,8 @@ function SourcesManager({ session, projects }: { session: Session; projects: Pro
   }
 
   if (!project) return <p className="empty-state">Create a project before configuring git sources.</p>;
+
+  const providerName = (id?: string | null) => providers.find((provider) => provider.id === id)?.name ?? 'none';
 
   return (
     <section>
@@ -541,6 +581,7 @@ function SourcesManager({ session, projects }: { session: Session; projects: Pro
               <div>
                 <strong>{source.uri}</strong>
                 <span>branch {source.branch ?? 'default'} · {source.indexing_status} · commit {source.last_indexed_commit ? source.last_indexed_commit.slice(0, 10) : 'not indexed'} · include {source.include_patterns.length} · exclude {source.exclude_patterns.length}</span>
+                <span>auth {providerName(source.credential_ref)} · automation {source.auto_index_interval_seconds ? `every ${Math.round(source.auto_index_interval_seconds / 60)}m` : 'manual/push'} · next {source.next_index_at ? formatCompactDate(source.next_index_at) : '—'}</span>
               </div>
               <button className="danger-button" onClick={() => removeSource(source.id)}>Remove</button>
             </article>
@@ -552,12 +593,134 @@ function SourcesManager({ session, projects }: { session: Session; projects: Pro
             <h3>Add git source</h3>
             <input placeholder="https://github.com/org/repo.git" value={sourceForm.uri} onChange={(e) => setSourceForm({ ...sourceForm, uri: e.target.value })} required />
             <input placeholder="branch" value={sourceForm.branch} onChange={(e) => setSourceForm({ ...sourceForm, branch: e.target.value })} />
+            <select value={sourceForm.providerId} onChange={(e) => setSourceForm({ ...sourceForm, providerId: e.target.value })}>
+              <option value="">public repository / no provider</option>
+              {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.host}</option>)}
+            </select>
+            <select value={sourceForm.automation} onChange={(e) => setSourceForm({ ...sourceForm, automation: e.target.value })}>
+              <option value="manual">manual indexing</option>
+              <option value="push">after push · webhook</option>
+              <option value="300">every 5 minutes</option>
+              <option value="900">every 15 minutes</option>
+              <option value="3600">every hour</option>
+              <option value="21600">every 6 hours</option>
+            </select>
+            {sourceForm.automation === 'push' && (
+              <select value={sourceForm.webhookProvider} onChange={(e) => setSourceForm({ ...sourceForm, webhookProvider: e.target.value })}>
+                <option value="github">GitHub webhook</option>
+                <option value="gitlab">GitLab webhook</option>
+                <option value="azure_devops">Azure DevOps service hook</option>
+                <option value="generic">generic HMAC webhook</option>
+              </select>
+            )}
             <textarea placeholder="include patterns, one per line" value={sourceForm.include} onChange={(e) => setSourceForm({ ...sourceForm, include: e.target.value })} />
             <textarea placeholder="exclude patterns, one per line" value={sourceForm.exclude} onChange={(e) => setSourceForm({ ...sourceForm, exclude: e.target.value })} />
             <button>Add git source</button>
           </form>
+          <form className="inline-form source-form" onSubmit={submitPush}>
+            <h3>Enable after-push indexing</h3>
+            <select value={pushForm.sourceId} onChange={(e) => setPushForm({ ...pushForm, sourceId: e.target.value })} required>
+              <option value="">select source</option>
+              {sources.map((source) => <option key={source.id} value={source.id}>{source.uri}</option>)}
+            </select>
+            <select value={pushForm.provider} onChange={(e) => setPushForm({ ...pushForm, provider: e.target.value })}>
+              <option value="github">GitHub webhook</option>
+              <option value="gitlab">GitLab webhook</option>
+              <option value="azure_devops">Azure DevOps service hook</option>
+              <option value="generic">generic HMAC webhook</option>
+            </select>
+            <button>Generate webhook configuration</button>
+          </form>
+          {webhookSetup && (
+            <div className="token-secret-panel">
+              <strong>Configure this webhook once — the secret is shown only now</strong>
+              <pre>{`URL: ${webhookSetup.endpoint}\nSecret/password: ${webhookSetup.secret}\nProvider: ${webhookSetup.provider}${webhookSetup.provider === 'azure_devops' ? '\nAzure basic auth username: graphfinder' : ''}`}</pre>
+            </div>
+          )}
           {message && <p className="operation-message">{message}</p>}
         </section>
+      </div>
+    </section>
+  );
+}
+
+function ProvidersManager({ session }: { session: Session }) {
+  const [providers, setProviders] = useState<GitProvider[]>([]);
+  const [form, setForm] = useState({ name: '', provider: 'github', host: 'github.com', username: '', token: '' });
+  const [message, setMessage] = useState('');
+
+  async function load() {
+    setProviders(await listGitProviders(session.token));
+  }
+  useEffect(() => { load().catch(() => setMessage('failed to load git providers')); }, [session.token]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await createGitProvider(session.token, {
+        name: form.name,
+        provider: form.provider,
+        host: form.host,
+        username: form.username || undefined,
+        token: form.token,
+      });
+      setForm({ name: '', provider: form.provider, host: form.host, username: '', token: '' });
+      setMessage('provider credential stored encrypted');
+      await load();
+    } catch {
+      setMessage('provider creation failed — check encryption key and host');
+    }
+  }
+
+  async function remove(id: string) {
+    try {
+      await deleteGitProvider(session.token, id);
+      setMessage('provider removed');
+      await load();
+    } catch {
+      setMessage('provider is still used by a source');
+    }
+  }
+
+  return (
+    <section className="tokens-grid">
+      <div>
+        <div className="panel-heading"><h2>Git providers</h2><span>{providers.length} configured</span></div>
+        <div className="token-list">
+          {providers.map((provider) => (
+            <article className="token-row" key={provider.id}>
+              <div>
+                <strong>{provider.name}</strong>
+                <div className="job-meta">
+                  <span>{provider.provider}</span><span>{provider.host}</span><span>user {provider.username}</span><span>token {provider.secret_hint}</span><span>{provider.sources_count} source(s)</span><span>last used {provider.last_used_at ? formatCompactDate(provider.last_used_at) : 'never'}</span>
+                </div>
+              </div>
+              <button onClick={() => remove(provider.id)}>Remove</button>
+            </article>
+          ))}
+          {providers.length === 0 && <p className="empty-state">No private Git providers configured.</p>}
+        </div>
+      </div>
+      <div>
+        <form className="inline-form compact" onSubmit={submit}>
+          <input placeholder="credential name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+          <select value={form.provider} onChange={(e) => {
+            const provider = e.target.value;
+            const host = provider === 'github' ? 'github.com' : provider === 'gitlab' ? 'gitlab.com' : provider === 'azure_devops' ? 'dev.azure.com' : form.host;
+            setForm({ ...form, provider, host });
+          }}>
+            <option value="github">GitHub</option>
+            <option value="gitlab">GitLab</option>
+            <option value="azure_devops">Azure DevOps</option>
+            <option value="generic">Generic HTTPS Git</option>
+          </select>
+          <input placeholder="host" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} required />
+          <input placeholder="username (optional for known providers)" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+          <input type="password" placeholder="personal access token" value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} required />
+          <small className="field-hint">Tokens are encrypted at rest with GF_CREDENTIALS_ENCRYPTION_KEY and are never returned by the API.</small>
+          <button>Store provider credential</button>
+        </form>
+        {message && <p className="operation-message">{message}</p>}
       </div>
     </section>
   );
@@ -995,7 +1158,7 @@ function AuditViewer({ session }: { session: Session }) {
   );
 }
 
-const navItems = ['Overview', 'Projects', 'Sources', 'Index jobs', 'API tokens', 'Search lab', 'Audit'];
+const navItems = ['Overview', 'Projects', 'Sources', 'Providers', 'Index jobs', 'API tokens', 'Search lab', 'Audit'];
 
 function App() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
@@ -1072,6 +1235,8 @@ function App() {
             <ProjectsManager session={session} projects={projects} setProjects={setProjects} status={status} />
           ) : active === 'Sources' ? (
             <SourcesManager session={session} projects={projects} />
+          ) : active === 'Providers' ? (
+            <ProvidersManager session={session} />
           ) : (
             <div className="empty-state large">{active} module scaffolded. Data wiring arrives in the next implementation step.</div>
           )}

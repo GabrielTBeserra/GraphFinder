@@ -11,6 +11,7 @@ use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Extension, Router};
+use base64::Engine;
 use gf_core::EmbeddingProvider;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -66,6 +67,14 @@ pub fn router(
         .route(
             "/api/v1/auth/oidc/callback",
             get(crate::oidc::oidc_callback),
+        )
+        .route(
+            "/api/v1/git-providers",
+            get(list_git_providers).post(create_git_provider),
+        )
+        .route(
+            "/api/v1/git-providers/{id}",
+            axum::routing::patch(update_git_provider).delete(delete_git_provider),
         )
         .route("/api/v1/tokens", get(list_tokens).post(create_token))
         .route("/api/v1/tokens/{id}", axum::routing::delete(revoke_token))
@@ -303,6 +312,285 @@ async fn revoke_token(
     } else {
         Err((StatusCode::NOT_FOUND, "token not found"))
     }
+}
+
+#[derive(Debug, Serialize)]
+struct GitProviderResponse {
+    id: uuid::Uuid,
+    name: String,
+    provider: String,
+    host: String,
+    username: String,
+    secret_hint: String,
+    sources_count: i64,
+    last_used_at: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+async fn git_provider_response(
+    pool: &PgPool,
+    provider: gf_storage::GitProvider,
+) -> GitProviderResponse {
+    GitProviderResponse {
+        id: provider.id,
+        name: provider.name,
+        provider: provider.provider,
+        host: provider.host,
+        username: provider.username,
+        secret_hint: provider.secret_hint,
+        sources_count: gf_storage::count_git_provider_sources(pool, provider.id)
+            .await
+            .unwrap_or(0),
+        last_used_at: provider.last_used_at.map(|value| value.to_rfc3339()),
+        created_at: provider.created_at.to_rfc3339(),
+        updated_at: provider.updated_at.to_rfc3339(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateGitProviderRequest {
+    name: String,
+    provider: String,
+    host: String,
+    username: Option<String>,
+    token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateGitProviderRequest {
+    name: Option<String>,
+    username: Option<String>,
+    token: Option<String>,
+}
+
+fn validate_git_provider_kind(provider: &str) -> Result<(), (StatusCode, &'static str)> {
+    match provider {
+        "github" | "gitlab" | "azure_devops" | "generic" => Ok(()),
+        _ => Err((StatusCode::BAD_REQUEST, "unsupported git provider")),
+    }
+}
+
+fn normalize_git_provider_host(input: &str) -> Result<String, (StatusCode, &'static str)> {
+    let trimmed = input.trim().trim_end_matches('/');
+    let without_scheme = trimmed.strip_prefix("https://").unwrap_or(trimmed);
+    if without_scheme.contains('/') || without_scheme.contains('@') || without_scheme.contains('?')
+    {
+        return Err((StatusCode::BAD_REQUEST, "provider host must be a hostname"));
+    }
+    let candidate = format!("https://{without_scheme}");
+    let parsed = url::Url::parse(&candidate)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid provider host"))?;
+    let host = parsed
+        .host_str()
+        .map(str::to_ascii_lowercase)
+        .ok_or((StatusCode::BAD_REQUEST, "invalid provider host"))?;
+    if host.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "invalid provider host"));
+    }
+    Ok(host)
+}
+
+fn provider_username(
+    provider: &str,
+    username: Option<String>,
+) -> Result<String, (StatusCode, &'static str)> {
+    let username = username.unwrap_or_default().trim().to_string();
+    if !username.is_empty() {
+        return Ok(username);
+    }
+    match provider {
+        "github" => Ok("x-access-token".into()),
+        "gitlab" => Ok("oauth2".into()),
+        "azure_devops" => Ok("pat".into()),
+        _ => Err((
+            StatusCode::BAD_REQUEST,
+            "username is required for generic providers",
+        )),
+    }
+}
+
+async fn require_git_provider_admin(
+    pool: &PgPool,
+    headers: &axum::http::HeaderMap,
+) -> Result<gf_storage::Principal, (StatusCode, &'static str)> {
+    let principal = require_principal(pool, headers).await?;
+    if principal.kind != "session" {
+        return Err((StatusCode::FORBIDDEN, "session authentication required"));
+    }
+    let allowed =
+        gf_storage::authorize_tenant_scope(pool, &principal, gf_storage::SCOPE_PROJECT_WRITE)
+            .await
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "authorization failed"))?;
+    if !allowed {
+        return Err((StatusCode::FORBIDDEN, "insufficient tenant scope"));
+    }
+    Ok(principal)
+}
+
+fn credential_key_or_error() -> Result<gf_storage::CredentialKey, (StatusCode, &'static str)> {
+    gf_storage::credential_key_from_env().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "credential encryption key is not configured",
+        )
+    })
+}
+
+async fn list_git_providers(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::Json<Vec<GitProviderResponse>>, (StatusCode, &'static str)> {
+    let principal = require_git_provider_admin(&pool, &headers).await?;
+    let providers = gf_storage::list_git_providers(&pool, principal.tenant_id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "git provider lookup failed",
+            )
+        })?;
+    let mut response = Vec::new();
+    for provider in providers {
+        response.push(git_provider_response(&pool, provider).await);
+    }
+    Ok(axum::Json(response))
+}
+
+async fn create_git_provider(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::Json(request): axum::Json<CreateGitProviderRequest>,
+) -> Result<axum::Json<GitProviderResponse>, (StatusCode, &'static str)> {
+    let principal = require_git_provider_admin(&pool, &headers).await?;
+    validate_git_provider_kind(&request.provider)?;
+    if request.token.len() < 8 {
+        return Err((StatusCode::BAD_REQUEST, "provider token is too short"));
+    }
+    let host = normalize_git_provider_host(&request.host)?;
+    let username = provider_username(&request.provider, request.username)?;
+    let key = credential_key_or_error()?;
+    let provider = gf_storage::create_git_provider(
+        &pool,
+        &key,
+        gf_storage::NewGitProvider {
+            tenant_id: principal.tenant_id,
+            name: request.name.trim().to_string(),
+            provider: request.provider,
+            host,
+            username,
+            secret: request.token,
+        },
+    )
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "git provider creation failed",
+        )
+    })?;
+    audit(
+        &pool,
+        &principal,
+        None,
+        "create",
+        "git_provider",
+        Some(provider.id),
+        serde_json::json!({"provider":provider.provider,"host":provider.host,"name":provider.name}),
+    )
+    .await;
+    Ok(axum::Json(git_provider_response(&pool, provider).await))
+}
+
+async fn update_git_provider(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+    axum::Json(request): axum::Json<UpdateGitProviderRequest>,
+) -> Result<axum::Json<GitProviderResponse>, (StatusCode, &'static str)> {
+    let principal = require_git_provider_admin(&pool, &headers).await?;
+    if request
+        .token
+        .as_deref()
+        .is_some_and(|token| token.len() < 8)
+    {
+        return Err((StatusCode::BAD_REQUEST, "provider token is too short"));
+    }
+    let key = credential_key_or_error()?;
+    let provider = gf_storage::update_git_provider(
+        &pool,
+        &key,
+        principal.tenant_id,
+        id,
+        gf_storage::GitProviderUpdate {
+            name: request.name,
+            username: request.username,
+            secret: request.token,
+        },
+    )
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "git provider update failed",
+        )
+    })?
+    .ok_or((StatusCode::NOT_FOUND, "git provider not found"))?;
+    audit(
+        &pool,
+        &principal,
+        None,
+        "update",
+        "git_provider",
+        Some(provider.id),
+        serde_json::json!({"provider":provider.provider,"host":provider.host,"name":provider.name}),
+    )
+    .await;
+    Ok(axum::Json(git_provider_response(&pool, provider).await))
+}
+
+async fn delete_git_provider(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> Result<StatusCode, (StatusCode, &'static str)> {
+    let principal = require_git_provider_admin(&pool, &headers).await?;
+    let used = gf_storage::count_git_provider_sources(&pool, id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "git provider usage lookup failed",
+            )
+        })?;
+    if used > 0 {
+        return Err((
+            StatusCode::CONFLICT,
+            "git provider is still used by sources",
+        ));
+    }
+    let deleted = gf_storage::delete_git_provider(&pool, principal.tenant_id, id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "git provider deletion failed",
+            )
+        })?;
+    if !deleted {
+        return Err((StatusCode::NOT_FOUND, "git provider not found"));
+    }
+    audit(
+        &pool,
+        &principal,
+        None,
+        "delete",
+        "git_provider",
+        Some(id),
+        serde_json::json!({}),
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Debug, Serialize)]
@@ -832,6 +1120,38 @@ struct CreateSourceRequest {
     auto_index_interval_seconds: Option<i32>,
 }
 
+fn deserialize_double_option_i32<'de, D>(deserializer: D) -> Result<Option<Option<i32>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct DoubleOptionVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for DoubleOptionVisitor {
+        type Value = Option<Option<i32>>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("an integer, null, or a missing field")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E> {
+            Ok(Some(None))
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E> {
+            Ok(Some(None))
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            Option::<i32>::deserialize(deserializer).map(Some)
+        }
+    }
+
+    deserializer.deserialize_option(DoubleOptionVisitor)
+}
+
 #[derive(Debug, Deserialize)]
 struct UpdateSourceRequest {
     uri: Option<String>,
@@ -840,7 +1160,22 @@ struct UpdateSourceRequest {
     include_patterns: Option<Vec<String>>,
     exclude_patterns: Option<Vec<String>>,
     config: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_double_option_i32")]
     auto_index_interval_seconds: Option<Option<i32>>,
+}
+
+fn api_git_source_policy() -> gf_indexer::GitSourcePolicy {
+    gf_indexer::GitSourcePolicy {
+        allow_private_hosts: std::env::var("GF_ALLOW_PRIVATE_GIT_HOSTS")
+            .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false),
+        allowed_hosts: std::env::var("GF_ALLOWED_GIT_HOSTS")
+            .unwrap_or_default()
+            .split(',')
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_string())
+            .collect(),
+    }
 }
 
 fn validate_source_uri(kind: &str, uri: &str) -> Result<String, (StatusCode, &'static str)> {
@@ -850,9 +1185,56 @@ fn validate_source_uri(kind: &str, uri: &str) -> Result<String, (StatusCode, &'s
     if kind != "git" {
         return Err((StatusCode::BAD_REQUEST, "unsupported source kind"));
     }
-    gf_indexer::validate_git_source_url(uri, &gf_indexer::GitSourcePolicy::default())
+    gf_indexer::validate_git_source_url(uri, &api_git_source_policy())
         .map(|url| url.normalized_url)
         .map_err(|_| (StatusCode::BAD_REQUEST, "invalid or unsafe git source url"))
+}
+
+async fn validate_source_credential_ref(
+    pool: &PgPool,
+    tenant_id: uuid::Uuid,
+    uri: &str,
+    credential_ref: Option<&str>,
+) -> Result<(), (StatusCode, &'static str)> {
+    let Some(reference) = credential_ref.filter(|value| !value.trim().is_empty()) else {
+        return Ok(());
+    };
+    let provider_id = uuid::Uuid::parse_str(reference).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "credential_ref must be a git provider id",
+        )
+    })?;
+    let provider = gf_storage::get_git_provider(pool, tenant_id, provider_id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "git provider lookup failed",
+            )
+        })?
+        .ok_or((StatusCode::BAD_REQUEST, "git provider not found"))?;
+    let url = gf_indexer::validate_git_source_url(uri, &api_git_source_policy())
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid or unsafe git source url"))?;
+    if !provider.host.eq_ignore_ascii_case(&url.host) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "git provider host does not match source host",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_auto_index_interval(value: Option<i32>) -> Result<(), (StatusCode, &'static str)> {
+    if let Some(interval) = value {
+        if !(300..=86_400).contains(&interval) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "auto index interval must be between 300 and 86400 seconds",
+            ));
+        }
+    }
+    Ok(())
 }
 
 async fn authorize_source_or_error(
@@ -902,6 +1284,14 @@ async fn create_source(
     )
     .await?;
     let uri = validate_source_uri(&request.kind, &request.uri)?;
+    validate_auto_index_interval(request.auto_index_interval_seconds)?;
+    validate_source_credential_ref(
+        &pool,
+        principal.tenant_id,
+        &uri,
+        request.credential_ref.as_deref(),
+    )
+    .await?;
     let source = gf_storage::create_source(
         &pool,
         gf_storage::models::NewSource {
@@ -955,6 +1345,19 @@ async fn update_source(
         .uri
         .map(|uri| validate_source_uri(&source.kind, &uri))
         .transpose()?;
+    validate_auto_index_interval(request.auto_index_interval_seconds.flatten())?;
+    let effective_uri = uri.clone().unwrap_or_else(|| source.uri.clone());
+    let effective_credential_ref = request
+        .credential_ref
+        .as_deref()
+        .or(source.credential_ref.as_deref());
+    validate_source_credential_ref(
+        &pool,
+        principal.tenant_id,
+        &effective_uri,
+        effective_credential_ref,
+    )
+    .await?;
     let updated = gf_storage::update_source(
         &pool,
         id,
@@ -1048,7 +1451,7 @@ fn webhook_config_response(webhook: gf_storage::SourceWebhook) -> WebhookConfigR
 
 fn validate_webhook_provider(provider: &str) -> Result<(), (StatusCode, &'static str)> {
     match provider {
-        "github" | "gitlab" | "generic" => Ok(()),
+        "github" | "gitlab" | "azure_devops" | "generic" => Ok(()),
         _ => Err((StatusCode::BAD_REQUEST, "unsupported webhook provider")),
     }
 }
@@ -1204,6 +1607,25 @@ fn validate_webhook_delivery(
             };
             constant_time_eq(token.as_bytes(), secret.as_bytes())
         }
+        "azure_devops" => {
+            let Some(header) = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Basic "))
+            else {
+                return false;
+            };
+            let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(header) else {
+                return false;
+            };
+            let Ok(credentials) = String::from_utf8(decoded) else {
+                return false;
+            };
+            let Some((_, password)) = credentials.split_once(':') else {
+                return false;
+            };
+            constant_time_eq(password.as_bytes(), secret.as_bytes())
+        }
         "generic" => verify_hmac_signature(
             secret,
             body,
@@ -1230,6 +1652,8 @@ fn repository_urls(payload: &serde_json::Value) -> Vec<String> {
         "/project/git_ssh_url",
         "/project/web_url",
         "/repository/url",
+        "/resource/repository/remoteUrl",
+        "/resource/repository/url",
     ]
     .iter()
     .filter_map(|pointer| payload.pointer(pointer)?.as_str().map(str::to_string))
@@ -1250,7 +1674,10 @@ fn repository_matches(source_uri: &str, payload: &serde_json::Value) -> bool {
 }
 
 fn payload_branch(payload: &serde_json::Value) -> Option<String> {
-    let reference = payload.get("ref")?.as_str()?;
+    let reference = payload
+        .get("ref")
+        .and_then(|value| value.as_str())
+        .or_else(|| payload.pointer("/resource/refUpdates/0/name")?.as_str())?;
     if let Some(branch) = reference.strip_prefix("refs/heads/") {
         return Some(branch.to_string());
     }
@@ -1258,6 +1685,22 @@ fn payload_branch(payload: &serde_json::Value) -> Option<String> {
         return None;
     }
     Some(reference.to_string())
+}
+
+fn payload_revision(
+    payload: &serde_json::Value,
+    github_key: &str,
+    azure_key: &str,
+) -> serde_json::Value {
+    payload
+        .get(github_key)
+        .cloned()
+        .or_else(|| {
+            payload
+                .pointer(&format!("/resource/refUpdates/0/{azure_key}"))
+                .cloned()
+        })
+        .unwrap_or(serde_json::Value::Null)
 }
 
 fn is_zero_revision(value: Option<&serde_json::Value>) -> bool {
@@ -1349,7 +1792,7 @@ async fn receive_git_webhook(
             }));
         }
     }
-    if is_zero_revision(payload.get("after")) {
+    if is_zero_revision(Some(&payload_revision(&payload, "after", "newObjectId"))) {
         let _ = gf_storage::record_source_webhook_delivery(&pool, source_id, "ignored").await;
         return Ok(axum::Json(WebhookDeliveryResponse {
             status: "ignored",
@@ -1371,8 +1814,8 @@ async fn receive_git_webhook(
         "provider": webhook.provider,
         "ref": payload.get("ref").cloned().unwrap_or(serde_json::Value::Null),
         "branch": branch,
-        "before": payload.get("before").cloned().unwrap_or(serde_json::Value::Null),
-        "after": payload.get("after").cloned().unwrap_or(serde_json::Value::Null),
+        "before": payload_revision(&payload, "before", "oldObjectId"),
+        "after": payload_revision(&payload, "after", "newObjectId"),
         "head_commit": payload.pointer("/head_commit/id").cloned().unwrap_or(serde_json::Value::Null)
     });
     let job = gf_storage::enqueue_source_index_job_if_idle(
@@ -2112,4 +2555,66 @@ async fn search(
     Ok(axum::Json(
         hits.into_iter().map(Into::into).collect::<Vec<_>>(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn azure_payload_branch_and_revision_are_supported() {
+        let payload = serde_json::json!({
+            "eventType":"git.push",
+            "resource":{
+                "refUpdates":[{"name":"refs/heads/main","oldObjectId":"111","newObjectId":"222"}],
+                "repository":{"remoteUrl":"https://dev.azure.com/org/project/_git/repo"}
+            }
+        });
+        assert_eq!(payload_branch(&payload).as_deref(), Some("main"));
+        assert_eq!(
+            payload_revision(&payload, "after", "newObjectId"),
+            serde_json::json!("222")
+        );
+        assert!(repository_matches(
+            "https://dev.azure.com/org/project/_git/repo.git",
+            &payload
+        ));
+    }
+
+    #[test]
+    fn azure_basic_auth_uses_configured_secret_as_password() {
+        let mut headers = axum::http::HeaderMap::new();
+        let encoded = base64::engine::general_purpose::STANDARD.encode("graphfinder:secret-value");
+        headers.insert("authorization", format!("Basic {encoded}").parse().unwrap());
+        assert!(validate_webhook_delivery(
+            "azure_devops",
+            "secret-value",
+            &headers,
+            b"{}"
+        ));
+        assert!(!validate_webhook_delivery(
+            "azure_devops",
+            "wrong",
+            &headers,
+            b"{}"
+        ));
+    }
+
+    #[test]
+    fn source_update_distinguishes_missing_null_and_value_intervals() {
+        #[derive(Deserialize)]
+        struct TestUpdate {
+            #[serde(default, deserialize_with = "deserialize_double_option_i32")]
+            auto_index_interval_seconds: Option<Option<i32>>,
+        }
+
+        let missing: TestUpdate = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.auto_index_interval_seconds, None);
+        let clear: TestUpdate =
+            serde_json::from_str("{\"auto_index_interval_seconds\":null}").unwrap();
+        assert_eq!(clear.auto_index_interval_seconds, Some(None));
+        let value: TestUpdate =
+            serde_json::from_str("{\"auto_index_interval_seconds\":300}").unwrap();
+        assert_eq!(value.auto_index_interval_seconds, Some(Some(300)));
+    }
 }

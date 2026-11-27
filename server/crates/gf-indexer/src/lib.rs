@@ -6,7 +6,9 @@ pub mod pipeline;
 pub mod scanner;
 pub mod worker;
 
-pub use git_clone::{clone_or_fetch_public_repo, GitCheckout, GitCloneError, GitCloneOptions};
+pub use git_clone::{
+    clone_or_fetch_public_repo, GitAuth, GitCheckout, GitCloneError, GitCloneOptions,
+};
 pub use git_source::{
     validate_git_source_url, GitSourcePolicy, GitSourceValidationError, ValidatedGitUrl,
 };

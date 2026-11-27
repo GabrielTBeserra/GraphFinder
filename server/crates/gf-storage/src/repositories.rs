@@ -77,9 +77,12 @@ pub async fn create_source(pool: &PgPool, source: NewSource) -> StorageResult<So
         r#"
         INSERT INTO sources (
             project_id, kind, uri, branch, credential_ref,
-            include_patterns, exclude_patterns, config, auto_index_interval_seconds
+            include_patterns, exclude_patterns, config, auto_index_interval_seconds, next_index_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9,
+            CASE WHEN $9 IS NULL THEN NULL ELSE now() + make_interval(secs=>$9) END
+        )
         RETURNING *
         "#,
     )
@@ -128,8 +131,12 @@ pub async fn update_source(
             include_patterns = COALESCE($5, include_patterns),
             exclude_patterns = COALESCE($6, exclude_patterns),
             config = COALESCE($7, config),
-            auto_index_interval_seconds = COALESCE($8, auto_index_interval_seconds),
-            next_index_at = CASE WHEN $8 IS NULL THEN next_index_at ELSE now() + make_interval(secs=>$8) END,
+            auto_index_interval_seconds = CASE WHEN $9 THEN $8 ELSE auto_index_interval_seconds END,
+            next_index_at = CASE
+                WHEN $9 AND $8 IS NULL THEN NULL
+                WHEN $9 AND $8 IS NOT NULL THEN now() + make_interval(secs=>$8)
+                ELSE next_index_at
+            END,
             updated_at = now()
         WHERE id = $1
         RETURNING *
@@ -143,6 +150,7 @@ pub async fn update_source(
     .bind(update.exclude_patterns)
     .bind(update.config)
     .bind(update.auto_index_interval_seconds.flatten())
+    .bind(update.auto_index_interval_seconds.is_some())
     .fetch_optional(pool)
     .await?)
 }

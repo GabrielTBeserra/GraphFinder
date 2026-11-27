@@ -2,11 +2,19 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use thiserror::Error;
 use tokio::process::Command;
 use uuid::Uuid;
 
 use crate::ValidatedGitUrl;
+
+#[derive(Debug, Clone)]
+pub struct GitAuth {
+    pub username: String,
+    pub secret: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct GitCloneOptions {
@@ -15,6 +23,7 @@ pub struct GitCloneOptions {
     pub branch: Option<String>,
     pub timeout: Duration,
     pub max_bytes: u64,
+    pub auth: Option<GitAuth>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +70,7 @@ pub async fn clone_or_fetch_public_repo(
         &["rev-parse", "HEAD"],
         Some(&checkout_path),
         options.timeout,
+        options.auth.as_ref(),
     )
     .await?;
     let size_bytes = directory_size(&checkout_path)?;
@@ -101,7 +111,9 @@ async fn clone_new(
     args.push(url.normalized_url.as_str());
     let path_arg = path.to_string_lossy().into_owned();
     args.push(path_arg.as_str());
-    run_git(&args, None, options.timeout).await.map(drop)
+    run_git(&args, None, options.timeout, options.auth.as_ref())
+        .await
+        .map(drop)
 }
 
 async fn fetch_existing(
@@ -113,6 +125,7 @@ async fn fetch_existing(
         &["remote", "get-url", "origin"],
         Some(path),
         options.timeout,
+        options.auth.as_ref(),
     )
     .await?;
     if remote_url.trim() != url.normalized_url {
@@ -124,21 +137,30 @@ async fn fetch_existing(
         &["fetch", "--depth", "1", "origin", branch],
         Some(path),
         options.timeout,
+        options.auth.as_ref(),
     )
     .await?;
     run_git(
         &["checkout", "--force", "--detach", "FETCH_HEAD"],
         Some(path),
         options.timeout,
+        options.auth.as_ref(),
     )
     .await?;
     run_git(
         &["reset", "--hard", "FETCH_HEAD"],
         Some(path),
         options.timeout,
+        options.auth.as_ref(),
     )
     .await?;
-    run_git(&["clean", "-ffdx"], Some(path), options.timeout).await?;
+    run_git(
+        &["clean", "-ffdx"],
+        Some(path),
+        options.timeout,
+        options.auth.as_ref(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -146,8 +168,9 @@ async fn git_output(
     args: &[&str],
     cwd: Option<&Path>,
     timeout: Duration,
+    auth: Option<&GitAuth>,
 ) -> Result<String, GitCloneError> {
-    let output = run_git(args, cwd, timeout).await?;
+    let output = run_git(args, cwd, timeout, auth).await?;
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
@@ -155,6 +178,7 @@ async fn run_git(
     args: &[&str],
     cwd: Option<&Path>,
     timeout: Duration,
+    auth: Option<&GitAuth>,
 ) -> Result<std::process::Output, GitCloneError> {
     let mut command = Command::new("git");
     command
@@ -166,6 +190,18 @@ async fn run_git(
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_ASKPASS", "true")
         .env("SSH_ASKPASS", "true");
+    if let Some(auth) = auth {
+        let basic = BASE64.encode(format!("{}:{}", auth.username, auth.secret));
+        command
+            .env("GIT_CONFIG_COUNT", "2")
+            .env("GIT_CONFIG_KEY_0", "credential.helper")
+            .env("GIT_CONFIG_VALUE_0", "")
+            .env("GIT_CONFIG_KEY_1", "http.extraHeader")
+            .env(
+                "GIT_CONFIG_VALUE_1",
+                format!("Authorization: Basic {basic}"),
+            );
+    }
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
@@ -264,6 +300,7 @@ mod tests {
             branch: None,
             timeout: Duration::from_secs(10),
             max_bytes: 10_000_000,
+            auth: None,
         };
         let checkout = clone_or_fetch_public_repo(&url, &options).await.unwrap();
         assert_eq!(checkout.commit_sha.len(), 40);

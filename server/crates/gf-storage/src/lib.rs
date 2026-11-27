@@ -4,6 +4,7 @@ pub mod audit;
 pub mod auth;
 pub mod embeddings;
 pub mod generations;
+pub mod git_providers;
 pub mod jobs;
 pub mod models;
 pub mod oidc;
@@ -21,6 +22,7 @@ pub use audit::*;
 pub use auth::*;
 pub use embeddings::*;
 pub use generations::*;
+pub use git_providers::*;
 pub use jobs::*;
 pub use oidc::*;
 pub use rate_limits::*;
@@ -44,6 +46,8 @@ pub enum StorageError {
     Auth(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    #[error("credential cryptography error: {0}")]
+    Crypto(String),
 }
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");

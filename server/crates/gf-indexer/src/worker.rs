@@ -12,7 +12,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{
-    clone_or_fetch_public_repo, index_checkout, validate_git_source_url, GitCloneError,
+    clone_or_fetch_public_repo, index_checkout, validate_git_source_url, GitAuth, GitCloneError,
     GitCloneOptions, GitSourcePolicy, GitSourceValidationError, IndexingError,
 };
 
@@ -39,6 +39,8 @@ pub enum WorkerError {
     MissingSource(Uuid),
     #[error("source {0} not found")]
     SourceNotFound(Uuid),
+    #[error("git provider credential error: {0}")]
+    Credential(String),
 }
 
 pub async fn process_next_index_job(
@@ -74,6 +76,39 @@ async fn process_job(
     process_source(pool, job, &source, config, embedder).await
 }
 
+async fn git_auth_for_source(
+    pool: &PgPool,
+    source: &Source,
+    validated_url: &crate::ValidatedGitUrl,
+) -> Result<Option<GitAuth>, WorkerError> {
+    let Some(reference) = source.credential_ref.as_deref() else {
+        return Ok(None);
+    };
+    let provider_id = Uuid::parse_str(reference)
+        .map_err(|_| WorkerError::Credential("credential_ref is not a git provider id".into()))?;
+    let project = gf_storage::get_project(pool, source.project_id)
+        .await?
+        .ok_or_else(|| WorkerError::Credential("source project not found".into()))?;
+    let provider = gf_storage::get_git_provider(pool, project.tenant_id, provider_id)
+        .await?
+        .ok_or_else(|| WorkerError::Credential("git provider not found".into()))?;
+    if !provider.host.eq_ignore_ascii_case(&validated_url.host) {
+        return Err(WorkerError::Credential(format!(
+            "git provider host {} does not match source host {}",
+            provider.host, validated_url.host
+        )));
+    }
+    let key = gf_storage::credential_key_from_env().map_err(WorkerError::Credential)?;
+    let secret =
+        gf_storage::decrypt_secret(&key, &provider.secret_ciphertext, &provider.secret_nonce)
+            .map_err(|error| WorkerError::Credential(error.to_string()))?;
+    let _ = gf_storage::touch_git_provider(pool, provider.id).await;
+    Ok(Some(GitAuth {
+        username: provider.username,
+        secret,
+    }))
+}
+
 async fn process_source(
     pool: &PgPool,
     job: &IndexJob,
@@ -93,6 +128,7 @@ async fn process_source(
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .or_else(|| source.branch.clone());
+    let auth = git_auth_for_source(pool, source, &url).await?;
     update_index_job_progress(pool, job.id, 20, "cloning_repository").await?;
     let checkout = clone_or_fetch_public_repo(
         &url,
@@ -102,6 +138,7 @@ async fn process_source(
             branch,
             timeout: config.git_timeout,
             max_bytes: config.max_repo_bytes,
+            auth,
         },
     )
     .await?;

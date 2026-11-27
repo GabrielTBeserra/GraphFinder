@@ -33,6 +33,26 @@ export default `
             <li><strong>Configure the MCP client</strong> — each person uses their own Bearer token; visible projects and permissions are derived from it.</li>
           </ol>
 
+
+          <h3>Private repositories and automatic indexing</h3>
+          <p>Private Git access is centralised in <strong>Providers</strong>. A provider credential is a named HTTPS token for GitHub, GitLab, Azure DevOps or a generic/self-hosted Git server. The API stores only an encrypted copy and a non-sensitive suffix hint; raw tokens are never returned.</p>
+          <ol>
+            <li>Create a provider token in the Git platform with read access to the repository.</li>
+            <li>In the GraphFinder panel, open <em>Providers</em> and store the credential with the exact repository host, for example <code>github.com</code>, <code>gitlab.com</code>, <code>dev.azure.com</code> or your self-hosted hostname.</li>
+            <li>When adding a source, select that provider. The API validates that provider host and repository host match.</li>
+            <li>Choose manual indexing, a periodic interval, or <strong>after push · webhook</strong>.</li>
+          </ol>
+          <p>For <strong>after push</strong>, the panel generates the endpoint and a one-time webhook secret. Configure that URL/secret in GitHub webhooks, GitLab webhooks, Azure DevOps service hooks, or a generic HMAC integration. GraphFinder validates the delivery, repository URL and branch before enqueueing a job. Deleted branches and branch mismatches are ignored.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Mode</th><th>Behaviour</th></tr></thead>
+            <tbody>
+              <tr><td><strong>manual</strong></td><td>Only indexes when someone triggers a job.</td></tr>
+              <tr><td><strong>after push</strong></td><td>Webhook enqueues indexing for the tracked branch.</td></tr>
+              <tr><td><strong>interval</strong></td><td>Worker schedules indexing every 5 minutes to 24 hours.</td></tr>
+            </tbody>
+          </table></div>
+          <p>Set <code>GF_CREDENTIALS_ENCRYPTION_KEY</code> before storing provider credentials. It must be 32 bytes in raw, hex or base64 form, for example <code>openssl rand -hex 32</code>. Back it up with the deployment secrets; losing it makes stored Git tokens unreadable. Self-hosted/private-network Git hosts remain blocked unless explicitly enabled with <code>GF_ALLOW_PRIVATE_GIT_HOSTS</code> or <code>GF_ALLOWED_GIT_HOSTS</code>.</p>
+
           <h3>Server MCP configuration</h3>
           <p>The remote endpoint uses Streamable HTTP at <code>/mcp</code> and requires a Bearer token:</p>
           <div class="code"><div class="code-bar">mcp_config.json</div>

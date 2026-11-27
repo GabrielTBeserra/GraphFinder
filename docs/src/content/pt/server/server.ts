@@ -33,6 +33,26 @@ export default `
             <li><strong>Configurar o cliente MCP</strong> — cada pessoa usa seu próprio Bearer token; permissões e projetos visíveis derivam dele.</li>
           </ol>
 
+
+          <h3>Repositórios privados e indexação automática</h3>
+          <p>O acesso a Git privado é centralizado em <strong>Providers</strong>. Um provider é uma credencial HTTPS nomeada para GitHub, GitLab, Azure DevOps ou um servidor Git genérico/self-hosted. A API grava apenas uma cópia criptografada e uma dica não sensível do final do token; tokens brutos nunca são retornados.</p>
+          <ol>
+            <li>Crie um token na plataforma Git com acesso de leitura ao repositório.</li>
+            <li>No painel do GraphFinder, abra <em>Providers</em> e cadastre a credencial com o host exato do repositório, por exemplo <code>github.com</code>, <code>gitlab.com</code>, <code>dev.azure.com</code> ou o hostname self-hosted.</li>
+            <li>Ao adicionar uma fonte, selecione esse provider. A API valida se o host do provider corresponde ao host do repositório.</li>
+            <li>Escolha indexação manual, intervalo periódico ou <strong>after push · webhook</strong>.</li>
+          </ol>
+          <p>No modo <strong>after push</strong>, o painel gera o endpoint e um segredo de webhook exibido apenas uma vez. Configure essa URL/segredo em webhooks do GitHub, webhooks do GitLab, service hooks do Azure DevOps ou integração HMAC genérica. O GraphFinder valida assinatura, URL do repositório e branch antes de enfileirar um job. Branches apagadas ou diferentes da fonte são ignoradas.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Modo</th><th>Comportamento</th></tr></thead>
+            <tbody>
+              <tr><td><strong>manual</strong></td><td>Só indexa quando alguém dispara um job.</td></tr>
+              <tr><td><strong>after push</strong></td><td>Webhook enfileira indexação da branch rastreada.</td></tr>
+              <tr><td><strong>intervalo</strong></td><td>Worker agenda indexação a cada 5 minutos até 24 horas.</td></tr>
+            </tbody>
+          </table></div>
+          <p>Configure <code>GF_CREDENTIALS_ENCRYPTION_KEY</code> antes de cadastrar credenciais de providers. Ela deve ter 32 bytes em texto, hex ou base64, por exemplo <code>openssl rand -hex 32</code>. Faça backup junto dos segredos do deployment; se a chave for perdida, os tokens Git armazenados deixam de poder ser lidos. Hosts Git privados/de rede interna continuam bloqueados até serem habilitados explicitamente com <code>GF_ALLOW_PRIVATE_GIT_HOSTS</code> ou <code>GF_ALLOWED_GIT_HOSTS</code>.</p>
+
           <h3>Configuração MCP do servidor</h3>
           <p>O endpoint remoto usa HTTP Streamable em <code>/mcp</code> e exige Bearer token:</p>
           <div class="code"><div class="code-bar">mcp_config.json</div>
