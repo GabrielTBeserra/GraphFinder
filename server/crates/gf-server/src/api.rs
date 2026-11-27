@@ -125,6 +125,8 @@ pub fn router(
             post(upsert_vault_document),
         )
         .route("/api/v1/search", post(search))
+        .route("/api/v1/system/update-status", get(update_status))
+        .route("/api/v1/projects/{id}/graph", get(get_project_graph))
         .route("/mcp", post(mcp))
         .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024))
         .layer(Extension(oidc))
@@ -2497,6 +2499,89 @@ impl From<gf_storage::SearchHit> for SearchHitResponse {
         }
     }
 }
+
+async fn update_status(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<axum::Json<crate::updates::UpdateStatusResponse>, (StatusCode, &'static str)> {
+    require_principal(&pool, &headers).await?;
+    let force = params.get("force").map(|v| v == "true" || v == "1").unwrap_or(false);
+    Ok(axum::Json(crate::updates::update_status(force).await))
+}
+
+async fn get_project_graph(
+    State(pool): State<PgPool>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<axum::Json<crate::project_graph::ProjectGraphResponse>, (StatusCode, &'static str)> {
+    let principal = require_principal(&pool, &headers).await?;
+    let project =
+        authorize_project_or_error(&pool, &principal, id, gf_storage::SCOPE_SEARCH_READ).await?;
+    let generation = project.active_generation;
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(800)
+        .clamp(50, 3000);
+    // Published generations are immutable, so the built graph is cached
+    // forever per (project, generation, limit) — repeated panel views cost
+    // zero database queries and zero resolution work. The map is bounded;
+    // when full it resets, which only costs one rebuild per entry.
+    static GRAPH_CACHE: OnceLock<std::sync::RwLock<std::collections::HashMap<(uuid::Uuid, i64, usize), crate::project_graph::ProjectGraphResponse>>> = OnceLock::new();
+    let cache = GRAPH_CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+    let key = (id, generation, limit);
+    if let Ok(guard) = cache.read() {
+        if let Some(cached) = guard.get(&key) {
+            return Ok(axum::Json(cached.clone()));
+        }
+    }
+
+    let documents = gf_storage::list_document_graph_rows(&pool, id, generation)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "document lookup failed"))?;
+
+    // Prefer first-class edges persisted at index time; fall back to query-time
+    // inference for generations indexed before link persistence existed.
+    let link_rows = gf_storage::list_link_rows(&pool, id, generation)
+        .await
+        .unwrap_or_default();
+    let (resolved_edges, edge_source) = if link_rows.is_empty() {
+        (crate::project_graph::infer_edges_for_rows(&documents), "inferred")
+    } else {
+        let path_by_id: std::collections::HashMap<uuid::Uuid, &str> = documents
+            .iter()
+            .map(|row| (row.id, row.path.as_str()))
+            .collect();
+        let edges = link_rows
+            .iter()
+            .filter_map(|row| {
+                let target_id = row.target_document_id?;
+                let source = path_by_id.get(&row.source_document_id)?;
+                let target = path_by_id.get(&target_id)?;
+                Some((source.to_string(), target.to_string(), row.kind.clone()))
+            })
+            .collect();
+        (edges, "table")
+    };
+    let graph = crate::project_graph::build_project_graph(
+        documents,
+        resolved_edges,
+        id,
+        generation,
+        limit,
+        edge_source,
+    );
+    if let Ok(mut guard) = cache.write() {
+        if guard.len() >= 16 {
+            guard.clear();
+        }
+        guard.insert(key, graph.clone());
+    }
+    Ok(axum::Json(graph))
+}
+
 
 async fn search(
     State(pool): State<PgPool>,

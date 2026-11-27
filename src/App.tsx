@@ -53,7 +53,7 @@ const NewProjectModal = React.lazy(() =>
 const ReleaseModal = React.lazy(() =>
   import('./components/ReleaseModal').then((m) => ({ default: m.ReleaseModal }))
 );
-import { checkForUpdates, type ReleaseInfo } from './services/updater';
+import { APP_VERSION, checkForUpdates, type ReleaseInfo } from './services/updater';
 import {
   CheckCircle,
   Info,
@@ -64,6 +64,7 @@ interface Toast {
   id: string;
   message: string;
   type?: 'success' | 'info' | 'error';
+  action?: { label: string; onClick: () => void };
 }
 
 const formatSyncEta = (seconds: number) =>
@@ -168,22 +169,46 @@ export const App: React.FC = () => {
   }, [theme]);
 
   const showToast = useCallback(
-    (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+    (
+      message: string,
+      type: 'success' | 'info' | 'error' = 'success',
+      options?: { action?: { label: string; onClick: () => void }; durationMs?: number }
+    ) => {
       const id = Math.random().toString(36).substring(2, 9);
-      setToasts((prev) => [...prev, { id, message, type }]);
+      setToasts((prev) => [...prev, { id, message, type, action: options?.action }]);
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, 3200);
+      }, options?.durationMs ?? 3200);
     },
     []
   );
 
   useEffect(() => {
     checkForUpdates()
-      .then((info) => setReleaseInfo(info))
+      .then((info) => {
+        setReleaseInfo(info);
+        if (!info.hasUpdate) return;
+        try {
+          // Notify once per release tag — the persistent badge in the
+          // activity bar keeps the update visible after the toast is gone.
+          const notifiedTag = localStorage.getItem('gf_update_notified_tag');
+          if (notifiedTag === info.tagName) return;
+          localStorage.setItem('gf_update_notified_tag', info.tagName);
+        } catch {
+          // storage unavailable — still show the toast
+        }
+        showToast(`GraphFinder ${info.tagName} is available`, 'info', {
+          durationMs: 8000,
+          action: {
+            label: 'View release',
+            onClick: () => setIsReleaseModalOpen(true),
+          },
+        });
+      })
       .catch((err) => {
         console.warn('[Updater] Initial check error:', err);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSelectNote = useCallback(async (idOrTitle: string) => {
@@ -851,7 +876,7 @@ export const App: React.FC = () => {
           isSearching={isSearching}
           isCollapsed={!isSidebarOpen}
           theme={theme}
-          appVersion={releaseInfo?.currentVersion || '0.15.0'}
+          appVersion={releaseInfo?.currentVersion || APP_VERSION}
           hasUpdate={releaseInfo?.hasUpdate}
           onOpenReleases={() => setIsReleaseModalOpen(true)}
         />
@@ -1007,6 +1032,15 @@ export const App: React.FC = () => {
                 <CheckCircle size={14} weight="fill" className="shrink-0 text-good" />
               )}
               <span>{toast.message}</span>
+              {toast.action && (
+                <button
+                  type="button"
+                  onClick={toast.action.onClick}
+                  className="ml-1 shrink-0 rounded border border-line-strong bg-raise px-1.5 py-0.5 text-[10px] font-semibold text-accent-strong hover:bg-line transition-colors"
+                >
+                  {toast.action.label}
+                </button>
+              )}
             </div>
           ))}
         </div>

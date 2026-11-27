@@ -83,7 +83,7 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
           >
             <Gear size={18} />
             {hasUpdate && (
-              <span className="absolute top-2.5 right-2.5 size-2 rounded-full bg-good border border-surface" />
+              <span className="absolute top-2.5 right-2.5 size-2 rounded-full bg-good border border-surface animate-pulse" />
             )}
           </button>
         </DropdownMenu.Trigger>
@@ -96,12 +96,12 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
           >
             <DropdownMenu.Item
               onSelect={onOpenReleases}
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-ink cursor-pointer outline-none data-[highlighted]:bg-raise"
+              className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs cursor-pointer outline-none data-[highlighted]:bg-raise ${
+                hasUpdate ? 'text-good font-medium' : 'text-ink'
+              }`}
             >
-              <span className="relative">
-                Releases
-                {hasUpdate && <span className="absolute -right-3 top-1 size-1.5 rounded-full bg-good" />}
-              </span>
+              {hasUpdate ? 'Update available' : 'Releases'}
+              {hasUpdate && <span className="size-1.5 rounded-full bg-good animate-pulse" />}
             </DropdownMenu.Item>
             <DropdownMenu.Item
               onSelect={onOpenSettings}

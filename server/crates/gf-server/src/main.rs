@@ -8,6 +8,8 @@ use gf_indexer::{process_next_index_job, WorkerConfig};
 
 mod api;
 mod oidc;
+mod project_graph;
+mod updates;
 
 #[derive(Debug, Parser)]
 #[command(name = "graphfinder-server")]

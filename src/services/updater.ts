@@ -49,8 +49,10 @@ interface CacheData {
   data: ReleaseInfo;
 }
 
+export const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
+
 export async function checkForUpdates(force = false): Promise<ReleaseInfo> {
-  const currentVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.14.0';
+  const currentVersion = APP_VERSION;
 
   if (!force) {
     try {

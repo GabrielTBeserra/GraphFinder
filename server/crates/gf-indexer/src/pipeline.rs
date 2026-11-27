@@ -2,9 +2,10 @@ use std::path::Path;
 
 use gf_core::{parse_code, parse_markdown, EmbeddingProvider};
 use gf_storage::models::{NewChunk, NewDocument};
+use gf_storage::repositories::{insert_link_rows, NewLinkRow};
 use gf_storage::{
     create_chunk, create_document, create_next_index_generation, fail_index_generation,
-    publish_index_generation, upsert_chunk_embedding,
+    list_documents, publish_index_generation, upsert_chunk_embedding,
 };
 use serde_json::json;
 use sqlx::PgPool;
@@ -20,6 +21,7 @@ pub struct IndexingReport {
     pub documents_indexed: usize,
     pub chunks_indexed: usize,
     pub embeddings_written: usize,
+    pub links_written: usize,
     pub skipped_files: usize,
     pub published: bool,
 }
@@ -247,5 +249,93 @@ async fn index_generation_contents(
             report.embeddings_written += 1;
         }
     }
+
+    // Persist resolved graph edges as first-class rows in the `links` table.
+    // Edges become SQL-queryable facts of the generation instead of metadata
+    // re-resolved on every read — the same resolution engine shared by the
+    // MCP tools and the admin panel guarantees consistent topology.
+    match persist_generation_links(pool, project_id, generation).await {
+        Ok(count) => report.links_written = count,
+        Err(error) => {
+            // Link persistence must never fail the indexing run — the panel
+            // falls back to query-time inference for generations without rows.
+            tracing::warn!("link persistence failed for generation {generation}: {error}");
+        }
+    }
     Ok(())
+}
+
+struct IndexerGraphDocument<'a> {
+    document: &'a gf_storage::models::Document,
+}
+
+impl gf_core::graph_build::GraphDocument for IndexerGraphDocument<'_> {
+    fn id_key(&self) -> &str {
+        &self.document.path
+    }
+    fn path(&self) -> &str {
+        &self.document.path
+    }
+    fn title(&self) -> Option<&str> {
+        self.document.title.as_deref()
+    }
+    fn is_markdown(&self) -> bool {
+        self.document.document_type == "markdown"
+    }
+    fn links(&self) -> Vec<String> {
+        metadata_strings(&self.document.metadata, "links")
+    }
+    fn imports(&self) -> Vec<String> {
+        metadata_strings(&self.document.metadata, "imports")
+    }
+}
+
+fn metadata_strings(metadata: &serde_json::Value, key: &str) -> Vec<String> {
+    metadata
+        .get(key)
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn persist_generation_links(
+    pool: &PgPool,
+    project_id: Uuid,
+    generation: i64,
+) -> Result<usize, gf_storage::StorageError> {
+    let documents = list_documents(pool, project_id, generation).await?;
+    if documents.is_empty() {
+        return Ok(0);
+    }
+    let rows: Vec<IndexerGraphDocument> = documents
+        .iter()
+        .map(|document| IndexerGraphDocument { document })
+        .collect();
+    let edges = gf_core::graph_build::infer_edges(&rows);
+    let id_by_path: std::collections::HashMap<&str, Uuid> = documents
+        .iter()
+        .map(|document| (document.path.as_str(), document.id))
+        .collect();
+
+    let link_rows: Vec<NewLinkRow> = edges
+        .iter()
+        .filter_map(|edge| {
+            let source = id_by_path.get(edge.source.as_str())?;
+            let target = id_by_path.get(edge.target.as_str())?;
+            Some(NewLinkRow {
+                project_id,
+                generation,
+                source_document_id: *source,
+                target_document_id: Some(*target),
+                target_path: edge.target.clone(),
+                kind: edge.kind.clone(),
+            })
+        })
+        .collect();
+    insert_link_rows(pool, &link_rows).await
 }

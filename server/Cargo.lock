@@ -1413,6 +1413,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tracing",
  "url",
  "uuid",
  "walkdir",
@@ -1434,7 +1435,7 @@ dependencies = [
 
 [[package]]
 name = "gf-server"
-version = "0.1.0"
+version = "0.23.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1447,6 +1448,7 @@ dependencies = [
  "gf-storage",
  "hmac",
  "openidconnect",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",

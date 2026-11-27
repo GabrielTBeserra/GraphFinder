@@ -38,4 +38,14 @@ if (fs.existsSync(cargoPath)) {
   console.log(`  [OK] src-tauri/Cargo.toml updated to ${version}`);
 }
 
+// 4. Update server/crates/gf-server/Cargo.toml — the control plane reports
+// this version in /api/v1/system/update-status, so it must track releases.
+const serverCargoPath = path.resolve('server/crates/gf-server/Cargo.toml');
+if (fs.existsSync(serverCargoPath)) {
+  let cargo = fs.readFileSync(serverCargoPath, 'utf8');
+  cargo = cargo.replace(/^version\s*=\s*"[^"]*"/m, `version = "${version}"`);
+  fs.writeFileSync(serverCargoPath, cargo, 'utf8');
+  console.log(`  [OK] server/crates/gf-server/Cargo.toml updated to ${version}`);
+}
+
 console.log(`[sync-version] Version synchronization completed successfully.`);

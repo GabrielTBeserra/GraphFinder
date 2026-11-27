@@ -14,7 +14,7 @@ import {
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import type { ReleaseInfo } from '../services/updater';
-import { checkForUpdates, openExternalUrl, RELEASES_PAGE_URL } from '../services/updater';
+import { checkForUpdates, openExternalUrl, RELEASES_PAGE_URL, APP_VERSION } from '../services/updater';
 
 interface ReleaseModalProps {
   isOpen: boolean;
@@ -66,7 +66,7 @@ export const ReleaseModal: React.FC<ReleaseModalProps> = ({
     }
   }, [releaseInfo?.body]);
 
-  const currentVer = releaseInfo?.currentVersion || '0.14.0';
+  const currentVer = releaseInfo?.currentVersion || APP_VERSION;
   const latestVer = releaseInfo?.version || currentVer;
   const hasUpdate = releaseInfo?.hasUpdate ?? false;
 
