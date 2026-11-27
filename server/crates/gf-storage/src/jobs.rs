@@ -122,7 +122,7 @@ pub async fn complete_index_job(pool: &PgPool, id: Uuid, generation: i64) -> Sto
     let rows = sqlx::query(
         r#"
         UPDATE index_jobs
-        SET status='succeeded', generation=$2, progress_percent=100, current_stage='completed', finished_at=now(), updated_at=now(), error=NULL
+        SET status='succeeded', generation=$2, progress_percent=100, current_stage='completed', finished_at=now(), updated_at=now(), error=NULL, error_details='{}'::jsonb
         WHERE id=$1 AND status='running'
         "#,
     )
@@ -134,12 +134,18 @@ pub async fn complete_index_job(pool: &PgPool, id: Uuid, generation: i64) -> Sto
     Ok(rows > 0)
 }
 
-pub async fn fail_index_job(pool: &PgPool, id: Uuid, error: &str) -> StorageResult<bool> {
+pub async fn fail_index_job(
+    pool: &PgPool,
+    id: Uuid,
+    error: &str,
+    error_details: &Value,
+) -> StorageResult<bool> {
     let rows = sqlx::query(
         r#"
         UPDATE index_jobs
         SET status = CASE WHEN attempts < max_attempts THEN 'queued' ELSE 'failed' END,
             error = $2,
+            error_details = $3,
             run_at = CASE WHEN attempts < max_attempts
                 THEN now() + make_interval(secs => attempts * attempts * 30)
                 ELSE run_at END,
@@ -150,6 +156,7 @@ pub async fn fail_index_job(pool: &PgPool, id: Uuid, error: &str) -> StorageResu
     )
     .bind(id)
     .bind(error)
+    .bind(error_details)
     .execute(pool)
     .await?
     .rows_affected();

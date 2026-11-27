@@ -193,6 +193,28 @@ export function rollbackIndexGeneration(token: string, projectId: string, genera
   }, token);
 }
 
+export type IndexJobErrorDetails = {
+  category?: string;
+  summary?: string;
+  auth?: {
+    configured?: boolean;
+    username?: string | null;
+    token_type?: string | null;
+    token_had_surrounding_whitespace?: boolean;
+  };
+  target?: {
+    host?: string | null;
+    repository?: string | null;
+  };
+  likely_causes?: string[];
+  recommended_actions?: string[];
+  technical?: {
+    command?: string;
+    status?: string;
+    stderr?: string;
+  };
+};
+
 export type IndexJob = {
   id: string;
   project_id: string;
@@ -203,6 +225,7 @@ export type IndexJob = {
   attempts: number;
   max_attempts: number;
   error?: string | null;
+  error_details?: IndexJobErrorDetails | null;
   progress_percent: number;
   current_stage?: string | null;
   created_at: string;
