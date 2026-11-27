@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-27
+
+### Added
+* **Server release awareness**: update-status endpoint with server-side GitHub release caching, admin release center, version chip and update notifications across the control panel and desktop client.
+* **Project graph analytics**: document graph endpoint backed by the shared graph-resolution engine, relative import normalization, extension/index inference, wikilink resolution, LPA community detection, God Node analysis, cycle detection and architectural relationship inspection.
+* **Admin graph explorer**: interactive project graph workspace with cached immutable-generation responses and large-graph navigation.
+* **Persistent link metadata**: indexing now records document links for graph reconstruction and dependency analysis.
+
+### Changed
+* **Coolify deployment compatibility**: the Caddy reverse proxy is built as a thin image with the configuration baked in, avoiding bind-mounted file paths that Coolify cannot preserve.
+* **Git provider credential handling**: GitHub PAT providers now default to the `oauth2` username, existing fine-grained PATs stored with `x-access-token` are normalized at runtime, and pasted tokens are trimmed before use/storage.
+
+### Fixed
+* **Misleading private Git indexing errors**: git clone/fetch failures are now classified as authorization, authentication, repository visibility, missing branch, network or generic command failures, with likely causes and corrective actions persisted in `index_jobs.error_details` and rendered in the admin panel.
+* **GitHub 403 explanation**: the admin panel now explains that `Write access to repository not granted` is often a read-authorization/token-scope mismatch during cloning, not a requirement to grant write access.
+* **Admin graph canvas growth loop**: the graph canvas no longer expands its wrapper indefinitely or pushes the rendered graph out of view.
+
+### Security
+* Structured git diagnostics include credential context such as configuration state and token type, but never expose token values or secrets.
+
 ## [0.23.0] - 2026-11-27
 
 ### Added
