@@ -387,22 +387,16 @@ function ProjectsManager({ session, projects, setProjects, status }: {
   status: string;
 }) {
   const [selectedId, setSelectedId] = useState('');
-  const [sources, setSources] = useState<Source[]>([]);
   const [projectForm, setProjectForm] = useState({ slug: '', name: '', description: '' });
-  const [sourceForm, setSourceForm] = useState({ uri: '', branch: 'main', include: '', exclude: '' });
   const [editName, setEditName] = useState('');
   const [message, setMessage] = useState('');
   const selected = projects.find((project) => project.id === selectedId) ?? projects[0];
 
   useEffect(() => {
-    if (!selected) {
-      setSources([]);
-      return;
-    }
+    if (!selected) return;
     setSelectedId(selected.id);
     setEditName(selected.name);
-    listSources(session.token, selected.id).then(setSources).catch(() => setSources([]));
-  }, [session.token, selected?.id]);
+  }, [selected?.id, selected?.name]);
 
   async function refreshProjects() {
     const items = await listProjects(session.token);
@@ -439,32 +433,6 @@ function ProjectsManager({ session, projects, setProjects, status }: {
     }
   }
 
-  async function submitSource(event: FormEvent) {
-    event.preventDefault();
-    if (!selected) return;
-    const split = (value: string) => value.split('\n').map((item) => item.trim()).filter(Boolean);
-    try {
-      await createSource(session.token, selected.id, {
-        kind: 'git',
-        uri: sourceForm.uri,
-        branch: sourceForm.branch || null,
-        include_patterns: split(sourceForm.include),
-        exclude_patterns: split(sourceForm.exclude),
-      });
-      setSourceForm({ uri: '', branch: 'main', include: '', exclude: '' });
-      setSources(await listSources(session.token, selected.id));
-      setMessage('source created');
-    } catch {
-      setMessage('source creation failed');
-    }
-  }
-
-  async function removeSource(id: string) {
-    if (!selected) return;
-    await deleteSource(session.token, id).catch(() => undefined);
-    setSources(await listSources(session.token, selected.id).catch(() => []));
-  }
-
   return (
     <div className="management-grid">
       <section>
@@ -494,32 +462,104 @@ function ProjectsManager({ session, projects, setProjects, status }: {
               <input value={editName} onChange={(e) => setEditName(e.target.value)} />
               <button>Save name</button>
             </form>
-            <div className="source-block">
-              <h3>Git sources</h3>
-              {sources.map((source) => (
-                <article className="source-row" key={source.id}>
-                  <div>
-                    <strong>{source.uri}</strong>
-                    <span>branch {source.branch ?? 'default'} · {source.indexing_status} · commit {source.last_indexed_commit ? source.last_indexed_commit.slice(0, 10) : 'not indexed'} · include {source.include_patterns.length} · exclude {source.exclude_patterns.length}</span>
-                  </div>
-                  <button className="danger-button" onClick={() => removeSource(source.id)}>Remove</button>
-                </article>
-              ))}
-              {sources.length === 0 && <p className="empty-state">No git sources configured.</p>}
+            <div className="project-fact-grid">
+              <div><span>Slug</span><strong>{selected.slug}</strong></div>
+              <div><span>Active generation</span><strong>{selected.active_generation}</strong></div>
+              <div><span>Created</span><strong>{formatCompactDate(selected.created_at)}</strong></div>
+              <div><span>Updated</span><strong>{formatCompactDate(selected.updated_at)}</strong></div>
             </div>
-            <form className="inline-form" onSubmit={submitSource}>
-              <h3>Add source</h3>
-              <input placeholder="https://github.com/org/repo.git" value={sourceForm.uri} onChange={(e) => setSourceForm({ ...sourceForm, uri: e.target.value })} required />
-              <input placeholder="branch" value={sourceForm.branch} onChange={(e) => setSourceForm({ ...sourceForm, branch: e.target.value })} />
-              <textarea placeholder="include patterns, one per line" value={sourceForm.include} onChange={(e) => setSourceForm({ ...sourceForm, include: e.target.value })} />
-              <textarea placeholder="exclude patterns, one per line" value={sourceForm.exclude} onChange={(e) => setSourceForm({ ...sourceForm, exclude: e.target.value })} />
-              <button>Add git source</button>
-            </form>
+            <p className="workspace-note">Git repositories and include/exclude rules are managed in the Sources workspace.</p>
           </>
-        ) : <p className="empty-state">Create a project to configure sources.</p>}
+        ) : <p className="empty-state">Create a project to start organizing indexed knowledge.</p>}
         {message && <p className="operation-message">{message}</p>}
       </section>
     </div>
+  );
+}
+
+
+function SourcesManager({ session, projects }: { session: Session; projects: Project[] }) {
+  const [projectId, setProjectId] = useState('');
+  const [sources, setSources] = useState<Source[]>([]);
+  const [sourceForm, setSourceForm] = useState({ uri: '', branch: 'main', include: '', exclude: '' });
+  const [message, setMessage] = useState('');
+  const project = projects.find((item) => item.id === projectId) ?? projects[0];
+
+  useEffect(() => {
+    if (!project) {
+      setSources([]);
+      return;
+    }
+    setProjectId(project.id);
+    listSources(session.token, project.id).then(setSources).catch(() => setSources([]));
+  }, [session.token, project?.id]);
+
+  async function submitSource(event: FormEvent) {
+    event.preventDefault();
+    if (!project) return;
+    const split = (value: string) => value.split('\n').map((item) => item.trim()).filter(Boolean);
+    try {
+      await createSource(session.token, project.id, {
+        kind: 'git',
+        uri: sourceForm.uri,
+        branch: sourceForm.branch || null,
+        include_patterns: split(sourceForm.include),
+        exclude_patterns: split(sourceForm.exclude),
+      });
+      setSourceForm({ uri: '', branch: 'main', include: '', exclude: '' });
+      setSources(await listSources(session.token, project.id));
+      setMessage('source created');
+    } catch {
+      setMessage('source creation failed');
+    }
+  }
+
+  async function removeSource(id: string) {
+    if (!project) return;
+    await deleteSource(session.token, id).catch(() => undefined);
+    setSources(await listSources(session.token, project.id).catch(() => []));
+  }
+
+  if (!project) return <p className="empty-state">Create a project before configuring git sources.</p>;
+
+  return (
+    <section>
+      <div className="panel-heading">
+        <h2>Git sources · {project.slug}</h2>
+        <span>{sources.length} configured</span>
+      </div>
+      <div className="source-toolbar">
+        <select value={project.id} onChange={(event) => setProjectId(event.target.value)}>
+          {projects.map((item) => <option key={item.id} value={item.id}>{item.slug}</option>)}
+        </select>
+      </div>
+      <div className="source-manager-grid">
+        <section>
+          <h3 className="section-label">Configured sources</h3>
+          {sources.map((source) => (
+            <article className="source-row" key={source.id}>
+              <div>
+                <strong>{source.uri}</strong>
+                <span>branch {source.branch ?? 'default'} · {source.indexing_status} · commit {source.last_indexed_commit ? source.last_indexed_commit.slice(0, 10) : 'not indexed'} · include {source.include_patterns.length} · exclude {source.exclude_patterns.length}</span>
+              </div>
+              <button className="danger-button" onClick={() => removeSource(source.id)}>Remove</button>
+            </article>
+          ))}
+          {sources.length === 0 && <p className="empty-state">No git sources configured for this project.</p>}
+        </section>
+        <section>
+          <form className="inline-form source-form" onSubmit={submitSource}>
+            <h3>Add git source</h3>
+            <input placeholder="https://github.com/org/repo.git" value={sourceForm.uri} onChange={(e) => setSourceForm({ ...sourceForm, uri: e.target.value })} required />
+            <input placeholder="branch" value={sourceForm.branch} onChange={(e) => setSourceForm({ ...sourceForm, branch: e.target.value })} />
+            <textarea placeholder="include patterns, one per line" value={sourceForm.include} onChange={(e) => setSourceForm({ ...sourceForm, include: e.target.value })} />
+            <textarea placeholder="exclude patterns, one per line" value={sourceForm.exclude} onChange={(e) => setSourceForm({ ...sourceForm, exclude: e.target.value })} />
+            <button>Add git source</button>
+          </form>
+          {message && <p className="operation-message">{message}</p>}
+        </section>
+      </div>
+    </section>
   );
 }
 
@@ -1028,8 +1068,10 @@ function App() {
             <JobsManager session={session} projects={projects} setProjects={setProjects} />
           ) : active === 'Overview' ? (
             <OverviewDashboard session={session} projects={projects} status={status} />
-          ) : active === 'Projects' || active === 'Sources' ? (
+          ) : active === 'Projects' ? (
             <ProjectsManager session={session} projects={projects} setProjects={setProjects} status={status} />
+          ) : active === 'Sources' ? (
+            <SourcesManager session={session} projects={projects} />
           ) : (
             <div className="empty-state large">{active} module scaffolded. Data wiring arrives in the next implementation step.</div>
           )}
