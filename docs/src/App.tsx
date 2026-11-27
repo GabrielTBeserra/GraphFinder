@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { enhanceStaticDom, startGraphCanvas } from './effects';
-import { clientSections as enClientSections, serverSections as enServerSections } from './content/en';
-import { clientSections as ptClientSections, serverSections as ptServerSections } from './content/pt';
+import HtmlContent from './components/HtmlContent';
+import ServerManual, { serverToc } from './components/ServerManual';
+import { usePageInteractions } from './hooks/usePageInteractions';
+import clsx from 'clsx';
+import { clientSections as enClientSections } from './content/en';
+import { clientSections as ptClientSections } from './content/pt';
 import enHero from './content/en/hero';
 import enFeatures from './content/en/features';
 import enCta from './content/en/cta';
@@ -109,7 +112,7 @@ function initialLanguage(): Language {
 function trackFromHash(serverIds: string[]): Track {
   const hash = window.location.hash.replace(/^#/, '');
   if (hash === 'changelog' || hash === 'releases') return 'releases';
-  if (serverIds.includes(hash)) return 'server';
+  if (hash === 'server' || serverIds.includes(hash)) return 'server';
   return 'client';
 }
 
@@ -143,10 +146,10 @@ function ReleasesManual({ language }: { language: Language }) {
               </div>
               {release.sections.map((section, sectionIndex) => (
                 <div className="release-section" key={`${release.tag}-${sectionIndex}`}>
-                  <h4 dangerouslySetInnerHTML={{ __html: section.heading }} />
+                  <h4><HtmlContent html={section.heading} copyLabel={copy[language].copy} copiedLabel={copy[language].copied} /></h4>
                   <ul>
                     {section.items.map((item, itemIndex) => (
-                      <li key={`${release.tag}-${sectionIndex}-${itemIndex}`} dangerouslySetInnerHTML={{ __html: item }} />
+                      <li key={`${release.tag}-${sectionIndex}-${itemIndex}`}><HtmlContent html={item} copyLabel={copy[language].copy} copiedLabel={copy[language].copied} /></li>
                     ))}
                   </ul>
                 </div>
@@ -162,9 +165,12 @@ function ReleasesManual({ language }: { language: Language }) {
 function App() {
   const [language, setLanguage] = useState<Language>(initialLanguage);
   const content = language === 'pt'
-    ? { client: ptClientSections, server: ptServerSections, hero: ptHero, features: ptFeatures, cta: ptCta }
-    : { client: enClientSections, server: enServerSections, hero: enHero, features: enFeatures, cta: enCta };
-  const [track, setTrack] = useState<Track>(() => trackFromHash(content.server.map((section) => section.id)));
+    ? { client: ptClientSections, hero: ptHero, features: ptFeatures, cta: ptCta }
+    : { client: enClientSections, hero: enHero, features: enFeatures, cta: enCta };
+  const [track, setTrack] = useState<Track>(() => trackFromHash(serverToc(language).map((section) => section.id)));
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [showTop, setShowTop] = useState(false);
   const t = copy[language];
   const latestVersion = releaseData.latestVersion;
 
@@ -180,10 +186,32 @@ function App() {
   }, [language, t.pageTitle, t.pageDescription]);
 
   useEffect(() => {
-    const onHashChange = () => setTrack(trackFromHash(content.server.map((section) => section.id)));
+    const onHashChange = () => setTrack(trackFromHash(serverToc(language).map((section) => section.id)));
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
-  }, [content.server]);
+  }, [language]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      setScrolled(window.scrollY > 12);
+      setShowTop(window.scrollY > 900);
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle('menu-open', menuOpen);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.classList.remove('menu-open');
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     const id = window.location.hash.replace(/^#/, '');
@@ -194,14 +222,14 @@ function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [language, track]);
 
-  useEffect(() => startGraphCanvas(), [language]);
-  useEffect(() => enhanceStaticDom(t.copy, t.copied), [language, track, t.copy, t.copied]);
+  usePageInteractions(`${language}:${track}`);
 
-  const activeSections = track === 'server' ? content.server : content.client;
   const tocSections = track === 'releases'
     ? [{ id: 'changelog', label: t.changelog }]
-    : activeSections.map(({ id, label }) => ({ id, label }));
-  const manualHtml = useMemo(() => activeSections.map((section) => section.html).join('\n\n'), [activeSections]);
+    : track === 'server'
+      ? serverToc(language)
+      : content.client.map(({ id, label }) => ({ id, label }));
+  const clientManualHtml = useMemo(() => content.client.map((section) => section.html).join(String.fromCharCode(10, 10)), [content.client]);
   const heroHtml = useMemo(() => withVersion(content.hero, latestVersion), [content.hero, latestVersion]);
   const featuresHtml = useMemo(() => withVersion(content.features, latestVersion), [content.features, latestVersion]);
   const ctaHtml = useMemo(() => withVersion(content.cta, latestVersion), [content.cta, latestVersion]);
@@ -213,20 +241,20 @@ function App() {
 
   function selectTrack(next: Track) {
     setTrack(next);
-    const hash = next === 'server' ? 'server' : next === 'releases' ? 'changelog' : 'overview';
+    const hash = next === 'server' ? 'server-overview' : next === 'releases' ? 'changelog' : 'overview';
     window.history.replaceState(null, '', `${window.location.search}#${hash}`);
     document.getElementById('docs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   return (
     <>
-      <header className="nav">
+      <header className={clsx('nav', scrolled && 'scrolled')}>
         <div className="container nav-inner">
           <a className="brand" href="#top" aria-label={t.home}>
             <img src="/assets/logo.svg" alt="" width="28" height="28" />
             GraphFinder <span className="ver" data-version>{latestVersion}</span>
           </a>
-          <nav className="nav-links" id="nav-links" aria-label={t.primary}>
+          <nav className={clsx('nav-links', menuOpen && 'open')} id="nav-links" aria-label={t.primary} onClick={() => setMenuOpen(false)}>
             <a href="#features">{t.features}</a>
             <a href="#docs">{t.docs}</a>
             <a href="#cli">{t.cli}</a>
@@ -242,7 +270,7 @@ function App() {
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a10.9 10.9 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.83 1.18 3.09 0 4.41-2.7 5.38-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
               <span className="gh-label">GitHub</span>
             </a>
-            <button className="icon-btn menu-toggle" id="menu-toggle" aria-label={t.openMenu} aria-expanded="false" aria-controls="nav-links">
+            <button className="icon-btn menu-toggle" id="menu-toggle" aria-label={t.openMenu} aria-expanded={menuOpen} aria-controls="nav-links" onClick={() => setMenuOpen((open) => !open)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
             </button>
           </div>
@@ -250,8 +278,8 @@ function App() {
       </header>
 
       <main id="top">
-        <div dangerouslySetInnerHTML={{ __html: heroHtml }} />
-        <div dangerouslySetInnerHTML={{ __html: featuresHtml }} />
+        <HtmlContent html={heroHtml} copyLabel={t.copy} copiedLabel={t.copied} />
+        <HtmlContent html={featuresHtml} copyLabel={t.copy} copiedLabel={t.copied} />
 
         <section className="block" id="docs" aria-labelledby="docs-title" style={{ paddingTop: 40 }}>
           <div className="container">
@@ -283,14 +311,16 @@ function App() {
 
               {track === 'releases' ? (
                 <article className="doc"><ReleasesManual language={language} /></article>
+              ) : track === 'server' ? (
+                <article className="doc"><ServerManual language={language} /></article>
               ) : (
-                <article className="doc" dangerouslySetInnerHTML={{ __html: manualHtml }} />
+                <article className="doc"><HtmlContent html={clientManualHtml} copyLabel={t.copy} copiedLabel={t.copied} /></article>
               )}
             </div>
           </div>
         </section>
 
-        <div dangerouslySetInnerHTML={{ __html: ctaHtml }} />
+        <HtmlContent html={ctaHtml} copyLabel={t.copy} copiedLabel={t.copied} />
       </main>
 
       <footer>
@@ -307,7 +337,7 @@ function App() {
         </div>
       </footer>
 
-      <button className="to-top" aria-label={t.backToTop}>
+      <button className={clsx('to-top', showTop && 'show')} aria-label={t.backToTop} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
       </button>
     </>

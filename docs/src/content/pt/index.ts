@@ -16,7 +16,6 @@ import client14 from './client/architecture';
 import client15 from './client/security';
 import client16 from './client/development';
 import client17 from './client/faq';
-import server0 from './server/server';
 
 export type ManualSection = { id: string; label: string; html: string };
 
@@ -39,8 +38,4 @@ export const clientSections: ManualSection[] = [
   { id: 'security', label: "Segurança", html: client15 },
   { id: 'development', label: "Desenvolvimento", html: client16 },
   { id: 'faq', label: "Problemas e FAQ", html: client17 },
-];
-
-export const serverSections: ManualSection[] = [
-  { id: 'server', label: "Servidor privado", html: server0 },
 ];
